@@ -26,6 +26,7 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -62,6 +63,7 @@ public class HomeActivity extends Activity implements Picker.Host {
     private FrameLayout content;
     private View listScreen;
     private View settingsScreen;
+    private SettingsScreen settingsPage;
     private ListView list;
     private VoxAdapter adapter;
     private EditText searchInput;
@@ -164,7 +166,8 @@ public class HomeActivity extends Activity implements Picker.Host {
         root.addView(content, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         listScreen = buildListScreen();
-        settingsScreen = buildSettingsPlaceholder();
+        settingsPage = new SettingsScreen(this, settings, storage, settingsHost);
+        settingsScreen = settingsPage.view();
         content.addView(listScreen);
         content.addView(settingsScreen);
         settingsScreen.setVisibility(View.GONE);
@@ -199,6 +202,10 @@ public class HomeActivity extends Activity implements Picker.Host {
         tab = name;
         listScreen.setVisibility("record".equals(name) ? View.VISIBLE : View.GONE);
         settingsScreen.setVisibility("settings".equals(name) ? View.VISIBLE : View.GONE);
+        if ("settings".equals(name)) {
+            settingsPage.refresh();
+            settingsPage.refreshSources(data.sourceInfoBlocking());
+        }
         setTabActive(name);
     }
 
@@ -368,16 +375,80 @@ public class HomeActivity extends Activity implements Picker.Host {
         return wrap;
     }
 
-    private View buildSettingsPlaceholder() {
-        LinearLayout wrap = Ui.col(this);
-        wrap.setBackgroundColor(Ui.BG);
-        Ui.pad(wrap, 16, 24, 16, 24);
-        wrap.addView(Ui.text(this, "设置页即将接入", 12.5f, Ui.DIM));
-        wrap.addView(Ui.text(this, "分类 / 按键 / 转写 API / 存储位置 / 外部来源",
-                10.5f, Ui.FAINT), Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 6, 0, 0));
-        return wrap;
-    }
+    private final SettingsScreen.Host settingsHost = new SettingsScreen.Host() {
+        public void onSettingsChanged() {
+            adapter.notifyDataSetChanged();
+            rebuildFilters();
+        }
+
+        public void onCategoryDeleted(String catId) {
+            data.clearCat(catId, new DataCenter.DoneCallback() {
+                public void onDone() {
+                    load(false, null, false);
+                }
+            });
+        }
+
+        public void onStorageChanged() {
+            load(false, null, false);
+        }
+
+        public void onPickSaf() {
+            pickSafDir();
+        }
+
+        public void onClearSaf() {
+            storage.clearSaf();
+            storage.setMode(Storage.MODE_PUBLIC);
+            settings.save();
+            settingsPage.refresh();
+            load(false, null, false);
+            toast("已清除自定义目录");
+        }
+
+        public void onRequestStoragePerms() {
+            askPerms();
+        }
+
+        public void onScanSource(final String id) {
+            toast("正在扫描来源…");
+            data.load(true, id, new DataCenter.LoadCallback() {
+                public void onLoaded(DataCenter.Result r) {
+                    applyResult(r, true, 0, 0, false);
+                    settingsPage.refreshSources(data.sourceInfoBlocking());
+                    String msg = "已导入";
+                    JSONArray arr = r.sources;
+                    for (int i = 0; i < arr.length(); i++) {
+                        JSONObject o = arr.optJSONObject(i);
+                        if (o != null && id.equals(o.optString("id", ""))) {
+                            msg = "已导入 " + o.optInt("sessions", 0) + " 场 / "
+                                    + o.optInt("sentences", 0) + " 句";
+                        }
+                    }
+                    toast(msg);
+                }
+            });
+        }
+
+        public void onResetDefaults() {
+            settings.resetDefaults();
+            filterCat = "all";
+            searchQ = "";
+            searchInput.setText("");
+            adapter.notifyDataSetChanged();
+            rebuildFilters();
+            settingsPage.refresh();
+            toast("已恢复默认设置");
+        }
+
+        public void onBeginKeyCapture() {
+            capturingKey = true;
+            settingsPage.setCapturing(true);
+            toast("请按一个键（返回键取消）");
+        }
+    };
+
+    private boolean capturingKey;
 
     // ------------------------------------------------------------ 数据
 
@@ -763,7 +834,78 @@ public class HomeActivity extends Activity implements Picker.Host {
     }
 
     @Override
+    public boolean onKeyDown(int keyCode, android.view.KeyEvent event) {
+        if (capturingKey) {
+            if (keyCode == android.view.KeyEvent.KEYCODE_BACK) {
+                capturingKey = false;
+                settingsPage.setCapturing(false);
+                return true;
+            }
+            String key = keyId(keyCode);
+            String label = keyLabel(keyCode);
+            settingsPage.onKeyCaptured(key, label);
+            capturingKey = false;
+            toast("已绑定：" + label);
+            return true;
+        }
+        if (detail != null && detail.isOpen() && matchesMarkKey(keyCode) && detail.triggerMark()) {
+            return true;
+        }
+        if (!isTextFocused() && matchesRecordKey(keyCode)) {
+            toggleRecording();
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    private boolean isTextFocused() {
+        View v = getCurrentFocus();
+        return v instanceof EditText;
+    }
+
+    private static String keyId(int keyCode) {
+        if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) return "AudioVolumeUp";
+        if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) return "AudioVolumeDown";
+        if (keyCode == android.view.KeyEvent.KEYCODE_ENTER) return "Enter";
+        if (keyCode == android.view.KeyEvent.KEYCODE_SPACE) return " ";
+        return android.view.KeyEvent.keyCodeToString(keyCode);
+    }
+
+    private static String keyLabel(int keyCode) {
+        String id = keyId(keyCode);
+        if ("AudioVolumeUp".equals(id)) return "音量上";
+        if ("AudioVolumeDown".equals(id)) return "音量下";
+        if ("Enter".equals(id)) return "回车";
+        if (" ".equals(id)) return "空格";
+        if ("KEYCODE_BACK".equals(id)) return "返回";
+        return id.startsWith("KEYCODE_") ? id.substring(8) : id;
+    }
+
+    private boolean matchesMarkKey(int keyCode) {
+        String k = settings.markKey;
+        if (k == null || k.length() == 0) return false;
+        return k.equals(keyId(keyCode));
+    }
+
+    private boolean matchesRecordKey(int keyCode) {
+        String mode = settings.keyMode;
+        if (mode == null) return false;
+        if ("audio_up".equals(mode)) return keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP;
+        if ("audio_down".equals(mode)) return keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN;
+        if ("custom".equals(mode)) {
+            return settings.keyBindingKey != null && settings.keyBindingKey.length() > 0
+                    && settings.keyBindingKey.equals(keyId(keyCode));
+        }
+        return false;
+    }
+
+    @Override
     public void onBackPressed() {
+        if (capturingKey) {
+            capturingKey = false;
+            settingsPage.setCapturing(false);
+            return;
+        }
         if (!overlays.isEmpty()) {
             Overlay o = overlays.get(overlays.size() - 1);
             if (o != null && o.isOpen()) {

@@ -154,6 +154,24 @@ public class DataCenter {
         });
     }
 
+    /** 删掉一个分类后，把所有挂在该分类下的记录清成未分类（一次落盘）。 */
+    public void clearCat(final String catId, final DoneCallback done) {
+        io.execute(new Runnable() {
+            public void run() {
+                try {
+                    state.clearCat(catId);
+                } catch (Throwable ignore) { }
+                if (done != null) {
+                    ui.post(new Runnable() {
+                        public void run() {
+                            done.onDone();
+                        }
+                    });
+                }
+            }
+        });
+    }
+
     private static final Comparator<RecordVm> BY_START = new Comparator<RecordVm>() {
         public int compare(RecordVm a, RecordVm b) {
             if (a.startMs != b.startMs) return a.startMs > b.startMs ? -1 : 1;

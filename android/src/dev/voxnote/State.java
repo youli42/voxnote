@@ -96,6 +96,28 @@ public class State {
         }
     }
 
+    /** 删除分类时把挂在它下面的记录一并清成未分类，避免留下悬空 id。 */
+    public synchronized void clearCat(String catId) {
+        if (catId == null || catId.length() == 0) return;
+        try {
+            JSONArray keys = root.names();
+            if (keys == null) return;
+            boolean changed = false;
+            for (int i = 0; i < keys.length(); i++) {
+                JSONObject o = root.optJSONObject(keys.optString(i));
+                if (o == null) continue;
+                if (catId.equals(o.optString("cat", ""))) {
+                    o.put("cat", JSONObject.NULL);
+                    changed = true;
+                }
+            }
+            if (changed) {
+                dirty = true;
+                save();
+            }
+        } catch (Throwable ignore) { }
+    }
+
     public synchronized void save() {
         if (!dirty && file.exists()) return;
         FileOutputStream fos = null;

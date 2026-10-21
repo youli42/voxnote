@@ -339,6 +339,13 @@ public class DetailSheet implements Overlay {
         return vm == null ? null : vm.id;
     }
 
+    /** 硬件标记键：详情打开且正在播放时返回 true，由 Activity 吃掉按键。 */
+    public boolean triggerMark() {
+        if (!open || !playerOpened || !player.playing()) return false;
+        addMark();
+        return true;
+    }
+
     public void open(RecordVm vm) {
         if (this.vm != null && !this.vm.id.equals(vm.id)) {
             ui.removeCallbacks(patchTitle);

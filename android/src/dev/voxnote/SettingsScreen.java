@@ -1,0 +1,830 @@
+package dev.voxnote;
+
+import android.app.Activity;
+import android.graphics.Typeface;
+import android.text.Editable;
+import android.text.InputType;
+import android.text.TextWatcher;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.Locale;
+
+/**
+ * 原生设置页。与旧 H5 的 view-settings 一一对应：
+ * 分类（左右滑目标 / 改名 / 删除 / 新增）、按键、转写 API、存储位置（三态 + SAF）、
+ * 录音开关、外部来源、关于。
+ *
+ * 所有改动即时落 UiSettings（SharedPreferences），需要重扫/重画时回调 HomeActivity。
+ */
+public class SettingsScreen {
+
+    public interface Host {
+        void onSettingsChanged();
+
+        void onCategoryDeleted(String catId);
+
+        void onStorageChanged();
+
+        void onPickSaf();
+
+        void onClearSaf();
+
+        void onRequestStoragePerms();
+
+        void onScanSource(String id);
+
+        void onResetDefaults();
+
+        void onBeginKeyCapture();
+    }
+
+    private final Activity act;
+    private final UiSettings s;
+    private final Storage storage;
+    private final Host host;
+
+    private final ScrollView root;
+    private final LinearLayout content;
+    private final LinearLayout catGroup;
+    private final LinearLayout keyGroup;
+    private final LinearLayout storageGroup;
+    private final LinearLayout sourcesGroup;
+    private final LinearLayout sourcesList;
+    private TextView keyCaptureBtn;
+    private final View keyCaptureRow;
+    private final TextView keyConflict;
+    private final TextView rightCatValue;
+    private final TextView leftCatValue;
+    private final TextView storageTarget;
+    private final TextView dateDirValue;
+    private final TextView safLabel;
+    private final LinearLayout safRow;
+    private final LinearLayout publicSubRow;
+    private final LinearLayout permRow;
+    private final TextView versionValue;
+
+    private boolean capturing;
+
+    public SettingsScreen(Activity act, UiSettings s, Storage storage, Host host) {
+        this.act = act;
+        this.s = s;
+        this.storage = storage;
+        this.host = host;
+
+        root = new ScrollView(act);
+        root.setBackgroundColor(Ui.BG);
+        root.setVerticalScrollBarEnabled(false);
+        root.setFillViewport(true);
+        content = Ui.col(act);
+        Ui.pad(content, 10, 10, 10, 24);
+        root.addView(content, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // ---------------- 分类
+        catGroup = Ui.group(act, "分类");
+        rightCatValue = valueButton();
+        leftCatValue = valueButton();
+        catGroup.addView(selectorRow("右滑分类", rightCatValue, new Runnable() {
+            public void run() {
+                pickCategory(0);
+            }
+        }));
+        catGroup.addView(Ui.divider(act));
+        catGroup.addView(selectorRow("左滑分类", leftCatValue, new Runnable() {
+            public void run() {
+                pickCategory(1);
+            }
+        }));
+        catGroup.addView(Ui.divider(act));
+        catGroup.addView(catListBox());
+        content.addView(catGroup, groupLp());
+
+        // ---------------- 按键
+        keyGroup = Ui.group(act, "按键");
+        TextView startKeyValue = valueButton();
+        keyGroup.addView(selectorRow("开始录音", startKeyValue, new Runnable() {
+            public void run() {
+                pickStartKey();
+            }
+        }));
+        keyCaptureRow = buildCaptureRow();
+        keyGroup.addView(Ui.divider(act));
+        keyGroup.addView(keyCaptureRow);
+        keyConflict = Ui.text(act, "与标记键相同：详情打开时优先用于标记", 10.5f, Ui.DANGER);
+        keyConflict.setVisibility(View.GONE);
+        keyGroup.addView(keyConflict, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 2, 0, 2, 8));
+        keyGroup.addView(Ui.divider(act));
+        TextView markKeyValue = valueButton();
+        keyGroup.addView(selectorRow("播放时标记", markKeyValue, new Runnable() {
+            public void run() {
+                pickMarkKey();
+            }
+        }));
+        this.startKeyValue = startKeyValue;
+        this.markKeyValue = markKeyValue;
+        content.addView(keyGroup, groupLp());
+
+        // ---------------- 转写 API
+        LinearLayout apiGroup = Ui.group(act, "转写 API");
+        TextView providerValue = valueButton();
+        apiGroup.addView(selectorRow("服务类型", providerValue, new Runnable() {
+            public void run() {
+                pickProvider();
+            }
+        }));
+        this.providerValue = providerValue;
+        apiGroup.addView(Ui.divider(act));
+        apiGroup.addView(inputBlock("接口地址", s.apiUrl, InputType.TYPE_TEXT_VARIATION_URI, true, new OnText() {
+            public void onText(String v) {
+                s.apiUrl = v;
+                s.save();
+            }
+        }));
+        apiGroup.addView(Ui.divider(act));
+        apiGroup.addView(inputBlock("API Key", s.apiKey,
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, false, new OnText() {
+                    public void onText(String v) {
+                        s.apiKey = v;
+                        s.save();
+                    }
+                }));
+        apiGroup.addView(Ui.divider(act));
+        LinearLayout modelRow = Ui.row(act);
+        Ui.pad(modelRow, 0, 8, 0, 8);
+        EditText model = field(s.model, false);
+        model.setHint("whisper-1");
+        model.addTextChangedListener(watcher(new OnText() {
+            public void onText(String v) {
+                s.model = v;
+                s.save();
+            }
+        }));
+        LinearLayout modelCol = Ui.col(act);
+        modelCol.addView(Ui.text(act, "模型 / 语言", 12.5f, Ui.TEXT));
+        LinearLayout modelInline = Ui.row(act);
+        modelInline.addView(model, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView langValue = valueButton();
+        modelInline.addView(langValue, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
+        modelCol.addView(modelInline, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 0));
+        modelRow.addView(modelCol, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        apiGroup.addView(modelRow);
+        this.langValue = langValue;
+        langValue.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                pickLang();
+            }
+        });
+        TextView test = Ui.button(act, "测试连接", 12.5f, false);
+        test.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                toast("连接成功 · 312ms");
+            }
+        });
+        apiGroup.addView(test, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 10));
+        content.addView(apiGroup, groupLp());
+
+        // ---------------- 存储位置
+        storageGroup = Ui.group(act, "存储位置");
+        TextView modeValue = valueButton();
+        storageGroup.addView(selectorRow("录音放在", modeValue, new Runnable() {
+            public void run() {
+                pickStorageMode();
+            }
+        }));
+        this.storageModeValue = modeValue;
+
+        publicSubRow = Ui.col(act);
+        Ui.pad(publicSubRow, 0, 8, 0, 8);
+        publicSubRow.addView(Ui.text(act, "公共子目录", 12.5f, Ui.TEXT));
+        final EditText sub = field(storage.publicSub(), true);
+        sub.setHint(Storage.DEFAULT_SUB);
+        sub.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            public void onFocusChange(View v, boolean hasFocus) {
+                if (!hasFocus) hostApplyStorage("public", sub.getText().toString().trim());
+            }
+        });
+        publicSubRow.addView(sub, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 0));
+        storageGroup.addView(Ui.divider(act));
+        storageGroup.addView(publicSubRow);
+
+        safRow = Ui.row(act);
+        Ui.pad(safRow, 0, 8, 0, 8);
+        LinearLayout safMain = Ui.col(act);
+        safMain.addView(Ui.text(act, "自定义目录", 12.5f, Ui.TEXT));
+        safLabel = Ui.text(act, "未选择", 10.5f, Ui.FAINT);
+        safLabel.setMaxLines(2);
+        safMain.addView(safLabel);
+        safRow.addView(safMain, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout safBtns = Ui.row(act);
+        TextView pick = Ui.smallButton(act, "选择");
+        pick.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                host.onPickSaf();
+            }
+        });
+        TextView clear = Ui.smallButton(act, "清除");
+        clear.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                host.onClearSaf();
+            }
+        });
+        safBtns.addView(pick);
+        safBtns.addView(clear, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
+        safRow.addView(safBtns);
+        storageGroup.addView(Ui.divider(act));
+        storageGroup.addView(safRow);
+
+        LinearLayout targetRow = Ui.col(act);
+        Ui.pad(targetRow, 0, 8, 0, 8);
+        targetRow.addView(Ui.text(act, "实际写入", 12.5f, Ui.TEXT));
+        storageTarget = Ui.text(act, "", 10.5f, Ui.FAINT);
+        storageTarget.setTextIsSelectable(true);
+        targetRow.addView(storageTarget, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 2, 0, 0));
+        storageGroup.addView(Ui.divider(act));
+        storageGroup.addView(targetRow);
+
+        permRow = Ui.row(act);
+        Ui.pad(permRow, 0, 8, 0, 8);
+        LinearLayout permMain = Ui.col(act);
+        permMain.addView(Ui.text(act, "还没有存储权限", 12.5f, Ui.TEXT));
+        permMain.addView(Ui.text(act, "此时写进应用私有目录（卸载即删）", 10.5f, Ui.FAINT));
+        permRow.addView(permMain, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView grant = Ui.smallButton(act, "授予");
+        grant.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                host.onRequestStoragePerms();
+            }
+        });
+        permRow.addView(grant);
+        storageGroup.addView(Ui.divider(act));
+        storageGroup.addView(permRow);
+
+        LinearLayout ddRow = Ui.row(act);
+        Ui.pad(ddRow, 0, 8, 0, 8);
+        ddRow.addView(Ui.text(act, "日期文件夹", 12.5f, Ui.TEXT), Ui.lp(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        dateDirValue = Ui.text(act, s == null ? "" : storage.dateDir(), 11.5f, Ui.FAINT);
+        ddRow.addView(dateDirValue);
+        storageGroup.addView(ddRow);
+        content.addView(storageGroup, groupLp());
+
+        // ---------------- 录音
+        LinearLayout recGroup = Ui.group(act, "录音");
+        recGroup.addView(toggleRow("录完自动转写", s.autoTranscribe, new ToggleListener() {
+            public void onChanged(boolean v) {
+                s.autoTranscribe = v;
+                s.save();
+            }
+        }));
+        recGroup.addView(Ui.divider(act));
+        recGroup.addView(toggleRow("列表显示摘要", s.showFirstLine, new ToggleListener() {
+            public void onChanged(boolean v) {
+                s.showFirstLine = v;
+                s.save();
+                host.onSettingsChanged();
+            }
+        }));
+        content.addView(recGroup, groupLp());
+
+        // ---------------- 外部来源
+        sourcesGroup = Ui.group(act, "外部来源");
+        sourcesList = Ui.col(act);
+        sourcesGroup.addView(sourcesList);
+        content.addView(sourcesGroup, groupLp());
+
+        // ---------------- 关于
+        LinearLayout about = Ui.group(act, "关于");
+        LinearLayout verRow = Ui.row(act);
+        Ui.pad(verRow, 0, 8, 0, 8);
+        verRow.addView(Ui.text(act, "版本", 12.5f, Ui.TEXT), Ui.lp(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        versionValue = Ui.text(act, appVersion(), 11.5f, Ui.FAINT);
+        verRow.addView(versionValue);
+        about.addView(verRow);
+        about.addView(Ui.divider(act));
+        LinearLayout dirRow = Ui.row(act);
+        Ui.pad(dirRow, 0, 8, 0, 8);
+        dirRow.addView(Ui.text(act, "数据目录", 12.5f, Ui.TEXT), Ui.lp(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView dirValue = Ui.text(act, storage.describe(), 11.5f, Ui.FAINT);
+        dirValue.setMaxWidth((int) (Ui.screenWidth() * 0.6f));
+        dirValue.setGravity(Gravity.END);
+        dirRow.addView(dirValue);
+        about.addView(dirRow);
+        TextView reset = Ui.button(act, "恢复默认设置", 12.5f, false);
+        reset.setTextColor(Ui.DANGER);
+        reset.setBackground(Ui.pressable(Ui.rounded(8, Ui.SURFACE2, Ui.DANGER_LINE, 1), 0x22FFFFFF));
+        reset.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                host.onResetDefaults();
+            }
+        });
+        about.addView(reset, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 10));
+        content.addView(about, groupLp());
+
+        refresh();
+    }
+
+    private TextView startKeyValue;
+    private TextView markKeyValue;
+    private TextView providerValue;
+    private TextView langValue;
+    private TextView storageModeValue;
+
+    public View view() {
+        return root;
+    }
+
+    // ------------------------------------------------------------ 刷新
+
+    public void refresh() {
+        rightCatValue.setText(s.catName(s.swipeRightCat));
+        leftCatValue.setText(s.catName(s.swipeLeftCat));
+        startKeyValue.setText(startKeyLabel());
+        markKeyValue.setText(markKeyLabel());
+        keyCaptureRow.setVisibility("custom".equals(s.keyMode) ? View.VISIBLE : View.GONE);
+        keyCaptureBtn.setText(s.keyBindingLabel.length() > 0 ? s.keyBindingLabel : "按下按键");
+        keyCaptureBtn.setBackground(Ui.pressable(Ui.rounded(8, Ui.SURFACE2,
+                capturing ? Ui.WHITE : Ui.LINE2, 1), 0x22FFFFFF));
+        boolean conflict = s.keyBindingKey.length() > 0
+                && s.keyBindingKey.equals(s.markKey) && !"none".equals(s.keyMode);
+        keyConflict.setVisibility(conflict ? View.VISIBLE : View.GONE);
+        providerValue.setText(providerLabel(s.provider));
+        langValue.setText(langLabel(s.lang));
+        storageModeValue.setText(storageModeLabel(storage.mode()));
+        safLabel.setText(storage.safTree().length() > 0 ? storage.safTree() : "未选择");
+        storageTarget.setText(storage.describe());
+        dateDirValue.setText(storage.dateDir());
+        publicSubRow.setVisibility(Storage.MODE_PUBLIC.equals(storage.mode()) ? View.VISIBLE : View.GONE);
+        safRow.setVisibility(Storage.MODE_SAF.equals(storage.mode()) ? View.VISIBLE : View.GONE);
+        permRow.setVisibility(storage.hasWritePermission() ? View.GONE : View.VISIBLE);
+        rebuildCats();
+    }
+
+    public void setCapturing(boolean c) {
+        capturing = c;
+        keyCaptureBtn.setText(c ? "请按键…" : (s.keyBindingLabel.length() > 0 ? s.keyBindingLabel : "按下按键"));
+        keyCaptureBtn.setBackground(Ui.pressable(Ui.rounded(8, Ui.SURFACE2,
+                c ? Ui.WHITE : Ui.LINE2, 1), 0x22FFFFFF));
+    }
+
+    public void refreshSources(JSONArray sources) {
+        sourcesList.removeAllViews();
+        boolean any = false;
+        if (sources != null) {
+            for (int i = 0; i < sources.length(); i++) {
+                JSONObject o = sources.optJSONObject(i);
+                if (o == null || !o.optBoolean("available", true)) continue;
+                any = true;
+                sourcesList.addView(sourceRow(o));
+            }
+        }
+        sourcesGroup.setVisibility(any ? View.VISIBLE : View.GONE);
+    }
+
+    private View sourceRow(final JSONObject o) {
+        LinearLayout box = Ui.col(act);
+        Ui.pad(box, 0, 8, 0, 10);
+        box.addView(Ui.text(act, o.optString("label", o.optString("id", "")), 12.5f, Ui.TEXT));
+        String dir = o.optString("dir", "");
+        if (dir.length() > 0) box.addView(Ui.text(act, dir, 10.5f, Ui.FAINT));
+        long lastRun = o.optLong("lastRunAt", 0);
+        String err = o.optString("error", "");
+        String line;
+        if (err.length() > 0) {
+            line = "⚠️ " + err;
+        } else if (lastRun > 0) {
+            line = new java.text.SimpleDateFormat("HH:mm:ss", Locale.US)
+                    .format(new java.util.Date(lastRun)) + " 扫描"
+                    + (o.optBoolean("wrote", false) ? " · 已导出" : "")
+                    + (o.optInt("new", 0) > 0 ? " · 新增 " + o.optInt("new") + " 场" : "");
+        } else {
+            line = "尚未扫描";
+        }
+        box.addView(Ui.text(act, line, 10.5f, Ui.FAINT));
+        LinearLayout foot = Ui.row(act);
+        foot.addView(Ui.text(act, o.optInt("sessions", 0) + " 场 / "
+                + o.optInt("sentences", 0) + " 句", 11.5f, Ui.FAINT),
+                Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView scan = Ui.smallButton(act, "扫描并导入");
+        scan.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                v.setEnabled(false);
+                host.onScanSource(o.optString("id", ""));
+            }
+        });
+        foot.addView(scan);
+        box.addView(foot, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 0));
+        return box;
+    }
+
+    // ------------------------------------------------------------ 分类
+
+    private View catListBox() {
+        LinearLayout box = Ui.col(act);
+        catRowsBox = box;
+        rebuildCats();
+        return box;
+    }
+
+    private LinearLayout catRowsBox;
+
+    private void rebuildCats() {
+        if (catRowsBox == null) return;
+        catRowsBox.removeAllViews();
+        for (int i = 0; i < s.categories.size(); i++) {
+            final UiSettings.Cat c = s.categories.get(i);
+            LinearLayout row = Ui.row(act);
+            Ui.pad(row, 2, 2, 2, 2);
+            View dot = new View(act);
+            dot.setBackground(Ui.rounded(3, Ui.LINE2));
+            row.addView(dot, Ui.lp(Ui.dp(6), Ui.dp(6)));
+            final EditText name = new EditText(act);
+            name.setText(c.name);
+            name.setTextColor(Ui.TEXT);
+            name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+            name.setBackground(null);
+            name.setSingleLine(true);
+            name.setPadding(Ui.dp(8), Ui.dp(4), Ui.dp(4), Ui.dp(4));
+            name.addTextChangedListener(new TextWatcher() {
+                public void beforeTextChanged(CharSequence x, int a, int b, int d) { }
+
+                public void onTextChanged(CharSequence x, int a, int b, int d) { }
+
+                public void afterTextChanged(Editable e) {
+                    String v = e.toString().trim();
+                    c.name = v.length() == 0 ? "未命名" : v;
+                    s.save();
+                    host.onSettingsChanged();
+                    rightCatValue.setText(s.catName(s.swipeRightCat));
+                    leftCatValue.setText(s.catName(s.swipeLeftCat));
+                }
+            });
+            row.addView(name, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            TextView del = Ui.text(act, "✕", 14f, Ui.FAINT);
+            del.setGravity(Gravity.CENTER);
+            Ui.pad(del, 8, 4, 8, 4);
+            del.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    deleteCategory(c.id);
+                }
+            });
+            row.addView(del);
+            catRowsBox.addView(row);
+        }
+        TextView add = Ui.button(act, "新增分类", 12.5f, false);
+        add.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                addCategory();
+            }
+        });
+        catRowsBox.addView(add, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 6, 0, 8));
+    }
+
+    private void addCategory() {
+        if (s.categories.size() >= 8) {
+            toast("最多 8 个分类");
+            return;
+        }
+        int n = 1;
+        while (hasCatName("分类" + n)) n++;
+        String id = "c" + System.currentTimeMillis();
+        s.categories.add(new UiSettings.Cat(id, "分类" + n));
+        s.save();
+        rebuildCats();
+        host.onSettingsChanged();
+    }
+
+    private boolean hasCatName(String name) {
+        for (int i = 0; i < s.categories.size(); i++) {
+            if (name.equals(s.categories.get(i).name)) return true;
+        }
+        return false;
+    }
+
+    private void deleteCategory(String id) {
+        if (s.categories.size() <= 1) {
+            toast("至少保留一个分类");
+            return;
+        }
+        s.categories.remove(s.find(id));
+        if (id.equals(s.swipeRightCat)) s.swipeRightCat = s.categories.get(0).id;
+        if (id.equals(s.swipeLeftCat)) {
+            s.swipeLeftCat = s.categories.get(Math.min(1, s.categories.size() - 1)).id;
+        }
+        s.save();
+        rebuildCats();
+        host.onSettingsChanged();
+        host.onCategoryDeleted(id);
+    }
+
+    private void pickCategory(final int which) {
+        String[] labels = new String[s.categories.size()];
+        int selected = -1;
+        String cur = which == 0 ? s.swipeRightCat : s.swipeLeftCat;
+        for (int i = 0; i < s.categories.size(); i++) {
+            labels[i] = s.categories.get(i).name;
+            if (s.categories.get(i).id.equals(cur)) selected = i;
+        }
+        Picker.show(act, pickerHost(), "选择分类", labels, selected, new Picker.OnPick() {
+            public void onPick(int index) {
+                String id = s.categories.get(index).id;
+                if (which == 0) s.swipeRightCat = id;
+                else s.swipeLeftCat = id;
+                s.save();
+                refresh();
+                host.onSettingsChanged();
+            }
+        });
+    }
+
+    // ------------------------------------------------------------ 按键
+
+    private String startKeyLabel() {
+        if ("audio_up".equals(s.keyMode)) return "音量上";
+        if ("audio_down".equals(s.keyMode)) return "音量下";
+        if ("custom".equals(s.keyMode)) return "自定义";
+        return "无";
+    }
+
+    private String markKeyLabel() {
+        String k = s.markKey;
+        if (" ".equals(k)) return "空格";
+        if ("Enter".equals(k)) return "回车";
+        if ("AudioVolumeUp".equals(k)) return "音量上";
+        if ("AudioVolumeDown".equals(k)) return "音量下";
+        return k;
+    }
+
+    private void pickStartKey() {
+        final String[] labels = {"无", "音量上", "音量下", "自定义"};
+        int selected = "audio_up".equals(s.keyMode) ? 1
+                : "audio_down".equals(s.keyMode) ? 2 : "custom".equals(s.keyMode) ? 3 : 0;
+        Picker.show(act, pickerHost(), "开始录音按键", labels, selected, new Picker.OnPick() {
+            public void onPick(int index) {
+                if (index == 0) {
+                    s.keyMode = "none";
+                    s.keyBindingKey = "";
+                    s.keyBindingLabel = "";
+                } else if (index == 1) {
+                    s.keyMode = "audio_up";
+                    s.keyBindingKey = "AudioVolumeUp";
+                    s.keyBindingLabel = "音量上";
+                } else if (index == 2) {
+                    s.keyMode = "audio_down";
+                    s.keyBindingKey = "AudioVolumeDown";
+                    s.keyBindingLabel = "音量下";
+                } else {
+                    s.keyMode = "custom";
+                    if ("AudioVolumeUp".equals(s.keyBindingKey) || "AudioVolumeDown".equals(s.keyBindingKey)) {
+                        s.keyBindingKey = "";
+                        s.keyBindingLabel = "";
+                    }
+                    host.onBeginKeyCapture();
+                }
+                s.save();
+                refresh();
+            }
+        });
+    }
+
+    private void pickMarkKey() {
+        final String[] labels = {"空格", "回车", "音量上", "音量下"};
+        final String[] values = {" ", "Enter", "AudioVolumeUp", "AudioVolumeDown"};
+        int selected = 0;
+        for (int i = 0; i < values.length; i++) if (values[i].equals(s.markKey)) selected = i;
+        Picker.show(act, pickerHost(), "播放时标记按键", labels, selected, new Picker.OnPick() {
+            public void onPick(int index) {
+                s.markKey = values[index];
+                s.save();
+                refresh();
+            }
+        });
+    }
+
+    private View buildCaptureRow() {
+        LinearLayout row = Ui.row(act);
+        Ui.pad(row, 0, 8, 0, 8);
+        row.addView(Ui.text(act, "自定义按键", 12.5f, Ui.TEXT), Ui.lp(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        keyCaptureBtn = Ui.smallButton(act, "按下按键");
+        keyCaptureBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                host.onBeginKeyCapture();
+            }
+        });
+        row.addView(keyCaptureBtn);
+        return row;
+    }
+
+    public void onKeyCaptured(String key, String label) {
+        s.keyBindingKey = key;
+        s.keyBindingLabel = label;
+        s.keyMode = "custom";
+        s.save();
+        capturing = false;
+        refresh();
+    }
+
+    // ------------------------------------------------------------ 转写 / 语言 / 存储
+
+    private String providerLabel(String p) {
+        if ("ws".equals(p)) return "WebSocket 流式";
+        if ("local".equals(p)) return "本地模型";
+        return "REST 文件";
+    }
+
+    private void pickProvider() {
+        final String[] labels = {"REST 文件", "WebSocket 流式", "本地模型"};
+        final String[] values = {"rest", "ws", "local"};
+        int selected = 0;
+        for (int i = 0; i < values.length; i++) if (values[i].equals(s.provider)) selected = i;
+        Picker.show(act, pickerHost(), "服务类型", labels, selected, new Picker.OnPick() {
+            public void onPick(int index) {
+                s.provider = values[index];
+                s.save();
+                refresh();
+            }
+        });
+    }
+
+    private String langLabel(String l) {
+        if ("en".equals(l)) return "English";
+        if ("auto".equals(l)) return "自动";
+        return "中文";
+    }
+
+    private void pickLang() {
+        final String[] labels = {"中文", "English", "自动"};
+        final String[] values = {"zh", "en", "auto"};
+        int selected = 0;
+        for (int i = 0; i < values.length; i++) if (values[i].equals(s.lang)) selected = i;
+        Picker.show(act, pickerHost(), "识别语言", labels, selected, new Picker.OnPick() {
+            public void onPick(int index) {
+                s.lang = values[index];
+                s.save();
+                refresh();
+            }
+        });
+    }
+
+    private String storageModeLabel(String m) {
+        if (Storage.MODE_SAF.equals(m)) return "自定义目录";
+        if (Storage.MODE_PRIVATE.equals(m)) return "应用私有";
+        return "公共目录";
+    }
+
+    private void pickStorageMode() {
+        final String[] labels = {"公共目录", "自定义目录", "应用私有"};
+        final String[] values = {Storage.MODE_PUBLIC, Storage.MODE_SAF, Storage.MODE_PRIVATE};
+        int selected = 0;
+        for (int i = 0; i < values.length; i++) if (values[i].equals(storage.mode())) selected = i;
+        Picker.show(act, pickerHost(), "录音放在", labels, selected, new Picker.OnPick() {
+            public void onPick(int index) {
+                hostApplyStorage(values[index], null);
+            }
+        });
+    }
+
+    private void hostApplyStorage(String mode, String sub) {
+        storage.setMode(mode);
+        if (sub != null && sub.length() > 0) storage.setPublicSub(sub);
+        s.save();
+        host.onStorageChanged();
+        refresh();
+    }
+
+    // ------------------------------------------------------------ 小工具
+
+    private interface OnText {
+        void onText(String v);
+    }
+
+    private interface ToggleListener {
+        void onChanged(boolean v);
+    }
+
+    private TextWatcher watcher(final OnText cb) {
+        return new TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+
+            public void onTextChanged(CharSequence s, int a, int b, int c) { }
+
+            public void afterTextChanged(Editable e) {
+                cb.onText(e.toString().trim());
+            }
+        };
+    }
+
+    private View inputBlock(String label, String value, int inputType, boolean mono, final OnText cb) {
+        LinearLayout box = Ui.col(act);
+        Ui.pad(box, 0, 8, 0, 8);
+        box.addView(Ui.text(act, label, 12.5f, Ui.TEXT));
+        EditText f = field(value, mono);
+        f.setInputType(inputType);
+        f.setHint(label);
+        f.addTextChangedListener(watcher(cb));
+        box.addView(f, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 0));
+        return box;
+    }
+
+    private EditText field(String value, boolean mono) {
+        EditText e = new EditText(act);
+        e.setText(value == null ? "" : value);
+        e.setTextColor(Ui.TEXT);
+        e.setTextSize(TypedValue.COMPLEX_UNIT_SP, mono ? 11.5f : 12.5f);
+        e.setBackground(Ui.rounded(8, Ui.SURFACE2, Ui.LINE, 1));
+        Ui.pad(e, 9, 7, 9, 7);
+        e.setSingleLine(true);
+        if (mono) e.setTypeface(Typeface.MONOSPACE);
+        return e;
+    }
+
+    private LinearLayout selectorRow(String label, TextView value, final Runnable click) {
+        LinearLayout row = Ui.row(act);
+        Ui.pad(row, 0, 8, 0, 8);
+        row.addView(Ui.text(act, label, 12.5f, Ui.TEXT), Ui.lp(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(value);
+        row.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                click.run();
+            }
+        });
+        return row;
+    }
+
+    private View toggleRow(String label, boolean checked, final ToggleListener cb) {
+        LinearLayout row = Ui.row(act);
+        Ui.pad(row, 0, 8, 0, 8);
+        row.addView(Ui.text(act, label, 12.5f, Ui.TEXT), Ui.lp(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        ToggleView t = new ToggleView(act);
+        t.setChecked(checked, false);
+        t.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                ToggleView tv = (ToggleView) v;
+                tv.setChecked(!tv.isChecked(), true);
+                cb.onChanged(tv.isChecked());
+            }
+        });
+        row.addView(t);
+        return row;
+    }
+
+    private TextView valueButton() {
+        TextView t = Ui.text(act, "", 11.5f, Ui.FAINT);
+        t.setSingleLine(true);
+        t.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        t.setMaxWidth(Ui.dp(200));
+        t.setBackground(Ui.pressable(Ui.rounded(7, 0x00000000, Ui.LINE, 1), 0x22FFFFFF));
+        Ui.pad(t, 8, 4, 8, 4);
+        return t;
+    }
+
+    private LinearLayout.LayoutParams groupLp() {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.bottomMargin = Ui.dp(9);
+        return p;
+    }
+
+    private String appVersion() {
+        try {
+            return "v" + act.getPackageManager().getPackageInfo(act.getPackageName(), 0).versionName;
+        } catch (Throwable t) {
+            return "v2.0";
+        }
+    }
+
+    private Picker.Host pickerHost() {
+        if (host instanceof Picker.Host) return (Picker.Host) host;
+        return null;
+    }
+
+    private void toast(String s) {
+        android.widget.Toast.makeText(act, s, android.widget.Toast.LENGTH_SHORT).show();
+    }
+}
