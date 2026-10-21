@@ -12,7 +12,7 @@
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <application
-        android:label="S1 录音"
+        android:label="voxnote"
         android:allowBackup="false"
         android:hardwareAccelerated="true"
         android:usesCleartextTraffic="true"
@@ -20,7 +20,7 @@
 
         <activity
             android:name=".MainActivity"
-            android:label="S1 录音"
+            android:label="voxnote"
             android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="adjustResize">
