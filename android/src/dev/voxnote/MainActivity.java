@@ -2,8 +2,11 @@ package dev.voxnote;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.ViewGroup;
 import android.webkit.ValueCallback;
@@ -19,14 +22,13 @@ import java.util.List;
  * 整个 App 只有一个 Activity：一个全屏 WebView 承载 assets/index.html。
  *
  * 分工：
- *   界面、手势、滚动、动画在 H5 里（就是原型那份 HTML，改成读真实数据）；
- *   文件扫描、音频播放、麦克风录音在 Java 侧，通过 window.voxnote 桥接。
- *
- * 这样设备上得到的观感与原型一致，而"读 /sdcard"这类硬需求仍然由原生完成。
+ *   界面、手势、滚动、动画在 H5 里；
+ *   文件扫描、音频播放、麦克风录音、存储目标、权限在 Java 侧，通过 window.voxnote 桥接。
  */
 public class MainActivity extends Activity {
 
     private static final int REQ_PERMS = 7;
+    private static final int REQ_TREE = 8;
 
     private WebView web;
     private Bridge bridge;
@@ -65,35 +67,63 @@ public class MainActivity extends Activity {
         askPerms();
     }
 
-    private void askPerms() {
+    /** 按系统版本申请对应权限：≤28 读写存储，29–32 读存储，33+ 读音频 + 麦克风。 */
+    public void askPerms() {
         List<String> need = new ArrayList<String>();
-        // 这台机器的 ROM 把读、写当成两条独立权限：只给 WRITE 仍然列不出 /sdcard
-        if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
-            need.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+        if (Build.VERSION.SDK_INT <= 28) {
+            addIfMissing(need, Manifest.permission.READ_EXTERNAL_STORAGE);
+            addIfMissing(need, Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        } else if (Build.VERSION.SDK_INT <= 32) {
+            addIfMissing(need, Manifest.permission.READ_EXTERNAL_STORAGE);
+        } else {
+            addIfMissing(need, "android.permission.READ_MEDIA_AUDIO");
         }
-        if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
-            need.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
-        }
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-            need.add(Manifest.permission.RECORD_AUDIO);
-        }
+        addIfMissing(need, Manifest.permission.RECORD_AUDIO);
         if (!need.isEmpty()) {
             requestPermissions(need.toArray(new String[need.size()]), REQ_PERMS);
         }
     }
 
+    private void addIfMissing(List<String> need, String perm) {
+        try {
+            if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) need.add(perm);
+        } catch (Throwable ignore) { }
+    }
+
+    /** 系统文件选择器：挑一个自定义录音目录。 */
+    public void pickSafDir() {
+        try {
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            startActivityForResult(i, REQ_TREE);
+        } catch (Throwable t) {
+            Toast.makeText(this, "打不开文件选择器", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        if (req != REQ_TREE) {
+            super.onActivityResult(req, res, data);
+            return;
+        }
+        if (res != RESULT_OK || data == null || data.getData() == null) return;
+        Uri uri = data.getData();
+        try {
+            getContentResolver().takePersistableUriPermission(uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (Throwable ignore) {
+            // 有些文件提供方不支持持久授权，当次会话仍可用
+        }
+        if (bridge != null) bridge.setSafTree(uri.toString());
+        eval("window.__onStorageChanged&&window.__onStorageChanged()");
+    }
+
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         if (code != REQ_PERMS) return;
-        boolean readable = checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
-                == PackageManager.PERMISSION_GRANTED;
-        if (!readable) {
-            Toast.makeText(this, "没有存储权限，读不到录音目录", Toast.LENGTH_LONG).show();
-        }
-        // 权限弹窗关掉后让页面重新扫一遍
         eval("window.__onResume&&window.__onResume()");
     }
 
@@ -105,7 +135,6 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        // 先让页面自己处理（详情面板 / 输入态），它返回 0 表示可以退出
         if (web == null) {
             super.onBackPressed();
             return;

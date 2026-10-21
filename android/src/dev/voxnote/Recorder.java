@@ -3,13 +3,15 @@ package dev.voxnote;
 import android.media.MediaRecorder;
 
 import java.io.File;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Locale;
 
 /**
  * 自录：MediaRecorder → 16 kHz 单声道 AAC(.m4a)。
  *
- * 落盘命名与厂商录音一致（yyyyMMdd_HHmmss_memo.m4a），这样新录的东西
- * 会被同一个扫描器当作一场普通录音读到，卡片立刻出现，不需要额外索引。
+ * 先录到应用私有临时文件，再由 Storage 决定"发布"到公共目录 / 自定义目录 / 保持私有。
+ * 这样无论存储策略怎么变，录音本身只有一条写入路径。
  * 16 kHz 单声道是后续接 ASR（云端或本地小模型）最省事的输入规格。
  */
 public class Recorder {
@@ -23,11 +25,12 @@ public class Recorder {
         synchronized (lock) { return mr != null; }
     }
 
-    public boolean start(File dir, String stamp) {
+    public boolean start(File target) {
         synchronized (lock) {
             if (mr != null) return false;
-            if (!dir.exists() && !dir.mkdirs()) return false;
-            File f = new File(dir, stamp + "_memo.m4a");
+            File f = target;
+            File dir = f.getParentFile();
+            if (dir != null && !dir.exists() && !dir.mkdirs()) return false;
             MediaRecorder m = new MediaRecorder();
             try {
                 m.setAudioSource(MediaRecorder.AudioSource.MIC);
@@ -51,8 +54,8 @@ public class Recorder {
         }
     }
 
-    /** 返回落盘路径，失败返回 null。 */
-    public String stop() {
+    /** 返回临时文件（还没发布），失败返回 null。 */
+    public File stop() {
         synchronized (lock) {
             if (mr == null) return null;
             File f = out;
@@ -70,7 +73,7 @@ public class Recorder {
                 if (f != null) f.delete();
                 return null;
             }
-            return f.getAbsolutePath();
+            return f;
         }
     }
 
@@ -93,7 +96,6 @@ public class Recorder {
     }
 
     public static String stamp() {
-        return new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
-                .format(new java.util.Date());
+        return new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
     }
 }

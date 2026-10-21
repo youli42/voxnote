@@ -118,19 +118,4 @@ public class LogMonitor {
         }
         return o;
     }
-
-    /** 卡片列表要的逐句（秒），把毫秒事实转成 UI 单位。 */
-    public static void appendSegments(Item it, Session s) {
-        if (it == null || s == null) return;
-        for (int i = 0; i < s.segments.size(); i++) {
-            Segment g = s.segments.get(i);
-            if (g.kind != Segment.FINAL) continue;
-            if (g.text == null || g.text.length() == 0) continue;
-            it.segs.add(new Item.Seg(g.startMs / 1000.0, g.endMs / 1000.0, g.text));
-        }
-    }
-
-    public static boolean exists(String path) {
-        return path != null && path.length() > 0 && new File(path).isFile();
-    }
 }

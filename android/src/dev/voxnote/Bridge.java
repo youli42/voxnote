@@ -3,16 +3,17 @@ package dev.voxnote;
 import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.webkit.JavascriptInterface;
 import android.widget.Toast;
 
-import dev.voxnote.reader.Session;
-
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -22,20 +23,19 @@ import java.util.List;
  * 异常不往外抛（WebView 桥里抛异常会让调用方静默失败），改成返回 ok/err 结构。
  *
  * 注意：这些方法运行在 WebView 的 JS 线程上，不是主线程。
- * 因此这里只做数据与 media 操作，任何 UI 动作都 post 到主线程。
  */
 public class Bridge {
 
-    public static final String VERSION = "1.4";
-    private static final String DEFAULT_RECORD_DIR = "/storage/emulated/0/s1rec/records";
+    public static final String VERSION = "2.0";
 
     private final Activity act;
     private final SharedPreferences prefs;
     private final State state;
+    private final Storage storage;
     private final Library lib;
-    private final Player player = new Player();
+    private final Player player;
     private final Recorder rec = new Recorder();
-    private final LogMonitor monitor = new LogMonitor();
+    private final List<ContentSource> sources;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     private String pendingStamp;
@@ -43,14 +43,12 @@ public class Bridge {
 
     public Bridge(Activity a) {
         act = a;
-        prefs = a.getSharedPreferences("s1rec", Context.MODE_PRIVATE);
-        state = new State().load();
-        lib = new Library(state, recordDir());
-    }
-
-    private String recordDir() {
-        String d = prefs.getString("recordDir", DEFAULT_RECORD_DIR);
-        return d == null || d.length() == 0 ? DEFAULT_RECORD_DIR : d;
+        prefs = a.getSharedPreferences("voxnote", Context.MODE_PRIVATE);
+        state = new State(a).load();
+        storage = new Storage(a);
+        lib = new Library(a, state, storage);
+        player = new Player(a);
+        sources = Plugins.create();
     }
 
     // ------------------------------------------------------------ 数据
@@ -60,41 +58,52 @@ public class Bridge {
         return VERSION;
     }
 
-    /**
-     * 全量重扫，返回 {items, stats, monitor}。
-     * 日志监控一分钟内复用上次结果，所以切回 App 的刷新不会每次都重读 3 MB 日志。
-     */
     @JavascriptInterface
     public synchronized String refresh() {
-        lib.setRecordDir(recordDir());
         try {
-            List<Session> sessions = monitor.scanIfStale();
-            lib.setLogSessions(sessions);
-            JSONObject o = lib.refresh();
-            o.put("monitor", monitor.info());
-            return o.toString();
+            return payload(false, null).toString();
         } catch (Throwable t) {
             return "{\"items\":[],\"stats\":{\"error\":\"" + esc(String.valueOf(t)) + "\"}}";
         }
     }
 
-    /** 强制跑一次转录监控（日志重扫 + 写出 sessions/），并返回新列表。 */
+    /** 强制扫某个外部来源（设置页的"扫描并导入"）。 */
     @JavascriptInterface
-    public synchronized String scanLogs() {
+    public synchronized String scanSources(String id) {
         try {
-            monitor.scan(true);
-            lib.setLogSessions(monitor.scanIfStale());
-            JSONObject o = lib.refresh();
-            o.put("monitor", monitor.info());
-            return o.toString();
+            return payload(true, id).toString();
         } catch (Throwable t) {
             return "{\"ok\":false,\"message\":\"" + esc(String.valueOf(t)) + "\"}";
         }
     }
 
-    @JavascriptInterface
-    public String monitorInfo() {
-        return monitor.info().toString();
+    private JSONObject payload(boolean forceAll, String onlyId) {
+        List<Item> imported = new ArrayList<Item>();
+        JSONArray sinfo = new JSONArray();
+        for (int i = 0; i < sources.size(); i++) {
+            ContentSource s = sources.get(i);
+            try {
+                boolean force = forceAll && (onlyId == null || onlyId.equals(s.id()));
+                List<Item> its = s.scan(force);
+                if (its != null) imported.addAll(its);
+                sinfo.put(s.info());
+            } catch (Throwable t) {
+                try {
+                    JSONObject e = new JSONObject();
+                    e.put("id", s.id());
+                    e.put("label", s.label());
+                    e.put("available", false);
+                    e.put("error", String.valueOf(t));
+                    sinfo.put(e);
+                } catch (Throwable ignore) { }
+            }
+        }
+        JSONObject o = lib.refresh(imported);
+        try {
+            o.put("sources", sinfo);
+            o.put("storage", storageInfo());
+        } catch (Throwable ignore) { }
+        return o;
     }
 
     /** 单条用户态更新：{"title":"…"} / {"cat":"c1"|null} / {"marks":[1.2,8.4]} */
@@ -108,31 +117,8 @@ public class Bridge {
         }
     }
 
-    @JavascriptInterface
-    public String setting(String key) {
-        return prefs.getString(key, "");
-    }
-
-    @JavascriptInterface
-    public void setSetting(String key, String value) {
-        prefs.edit().putString(key, value == null ? "" : value).apply();
-    }
-
-    /** JS 把整份设置推过来，原生只关心落盘目录。 */
-    @JavascriptInterface
-    public void configure(String json) {
-        try {
-            JSONObject o = new JSONObject(json);
-            String dir = o.optString("recordDir", "");
-            if (dir.length() > 0) {
-                prefs.edit().putString("recordDir", dir).apply();
-                lib.setRecordDir(dir);
-            }
-        } catch (Throwable ignore) { }
-    }
-
     /**
-     * "转文字"。本分支的简单实现 = 立刻重跑一次转录监控，看这场有没有新正文：
+     * "转文字"。当前实现 = 立刻重跑外部来源，看这场有没有新正文；
      * 真正接识别后端（自建 API / 本地小模型）时，替换的就是这里。
      */
     @JavascriptInterface
@@ -141,10 +127,7 @@ public class Bridge {
             return "{\"ok\":false,\"message\":\"未知记录\"}";
         }
         try {
-            monitor.scan(true);
-            lib.setLogSessions(monitor.scanIfStale());
-            JSONObject res = lib.refresh();
-
+            JSONObject res = payload(true, null);
             int n = 0;
             JSONArray arr = res.optJSONArray("items");
             if (arr != null) {
@@ -161,20 +144,86 @@ public class Bridge {
             out.put("ok", n > 0);
             out.put("segments", n);
             out.put("message", n > 0
-                    ? "已从日志导入 " + n + " 句"
-                    : "日志里没有这场的内容（厂商只在上传成功时写逐句）");
-            out.put("monitor", monitor.info());
+                    ? "已从外部来源导入 " + n + " 句"
+                    : "外部来源里没有这场的内容（自录的录音只有声音，没有字）");
             return out.toString();
         } catch (Throwable t) {
             return "{\"ok\":false,\"message\":\"" + esc(String.valueOf(t)) + "\"}";
         }
     }
 
+    // ------------------------------------------------------------ 存储设置
+
+    @JavascriptInterface
+    public String storageInfoJson() {
+        return storageInfo().toString();
+    }
+
+    private JSONObject storageInfo() {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("mode", storage.mode());
+            o.put("resolved", storage.resolved());
+            o.put("publicSub", storage.publicSub());
+            o.put("safTree", storage.safTree());
+            o.put("canPublic", storage.hasWritePermission());
+            o.put("dateDir", storage.dateDir());
+            o.put("privateDir", storage.privateRecords().getAbsolutePath());
+            o.put("publicDir", storage.publicRoot().getAbsolutePath());
+            o.put("target", storage.describe());
+            o.put("sdk", Build.VERSION.SDK_INT);
+            o.put("needPermission", !storage.hasWritePermission());
+        } catch (Throwable ignore) { }
+        return o;
+    }
+
+    @JavascriptInterface
+    public String setStorage(String mode, String publicSub) {
+        if (mode != null && mode.length() > 0) storage.setMode(mode);
+        if (publicSub != null && publicSub.length() > 0) {
+            String s = publicSub.trim();
+            while (s.startsWith("/")) s = s.substring(1);
+            while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
+            if (s.length() > 0) storage.setPublicSub(s);
+        }
+        return storageInfo().toString();
+    }
+
+    /** 打开系统文件选择器挑自定义目录（结果在 MainActivity 里回传）。 */
+    @JavascriptInterface
+    public void pickSafDir() {
+        ui.post(new Runnable() {
+            public void run() {
+                if (act instanceof MainActivity) ((MainActivity) act).pickSafDir();
+            }
+        });
+    }
+
+    @JavascriptInterface
+    public void clearSafTree() {
+        storage.clearSaf();
+    }
+
+    /** 由 MainActivity 在用户选完目录后调用。 */
+    public void setSafTree(String uri) {
+        storage.setSafTree(uri);
+        storage.setMode(Storage.MODE_SAF);
+    }
+
+    @JavascriptInterface
+    public void requestStoragePerms() {
+        ui.post(new Runnable() {
+            public void run() {
+                if (act instanceof MainActivity) ((MainActivity) act).askPerms();
+            }
+        });
+    }
+
     // ------------------------------------------------------------ 播放
 
     @JavascriptInterface
-    public boolean open(String path) {
-        return player.open(path);
+    public boolean open(String path, String uri) {
+        return player.open(path, uri);
     }
 
     @JavascriptInterface
@@ -218,28 +267,31 @@ public class Bridge {
     public boolean startRec(String title) {
         if (rec.active()) return true;
         String stamp = Recorder.stamp();
-        boolean ok = rec.start(new java.io.File(recordDir()), stamp);
-        if (ok) {
-            pendingStamp = stamp;
-            pendingTitle = title == null ? "" : title.trim();
-        }
-        return ok;
+        File tmp = new File(storage.privateTmp(), stamp + "_memo.m4a");
+        if (!rec.start(tmp)) return false;
+        pendingStamp = stamp;
+        pendingTitle = title == null ? "" : title.trim();
+        return true;
     }
 
-    /** 返回落盘路径；失败返回空串。 */
+    /** 停录 → 发布到当前存储目标，返回 "path:…" / "uri:…"；失败返回空串。 */
     @JavascriptInterface
     public String stopRec() {
-        String path = rec.stop();
-        if (path != null && pendingStamp != null && pendingTitle != null && pendingTitle.length() > 0) {
-            try {
-                JSONObject p = new JSONObject();
-                p.put("title", pendingTitle);
-                state.patch(pendingStamp, p);
-            } catch (Throwable ignore) { }
-        }
+        File f = rec.stop();
+        String stamp = pendingStamp;
+        String title = pendingTitle;
         pendingStamp = null;
         pendingTitle = null;
-        return path == null ? "" : path;
+        if (f == null) return "";
+        String loc = storage.publish(f, f.getName(), "audio/mp4");
+        if (stamp != null && title != null && title.length() > 0) {
+            try {
+                JSONObject p = new JSONObject();
+                p.put("title", title);
+                state.patch(stamp, p);
+            } catch (Throwable ignore) { }
+        }
+        return loc;
     }
 
     @JavascriptInterface

@@ -1,5 +1,7 @@
 package dev.voxnote;
 
+import android.content.Context;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -14,22 +16,48 @@ import java.io.OutputStreamWriter;
 /**
  * 用户态数据：改名 / 分类 / 标记。
  *
- * 单独放一份 /sdcard/s1rec/app-state.json，与机器派生的 sessions/、md 完全分离：
- * 重扫日志、重解析 md 都不会碰到它，符合"人写的东西永不被覆盖"。
+ * 放应用私有目录（filesDir/app-state.json）：这是"不可再生的东西"，
+ * 不该暴露在公共目录里；私有目录在卸载时会清空，所以另配"导出/导入"把它搬走
+ * （导出还没做，见 README 的已知限制）。
+ *
+ * 老版本把这份文件放在 /sdcard/s1rec/app-state.json，首次启动读不到私有文件时
+ * 会去老路径捞一次，读到就迁过来，不丢分类与标记。
  *
  * 结构： {"<itemId>": {"title":"…","cat":"c1","marks":[1.2,8.4]}}
  */
 public class State {
 
-    public static final File OUT_DIR = new File(Library.STORAGE, "s1rec");
-    private final File file = new File(OUT_DIR, "app-state.json");
+    /** 旧的公共目录，只用于一次性迁移。 */
+    public static final File LEGACY_DIR =
+            new File(android.os.Environment.getExternalStorageDirectory(), "s1rec");
+
+    private final File file;
     private JSONObject root = new JSONObject();
+    private boolean dirty;
+
+    public State(Context ctx) {
+        file = new File(ctx.getFilesDir(), "app-state.json");
+    }
 
     public synchronized State load() {
+        if (file.exists()) {
+            readInto(file);
+            return this;
+        }
+        // 一次性迁移：老版本把状态放在公共目录
+        File legacy = new File(LEGACY_DIR, "app-state.json");
+        if (legacy.isFile()) {
+            readInto(legacy);
+            dirty = true;
+            save();
+        }
+        return this;
+    }
+
+    private void readInto(File f) {
         FileInputStream in = null;
         try {
-            if (!file.exists()) return this;
-            in = new FileInputStream(file);
+            in = new FileInputStream(f);
             BufferedReader r = new BufferedReader(new InputStreamReader(in, "UTF-8"));
             StringBuilder sb = new StringBuilder();
             String line;
@@ -41,7 +69,6 @@ public class State {
         } finally {
             if (in != null) try { in.close(); } catch (Throwable ignore) { }
         }
-        return this;
     }
 
     public synchronized JSONObject of(String id) {
@@ -62,16 +89,17 @@ public class State {
                 }
             }
             root.put(id, cur);
+            dirty = true;
             save();
         } catch (Throwable t) {
             // 存不下也不该让 UI 崩
         }
     }
 
-    private void save() {
+    public synchronized void save() {
+        if (!dirty && file.exists()) return;
         FileOutputStream fos = null;
         try {
-            if (!OUT_DIR.exists()) OUT_DIR.mkdirs();
             File tmp = new File(file.getAbsolutePath() + ".tmp");
             fos = new FileOutputStream(tmp);
             BufferedWriter w = new BufferedWriter(new OutputStreamWriter(fos, "UTF-8"));
@@ -79,13 +107,13 @@ public class State {
             w.close();
             fos = null;
             if (!tmp.renameTo(file)) {
-                // 部分 FUSE 实现上 rename 覆盖会失败，退化为直接写
                 FileOutputStream f2 = new FileOutputStream(file);
                 BufferedWriter w2 = new BufferedWriter(new OutputStreamWriter(f2, "UTF-8"));
                 w2.write(root.toString(1));
                 w2.close();
                 tmp.delete();
             }
+            dirty = false;
         } catch (Throwable t) {
             if (fos != null) try { fos.close(); } catch (Throwable ignore) { }
         }
