@@ -35,12 +35,14 @@ function Get-File($url, $out) {
 
 Get-File "https://aka.ms/download-jdk/microsoft-jdk-17.0.13-windows-x64.zip" (Join-Path $dl 'jdk.zip')
 Get-File "https://dl.google.com/android/repository/build-tools_r34-windows.zip" (Join-Path $dl 'bt34.zip')
-Get-File "https://dl.google.com/android/repository/platform-27_r03.zip" (Join-Path $dl 'plat27.zip')
+# 编译用 platform 36：代码里用到 API 29+ 的符号（MediaStore 分区存储），
+# 只抓 platform-27 会编译不过；targetSdk 仍由 build.ps1 控制（34）。
+Get-File "https://dl.google.com/android/repository/platform-36_r02.zip" (Join-Path $dl 'plat36.zip')
 
 $targets = @(
     @((Join-Path $dl 'jdk.zip'),    (Join-Path $Dest 'jdk')),
     @((Join-Path $dl 'bt34.zip'),   (Join-Path $Dest 'build-tools')),
-    @((Join-Path $dl 'plat27.zip'), (Join-Path $Dest 'platforms'))
+    @((Join-Path $dl 'plat36.zip'), (Join-Path $Dest 'platforms'))
 )
 foreach ($t in $targets) {
     if (Test-Path $t[1]) { Write-Output "已解压 $(Split-Path $t[1] -Leaf)"; continue }
