@@ -2077,6 +2077,19 @@ $('#searchClear').addEventListener('click', () => {
   inp.blur();
 });
 
+/* 聚焦搜索时把录音面板滚走：否则键盘一占屏，结果区被压没了 */
+$('#searchInput').addEventListener('focus', () => {
+  const view = $('#view-record');
+  if (!view) return;
+  const panel = view.querySelector('.rec-panel');
+  if (!panel) return;
+  const target = panel.offsetTop + panel.offsetHeight;
+  setTimeout(() => {
+    if (view.scrollTop < target) view.scrollTop = target;
+    if (window.__stickyApply) window.__stickyApply();
+  }, 50);
+});
+
 $('#filters').addEventListener('click', e => {
   const chip = e.target.closest('.chip');
   if (!chip) return;
@@ -2145,6 +2158,8 @@ function initSticky() {
   };
   window.__stickyApply = apply;
   view.addEventListener('scroll', apply, { passive: true });
+  // 键盘弹出/收起会改变视口高度，钉顶位置要跟着重算
+  window.addEventListener('resize', apply);
   apply();
 }
 
