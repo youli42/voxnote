@@ -74,8 +74,13 @@ $sources = Get-ChildItem "$here\src" -Recurse -Filter *.java | ForEach-Object { 
 if ($LASTEXITCODE -ne 0) { throw "javac 失败" }
 
 Write-Output '--- 2/5 d8 ---'
-$classes = Get-ChildItem "$build\classes" -Recurse -Filter *.class | ForEach-Object { $_.FullName }
-& $d8bat --min-api $MinSdk --release --lib $androidJar --output "$build\dex" $classes
+# 类文件多了以后，把几百个 .class 路径直接拼进命令行会超过 Windows 限制；
+# 先打成 classes.jar 再交给 d8。
+$jar = Find-One 'jar.exe' $Toolchain
+$classesJar = "$build\classes.jar"
+& $jar cf $classesJar -C "$build\classes" .
+if ($LASTEXITCODE -ne 0) { throw "打包 classes.jar 失败" }
+& $d8bat --min-api $MinSdk --release --lib $androidJar --output "$build\dex" $classesJar
 if ($LASTEXITCODE -ne 0) { throw "d8 失败" }
 
 Write-Output '--- 3/5 aapt2 link ---'
