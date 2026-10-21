@@ -1,4 +1,4 @@
-package dev.s1rec.reader;
+package dev.voxnote.reader;
 
 /** 一句识别结果，或一个说话人切换标记。 */
 public class Segment {

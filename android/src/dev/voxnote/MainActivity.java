@@ -1,4 +1,4 @@
-package dev.s1rec;
+package dev.voxnote;
 
 import android.Manifest;
 import android.app.Activity;
@@ -20,7 +20,7 @@ import java.util.List;
  *
  * 分工：
  *   界面、手势、滚动、动画在 H5 里（就是原型那份 HTML，改成读真实数据）；
- *   文件扫描、音频播放、麦克风录音在 Java 侧，通过 window.S1N 桥接。
+ *   文件扫描、音频播放、麦克风录音在 Java 侧，通过 window.voxnote 桥接。
  *
  * 这样设备上得到的观感与原型一致，而"读 /sdcard"这类硬需求仍然由原生完成。
  */
@@ -57,7 +57,7 @@ public class MainActivity extends Activity {
         } catch (Throwable ignore) { }
 
         bridge = new Bridge(this);
-        web.addJavascriptInterface(bridge, "S1N");
+        web.addJavascriptInterface(bridge, "voxnote");
         setContentView(web, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         web.loadUrl("file:///android_asset/index.html");
@@ -128,7 +128,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         try {
             if (web != null) {
-                web.removeJavascriptInterface("S1N");
+                web.removeJavascriptInterface("voxnote");
                 web.loadUrl("about:blank");
                 web.destroy();
             }

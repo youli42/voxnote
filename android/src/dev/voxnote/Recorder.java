@@ -1,4 +1,4 @@
-package dev.s1rec;
+package dev.voxnote;
 
 import android.media.MediaRecorder;
 

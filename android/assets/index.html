@@ -569,7 +569,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 /* ==================== 原生桥（Android） ====================
    浏览器里直接打开时 NATIVE 为 null，页面照原型用示例数据跑；
    装到设备上之后，列表、音频、录音、用户态全部来自 Java 侧。 */
-const NATIVE = (typeof window.S1N !== 'undefined' && window.S1N) ? window.S1N : null;
+const NATIVE = (typeof window.voxnote !== 'undefined' && window.voxnote) ? window.voxnote : null;
 let nativeStats = null;
 let nativeMonitor = null;
 

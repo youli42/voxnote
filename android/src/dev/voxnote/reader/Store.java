@@ -1,4 +1,4 @@
-package dev.s1rec.reader;
+package dev.voxnote.reader;
 
 import org.json.JSONObject;
 

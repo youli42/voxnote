@@ -1,4 +1,4 @@
-package dev.s1rec;
+package dev.voxnote;
 
 import android.app.Activity;
 import android.content.Context;
@@ -8,7 +8,7 @@ import android.os.Looper;
 import android.webkit.JavascriptInterface;
 import android.widget.Toast;
 
-import dev.s1rec.reader.Session;
+import dev.voxnote.reader.Session;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -16,7 +16,7 @@ import org.json.JSONObject;
 import java.util.List;
 
 /**
- * JS ⇄ Java 的唯一通道（页面里是 window.S1N）。
+ * JS ⇄ Java 的唯一通道（页面里是 window.voxnote）。
  *
  * 约定：所有返回给 JS 的东西都是 JSON 字符串，JS 侧统一 JSON.parse；
  * 异常不往外抛（WebView 桥里抛异常会让调用方静默失败），改成返回 ok/err 结构。

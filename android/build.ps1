@@ -2,7 +2,7 @@
 # 用法： pwsh -NoProfile -File android/build.ps1 [-Install] [-Toolchain <dir>]
 param(
     [switch]$Install,
-    [string]$Toolchain = $env:S1REC_TOOLCHAIN
+    [string]$Toolchain
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,6 +10,8 @@ $here = $PSScriptRoot
 $repo = Split-Path $here -Parent
 $build = Join-Path $here 'build'
 
+if (-not $Toolchain) { $Toolchain = $env:VOXNOTE_TOOLCHAIN }
+if (-not $Toolchain) { $Toolchain = $env:S1REC_TOOLCHAIN }
 if (-not $Toolchain) { $Toolchain = Join-Path $repo 'toolchain' }
 if (-not (Test-Path $Toolchain)) {
     throw "找不到工具链 $Toolchain，先运行 tools/fetch_toolchain.ps1"
@@ -76,9 +78,9 @@ $ks = Join-Path $here 'debug.keystore'
 if (-not (Test-Path $ks)) {
     & $keytool -genkeypair -keystore $ks -storepass android -keypass android `
         -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 `
-        -dname "CN=Android Debug,O=S1Rec,C=CN" 2>&1 | Out-Null
+        -dname "CN=Android Debug,O=voxnote,C=CN" 2>&1 | Out-Null
 }
-$apk = "$build\s1rec.apk"
+$apk = "$build\voxnote.apk"
 & $javaExe -jar $apksigner sign --ks $ks --ks-key-alias androiddebugkey `
     --ks-pass pass:android --key-pass pass:android --out $apk $aligned
 if ($LASTEXITCODE -ne 0) { throw "签名失败" }
@@ -89,6 +91,6 @@ if ($Install) {
     Write-Output '--- adb install ---'
     & adb install -r $apk
     if ($LASTEXITCODE -ne 0) { throw "安装失败" }
-    & adb shell am force-stop dev.s1rec.reader
-    & adb shell am start -n dev.s1rec.reader/.MainActivity
+    & adb shell am force-stop dev.voxnote
+    & adb shell am start -n dev.voxnote/.MainActivity
 }

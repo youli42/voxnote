@@ -1,11 +1,13 @@
 # 获取最小 Android 工具链（JDK + build-tools + platform），不安装 Android Studio
 # 用法： pwsh -NoProfile -File tools/fetch_toolchain.ps1 [-Proxy http://127.0.0.1:10808] [-Dest <dir>]
 param(
-    [string]$Proxy = $env:S1REC_PROXY,
+    [string]$Proxy,
     [string]$Dest
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $Proxy) { $Proxy = $env:VOXNOTE_PROXY }
+if (-not $Proxy) { $Proxy = $env:S1REC_PROXY }
 $repo = Split-Path $PSScriptRoot -Parent
 if (-not $Dest) { $Dest = Join-Path $repo 'toolchain' }
 $Dest = [System.IO.Path]::GetFullPath($Dest)

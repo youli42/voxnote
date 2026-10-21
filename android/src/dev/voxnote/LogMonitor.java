@@ -1,9 +1,9 @@
-package dev.s1rec;
+package dev.voxnote;
 
-import dev.s1rec.reader.LogParser;
-import dev.s1rec.reader.Segment;
-import dev.s1rec.reader.Session;
-import dev.s1rec.reader.Store;
+import dev.voxnote.reader.LogParser;
+import dev.voxnote.reader.Segment;
+import dev.voxnote.reader.Session;
+import dev.voxnote.reader.Store;
 
 import org.json.JSONObject;
 

@@ -1,8 +1,8 @@
-package dev.s1rec;
+package dev.voxnote;
 
 import android.media.MediaMetadataRetriever;
 
-import dev.s1rec.reader.Session;
+import dev.voxnote.reader.Session;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
