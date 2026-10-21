@@ -9,8 +9,9 @@
 > 由 `Sogou_S1_transcript`（只做日志提取的 Magisk 脚本模块）演进而来：
 > 日志解析从"唯一功能"降级为"数据入口之一"，目标是替代设备自带的录音 App。
 >
-> **命名**：产品名 `voxnote`（voice + note）。设备侧标识保持旧名，避免动到已落盘的数据与
-> 已装的应用——包名 `dev.s1rec`、数据目录 `/sdcard/s1rec/`。改名只发生在仓库与文档层。
+> **命名**：产品名 `voxnote`（voice + note）。应用包名与代码命名空间已统一为
+> `dev.voxnote`；**只保留数据契约里的旧名**——数据目录 `/sdcard/s1rec/`、设备侧偏好键
+> `s1rec`、前端的 `s1rec.v5` 设置键。这些改名会牵连已落盘的录音、分类与标记，要动得单独写迁移。
 
 ## 当前状态
 
@@ -27,7 +28,7 @@
 | 同步 / 自动化 | ⬜ 未开始 |
 
 界面是你给的原型（`deepseek_html_*.html`）的移植：**H5 负责观感与手势，Java 负责文件与媒体**，
-两边通过 `window.S1N` 桥接，详见 [docs/APP.md](docs/APP.md)。
+两边通过 `window.voxnote` 桥接，详见 [docs/APP.md](docs/APP.md)。
 
 
 ## 架构一句话
@@ -43,9 +44,9 @@
 ```
 android/            安卓应用（当前为无 Gradle 的最小构建链）
   assets/index.html     原型移植后的界面（真实数据由 JS 桥驱动）
-  src/dev/s1rec/        MainActivity（WebView 宿主）/ Bridge / Library / MdParser /
+  src/dev/voxnote/      MainActivity（WebView 宿主）/ Bridge / Library / MdParser /
                         Player / Recorder / State
-  src/dev/s1rec/reader/ 日志导入内核（LogParser / Store / Session），待接入 UI
+  src/dev/voxnote/reader/ 日志导入内核（LogParser / Store / Session），待接入 UI
 docs/               需求、架构、数据契约、App 实现说明
 tools/              工具链获取脚本
 ```
@@ -58,7 +59,7 @@ tools/              工具链获取脚本
 pwsh -NoProfile -File tools/fetch_toolchain.ps1 -Proxy http://127.0.0.1:10808
 ```
 
-然后构建 / 安装（已有工具链时可用 `$env:S1REC_TOOLCHAIN` 或 `-Toolchain` 指过去）：
+然后构建 / 安装（已有工具链时可用 `$env:VOXNOTE_TOOLCHAIN` 或 `-Toolchain` 指过去）：
 
 ```powershell
 pwsh -NoProfile -File android/build.ps1            # 只出 APK

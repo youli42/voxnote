@@ -7,8 +7,8 @@
 
 ```
 android/assets/index.html   ← 原型（改了数据来源与手势兜底）
-        │  window.S1N（@JavascriptInterface）
-android/src/dev/s1rec/
+        │  window.voxnote（@JavascriptInterface）
+android/src/dev/voxnote/
         Bridge      桥：refresh / patch / configure / 播放 / 录音 / transcribe
         Library     扫描录音目录 → 卡片
         MdParser    md → 标题/摘要/逐句
@@ -40,7 +40,7 @@ android/src/dev/s1rec/
 选择随设置保存。筛选行是「全部 / 转写失败 / 未分类 / 各分类」，其中「转写失败」
 直接过滤 `status=failed`——改成时间序之后失败场次不再被顶到最前，所以单独留了入口。
 
-## 2. 桥接 API（`window.S1N`）
+## 2. 桥接 API（`window.voxnote`）
 
 | 方法 | 说明 |
 | --- | --- |
@@ -81,7 +81,7 @@ android/src/dev/s1rec/
 
 ## 5. 转录监控（旧 Magisk 模块内核）
 
-`android/src/dev/s1rec/reader/` 里的 `LogParser` + `Store` 是旧模块"常驻 shell 守护 + 定时轮询
+`android/src/dev/voxnote/reader/` 里的 `LogParser` + `Store` 是旧模块"常驻 shell 守护 + 定时轮询
 日志"的内核，现在由 `LogMonitor` 在 App 里直接调用，不再需要那个守护进程：
 
 - `Bridge.refresh()` 顺手跑一次（一分钟内复用上次结果，所以切回 App 不会反复重读 3 MB 日志）；
