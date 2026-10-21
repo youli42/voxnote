@@ -21,17 +21,19 @@ android/src/dev/voxnote/
 
 ## 1. 一条记录怎么来的
 
-主键是录音文件名里的 `yyyyMMdd_HHmmss`。同一场录音的不同载体都能对齐到它：
+主键是录音文件名里的 `yyyyMMdd_HHmmss`。同一场录音的不同载体都能对齐到它。
 
-| 文件 | 作用 |
+**自己的录音**放在当前存储目标里（见 §2），一律按 `年.月` 建日期子目录：
+
+| 位置 | 典型路径 |
 | --- | --- |
-| `/sdcard/2026.10/20261021_014357_meeting.wav` | 音频（`.wav` 优先，其次 `.m4a` / `.mp3`；跳过 `_denoise` 副本） |
-| `/sdcard/2026.10/20261021_014357_meeting.md` | 正文（`[00:02.86 → 00:07.07]` 逐句） |
-| `/sdcard/sogou/md/2026.10/20261021_014357_1792518237.md` | 旧模块镜像（常只有头部，用作兜底） |
-| `/sdcard/s1rec/records/<stamp>_memo.m4a` | 本 App 自录 |
+| 公共目录（≤28） | `/sdcard/Music/voxnote/2026.10/<stamp>_memo.m4a` |
+| 公共目录（29+） | MediaStore 音频，`RELATIVE_PATH = Music/voxnote/2026.10` |
+| 自定义目录（SAF） | 用户选的文件夹下 `/2026.10/<stamp>_memo.m4a` |
+| 应用私有 | `/sdcard/Android/data/dev.voxnote/files/records/2026.10/…` |
 
-扫描范围是"设置里的录音目录（递归 2 层）+ `/sdcard/<年.月>/` + `/sdcard/sogou/md/<年.月>/`"，
-不遍历整块 43 GB 存储。同一 key 命中多份文稿时，谁的逐句多就用谁，缺的字段互相补。
+**外部来源**（插件）另外给场次：厂商的 `*.wav`、旁车 `*.md`、以及日志里解析出的逐句。
+同一 key 命中多份时，谁的逐句多就用谁，缺的字段互相补；`.wav` 优先于 `.mp3`，`_denoise` 副本跳过。
 
 状态按数据契约推导：`done`（有正文）/ `raw`（有音频无正文）/ `failed`（有声但报错）/
 `empty`（无音频无正文，卡片显式标注"无正文"，不伪造空稿）。
@@ -40,31 +42,51 @@ android/src/dev/voxnote/
 选择随设置保存。筛选行是「全部 / 转写失败 / 未分类 / 各分类」，其中「转写失败」
 直接过滤 `status=failed`——改成时间序之后失败场次不再被顶到最前，所以单独留了入口。
 
-## 2. 桥接 API（`window.voxnote`）
+## 2. 存储策略（`Storage`）
+
+三种目标，按"能不能用"自动降级，**用户在设置里选**：
+
+| 模式 | 写入方式 | 需要权限 |
+| --- | --- | --- |
+| `public` 公共目录 | ≤28 直接写 `/sdcard/<子目录>/年.月`；29+ 写 `MediaStore.Audio`（先 `IS_PENDING=1`，写完清掉） | ≤28 需要 WRITE；29+ 不需要 |
+| `saf` 自定义目录 | 系统文件选择器（`ACTION_OPEN_DOCUMENT_TREE`）拿持久授权，`DocumentsContract` 建目录/写文件 | 不需要 |
+| `private` 应用私有 | `getExternalFilesDir()/records/年.月` | 不需要 |
+
+默认 `public`，但**没有存储权限、没选目录、写入失败时自动落到 `private`**，
+设置页会显示"实际写入"到底是哪儿，以及"没有权限"的提示和授予按钮。
+
+录音流程固定为：先录到私有临时文件 → `Storage.publish()` 发布到当前目标 → 重扫。
+写入只有这一条路径，切换目标不会影响已录内容（旧位置仍会被扫描到）。
+
+## 3. 桥接 API（`window.voxnote`）
 
 | 方法 | 说明 |
 | --- | --- |
-| `refresh()` | 重扫，返回 `{items, stats}` JSON |
+| `refresh()` | 重扫，返回 `{items, stats, sources, storage}` |
 | `patch(id, json)` | 用户态更新：`{"title"}` / `{"cat"}` / `{"marks":[…]}` |
-| `configure(json)` | JS 把设置推过来（原生只关心 `recordDir`） |
-| `open(path) / play / pause / seek(ms) / position / duration / playing / close` | 播放 |
-| `startRec(title) / stopRec() / recMs() / recLevel() / recActive()` | 录音 |
-| `transcribe(id)` | "转文字"；未接后端时返回 `{"ok":false,"message":"…"}`，UI 如实提示 |
+| `setStorage(mode, sub)` / `storageInfoJson()` | 切存储目标 / 读当前策略 |
+| `pickSafDir()` / `clearSafTree()` / `requestStoragePerms()` | 系统文件夹选择器 / 清除授权 / 申请权限 |
+| `scanSources(id)` | 强制扫某个外部来源（设置页的"扫描并导入"） |
+| `open(path, uri) / play / pause / seek(ms) / position / duration / playing / close` | 播放，路径与 `content://` 二选一 |
+| `startRec(title) / stopRec() / recMs() / recLevel() / recActive()` | 录音；`stopRec` 返回 `path:…`/`uri:…` |
+| `transcribe(id)` | "转文字"；当前=重跑外部来源，没有就如实提示 |
 | `version() / toast(msg)` | 杂项 |
 
 `position` 由 JS 每 100 ms 问一次（`nativeTick`），进度条、句高亮、打点都基于它，
 所以播放精度不依赖 `<audio>` 元素。
 
-## 3. 用户态落盘
+## 4. 用户态落盘
 
-`/sdcard/s1rec/app-state.json`：
+应用私有目录 `filesDir/app-state.json`（不放公共目录）：
 
 ```json
 { "20261021_021120": { "title": "…", "cat": "c1", "marks": [10.9] } }
 ```
 
-重扫、重解析 md 都不会碰它——对应架构里"人写的东西永不被覆盖"那条不变量。
-目前的粒度是"改名/分类/标记"，逐句编辑（`edits.jsonl` 追加层）还没做。
+重扫、重解析都不会碰它——对应"人写的东西永不被覆盖"那条不变量。
+老版本放在 `/sdcard/s1rec/app-state.json`，首次启动读不到私有文件时会去老路径捞一次并迁过来。
+粒度目前是"改名/分类/标记"，逐句编辑（`edits.jsonl`）还没做。
+注意：私有目录在**卸载时会被清空**，所以正式版还需要"导出/导入"（未做）。
 
 ## 4. 兼容层：本机 WebView 是 Chromium 59
 
@@ -79,25 +101,40 @@ android/src/dev/voxnote/
 | `pointerdown/move/up` | 触摸屏上收不到 | 有 `ontouchstart` 时走 touch 事件，否则走鼠标 |
 | `placeholder:center`、`place-items` | 部分不支持 | `.rec-btn` 用 flex 居中 |
 
-## 5. 转录监控（旧 Magisk 模块内核）
+## 5. 外部来源插件（设备定制，可拆）
 
-`android/src/dev/voxnote/reader/` 里的 `LogParser` + `Store` 是旧模块"常驻 shell 守护 + 定时轮询
-日志"的内核，现在由 `LogMonitor` 在 App 里直接调用，不再需要那个守护进程：
+核心不认识任何具体设备。凡是为某台机器定制的导入，都实现在
+`android/src/dev/voxnote/plugin/<名字>/` 里，只依赖一个接口：
 
-- `Bridge.refresh()` 顺手跑一次（一分钟内复用上次结果，所以切回 App 不会反复重读 3 MB 日志）；
-- 设置页「转录监控」可手动 `立即扫描并导入`（强制重扫 + 重写 `/sdcard/s1rec/sessions/`）；
-- 结果并进同一张卡片列表：同一时间戳的场次补正文、补摘要、补会话号，
-  只有日志没有音频的场次也会作为卡片出现，并带「日志」标签；
-- 卡片上的「转写 / 重写转写」走的也是这里：立刻重扫日志，有内容就报"已导入 N 句"，
-  没有就如实说"日志里没有这场的内容"。
+```java
+interface ContentSource {
+    String id(); String label(); boolean available();
+    List<Item> scan(boolean force);   // 交付物是 Item
+    JSONObject info();
+}
+```
 
-`startMs <= 0` 的会话（只有 summary 回写、没有引擎创建锚点）不参与合并——
-它们既对不上录音文件，也会在 `sessions/` 下产出 1970 目录。
+`Plugins` 用**类名字符串 + 反射**创建（不是编译期引用），所以：
+
+- 删掉 `android/src/dev/voxnote/plugin/` 整个目录 → 核心照常编译、App 照常启动，
+  设置页不再出现「外部来源」；
+- 插件内部再糙也伤不到核心：`Bridge` 对每个插件 `try/catch`，一个坏了只是少了它的数据，
+  `available()=false` 时 UI 直接隐藏。
+
+现有插件 `plugin/sogou`（搜狗 S1）：把厂商日志（`LogParser`）、厂商月目录的
+`*.wav`/`*.md`、旧模块镜像合并成 Item。它只对"装了那个厂商 App 且目录可读"的设备有意义，
+在分区存储的新系统上 `available()` 自然为 false——**这是预期行为，不是 bug**。
+
+它不是核心能力，也不打算适配新系统：新设备要导入，应该是**另一个插件**
+（用户用 SAF 授权一个文件夹），而不是改这个。
 
 ## 6. 已知限制 / 下一步
 
-- **没有转写后端**：卡片上的「转文字」只会触发日志重扫并如实报告结果；
+- **29+ 的存储分支未真机验证**：MediaStore 写入/查询、SAF 写入按规范实现并在本机
+  （API 27）验证了编译与旧路径，但手头没有 Android 10+ 设备，属于"待验证"。
+- **没有转写后端**：卡片上的「转文字」只会触发外部来源重扫并如实报告结果；
   接自建 API / 本地模型时，改的就是 `Bridge.transcribe`。
+- **用户态在私有目录**：卸载会丢分类/标记，需要"导出/导入"（未做）。
 - **录音无暂停/波形存档**：只有开始/停止，波形是实时电平。
 - **列表是全量扫描**：几十场没问题，上到几千场需要加索引（`DATA-CONTRACT` 里预留过）。
 - **冻结搜索区是 JS 兜底**：本机 Chromium 59 的 `position:sticky` 不可靠，
