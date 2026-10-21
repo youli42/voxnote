@@ -816,9 +816,8 @@ function renderStats() {
   if (s.error) { el.textContent = '⚠️ ' + s.error; return; }
   const t = s.scannedAt ? new Date(s.scannedAt) : null;
   const at = t ? ` · ${pad2(t.getHours())}:${pad2(t.getMinutes())} 扫描` : '';
-  let txt = `${s.total | 0} 场 · ${s.done | 0} 已转写 · ${s.withAudio | 0} 有录音 · ${s.sentences | 0} 句`;
-  if (nativeMonitor && nativeMonitor.sentences) txt += ` · 日志 ${nativeMonitor.sentences | 0} 句`;
-  el.textContent = txt + at;
+  // 状态行只留最能说明问题的三个数：场次 / 已转写 / 句数（有录音与日志句数在设置里）
+  el.textContent = `${s.total | 0} 场 · ${s.done | 0} 已转写 · ${s.sentences | 0} 句` + at;
 }
 
 /* 转录监控（旧 Magisk 模块内核）在 App 里的状态 */
