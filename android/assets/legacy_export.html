@@ -1,0 +1,15 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>legacy-export</title></head>
+<body>
+<script>
+/* 一次性迁移：把旧版 WebView 页面（file:///android_asset/index.html）写的
+   localStorage['s1rec.v5'] 交给原生侧。旧页与这里同源（file://），所以读得到。 */
+(function () {
+  var raw = '';
+  try { raw = localStorage.getItem('s1rec.v5') || ''; } catch (e) { raw = ''; }
+  if (window.VoxLegacy && window.VoxLegacy.post) {
+    try { window.VoxLegacy.post(raw); } catch (e) {}
+  }
+})();
+</script>
+</body></html>

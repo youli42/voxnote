@@ -113,5 +113,5 @@ if ($Install) {
     & adb install -r $apk
     if ($LASTEXITCODE -ne 0) { throw "安装失败" }
     & adb shell am force-stop dev.voxnote
-    & adb shell am start -n dev.voxnote/.MainActivity
+    & adb shell am start -n dev.voxnote/.HomeActivity
 }
