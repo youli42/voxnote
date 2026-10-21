@@ -34,6 +34,13 @@ public class LegacySettingsImporter {
             cb.onDone(false);
             return;
         }
+        // 全新安装没有旧 WebView 数据目录：不用为了读 localStorage 初始化一次 WebView。
+        java.io.File webviewData = new java.io.File(act.getApplicationInfo().dataDir, "app_webview");
+        if (!webviewData.isDirectory()) {
+            settings.markLegacyImported();
+            cb.onDone(false);
+            return;
+        }
         final Handler ui = new Handler(Looper.getMainLooper());
         WebView web = null;
         try {
