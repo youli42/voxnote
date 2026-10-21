@@ -304,6 +304,7 @@ body.recording .rec-btn-inner{width:20px;height:20px;border-radius:6px;}
   color:var(--faint);letter-spacing:.2px;}
 .srcbar #srcText{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .srcbar .chip{padding:3px 9px;font-size:11px;}
+.srcbar .sortbtn{min-width:56px;font-variant-numeric:tabular-nums;}
 .tag.src{color:var(--dim);border-color:var(--line2);}
 .play-btn:disabled{opacity:.3;cursor:default;}
 
@@ -371,6 +372,7 @@ a:focus,button:focus,input:focus,select:focus,textarea:focus{outline:none;}
         </div>
         <div class="srcbar">
           <span id="srcText">正在扫描…</span>
+          <button class="chip sortbtn" id="btnSort">时间↓</button>
           <button class="chip" id="btnRescan">刷新</button>
         </div>
         <div class="filters" id="filters"></div>
@@ -603,6 +605,7 @@ const DEFAULTS = {
   keyMode: 'none',
   keyBinding: null,
   markKey: ' ',
+  sortDesc: true,
   swipeRightCat: 'c1',
   swipeLeftCat: 'c2',
   categories: [
@@ -933,6 +936,11 @@ function rowHTML(it) {
   </div>`;
 }
 
+function renderSortBtn() {
+  const b = $('#btnSort');
+  if (b) b.textContent = settings.sortDesc === false ? '时间↑' : '时间↓';
+}
+
 function renderFilters() {
   const chips = [{ id: 'all', name: '全部' }, { id: 'none', name: '未分类' }];
   settings.categories.forEach(c => chips.push({ id: c.id, name: c.name }));
@@ -951,13 +959,14 @@ function renderList() {
   const scroll = $('#view-record').scrollTop;
   let list = items.filter(it => isVisible(it) && matchesSearch(it));
 
-  // 相当于 Inbox：按优先级排序
+  // 一律按时间排（新的在前，可切换），不再按"待处理优先级"打乱时间线
+  const dir = settings.sortDesc === false ? 1 : -1;
   list.sort((a, b) => {
-    const ra = inboxRank(a);
-    const rb = inboxRank(b);
-    if (ra !== rb) return ra - rb;
-    return (b.seq || 0) - (a.seq || 0);
+    const d = (a.seq || 0) - (b.seq || 0);
+    if (d !== 0) return d * dir;
+    return a.id < b.id ? -dir : dir;
   });
+  renderSortBtn();
 
   const el = $('#listEl');
   el.innerHTML = list.map(rowHTML).join('');
@@ -2170,6 +2179,15 @@ renderList();
 bindSettingsUI();
 initSticky();
 switchView('record');
+
+const sortBtn = $('#btnSort');
+if (sortBtn) sortBtn.addEventListener('click', () => {
+  settings.sortDesc = settings.sortDesc === false;
+  saveSettings();
+  renderList();
+  const v = $('#view-record');
+  if (v) v.scrollTop = 0;
+});
 
 if (NATIVE) {
   configureNative();
