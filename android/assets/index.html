@@ -311,6 +311,9 @@ body.recording .rec-btn-inner{width:20px;height:20px;border-radius:6px;}
 /* 触摸设备不需要焦点框：本机 WebView 点一下就会画一圈黄色 outline */
 a:focus,button:focus,input:focus,select:focus,textarea:focus{outline:none;}
 
+/* 作者样式里给了 display:flex 的元素会盖掉 [hidden] 的 UA 规则，这里补回来 */
+[hidden]{display:none !important;}
+
 /* ---- 兼容层：本机 WebView 是 Chromium 59 ----
    它不认识 env() / inset / flex gap / place-items，原样运行会让 .view 失去
    四边定位（内容被裁到屏幕外）。这里用等价写法兜底，桌面浏览器与新机型
