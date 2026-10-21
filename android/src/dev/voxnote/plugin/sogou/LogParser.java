@@ -1,4 +1,4 @@
-package dev.voxnote.reader;
+package dev.voxnote.plugin.sogou;
 
 import java.io.BufferedReader;
 import java.io.File;

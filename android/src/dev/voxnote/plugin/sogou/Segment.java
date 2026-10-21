@@ -1,4 +1,4 @@
-package dev.voxnote.reader;
+package dev.voxnote.plugin.sogou;
 
 /** 一句识别结果，或一个说话人切换标记。 */
 public class Segment {

@@ -1,9 +1,9 @@
-package dev.voxnote;
+package dev.voxnote.plugin.sogou;
 
-import dev.voxnote.reader.LogParser;
-import dev.voxnote.reader.Segment;
-import dev.voxnote.reader.Session;
-import dev.voxnote.reader.Store;
+
+
+
+
 
 import org.json.JSONObject;
 
