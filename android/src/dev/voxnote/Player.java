@@ -1,36 +1,47 @@
 package dev.voxnote;
 
+import android.content.Context;
 import android.media.MediaPlayer;
+import android.net.Uri;
 
 /**
  * 播放器壳子：只暴露"打开 / 播 / 停 / 拖 / 查位置"。
  *
- * 为什么不直接在 WebView 里放 <audio src="file:///…">：
- * Android 8 的 WebView 对 file:// 页面读 file:// 媒体限制多，且拖拽精度依赖
- * 音频元素；用原生 MediaPlayer 由 Java 桥驱动，行为在各机型一致。
+ * 支持两种定位：文件路径（私有目录、老系统的公共目录）与 content:// 
+ * （MediaStore、SAF 选中的目录）。都用原生 MediaPlayer，行为在各机型一致。
  */
 public class Player {
 
     private final Object lock = new Object();
+    private final Context ctx;
     private MediaPlayer mp;
-    private String path;
+    private String key;
 
-    /** 同一路径重复 open 直接复用，避免拖动进度条时反复 prepare。 */
-    public boolean open(String p) {
-        if (p == null || p.length() == 0) return false;
+    public Player(Context c) {
+        ctx = c;
+    }
+
+    /** path 与 uri 二选一，uri 优先。 */
+    public boolean open(String path, String uri) {
+        String k = (uri != null && uri.length() > 0) ? uri : path;
+        if (k == null || k.length() == 0) return false;
         synchronized (lock) {
-            if (mp != null && p.equals(path)) return true;
+            if (mp != null && k.equals(key)) return true;
             release();
             MediaPlayer m = new MediaPlayer();
             try {
-                m.setDataSource(p);
+                if (uri != null && uri.length() > 0) {
+                    m.setDataSource(ctx, Uri.parse(uri));
+                } else {
+                    m.setDataSource(path);
+                }
                 m.prepare();
             } catch (Throwable t) {
                 try { m.release(); } catch (Throwable ignore) { }
                 return false;
             }
             mp = m;
-            path = p;
+            key = k;
             return true;
         }
     }
@@ -78,7 +89,7 @@ public class Player {
                 try { mp.release(); } catch (Throwable ignore) { }
                 mp = null;
             }
-            path = null;
+            key = null;
         }
     }
 }

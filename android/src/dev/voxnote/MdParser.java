@@ -3,6 +3,7 @@ package dev.voxnote;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
@@ -10,15 +11,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 解析录音旁的 .md / .txt 文稿。
+ * 解析文稿（md / txt）。输入既可以是文件，也可以是 SAF / MediaStore 打开的流。
  *
- * 兼容本机已有的三种版式（都是同一套"时间段 + 正文"骨架）：
- *   1. 2026.10/<stamp>_<mode>.md  —— 带 `## 正文` 与 `## 纯文本`，正文行是 `[起 → 止]` 文本
+ * 兼容本机已有的几种版式（同一套"时间段 + 正文"骨架）：
+ *   1. <stamp>_<mode>.md  —— 带 `## 正文` 与 `## 纯文本`，正文行是 `[起 → 止]` 文本
  *   2. sogou/md/<月>/<stamp>_<sid>.md —— 旧模块镜像，常常只有头部没有正文
- *   3. s1rec/sessions/<stamp>_<sid>/transcript.md —— 本 App 自己的导出物
+ *   3. 本 App 的导出物，格式同上
  *
- * 只有时间戳没有正文的版式（任意外部工具产出的 md）会退化处理：
- * 取"纯文本"块按句切分，把时长平均分配，保证列表与逐句视图都能显示。
+ * 只有正文没有时间戳的文稿会退化处理：按句切分，把时长平均分配。
  */
 public class MdParser {
 
@@ -42,21 +42,24 @@ public class MdParser {
         public long durMs;
         public int errorCount;
         public final List<Item.Seg> segs = new ArrayList<Item.Seg>();
-
-        public boolean richer(Out o) {
-            return o != null && (o.segs.size() > segs.size()
-                    || (o.segs.size() == segs.size() && o.plain.length() > plain.length()));
-        }
     }
 
     public static Out parse(File f) {
+        try {
+            return parse(new FileInputStream(f));
+        } catch (Throwable t) {
+            return new Out();
+        }
+    }
+
+    public static Out parse(InputStream in) {
         Out o = new Out();
         StringBuilder plain = new StringBuilder();
         boolean inFence = false;
         boolean inPlainSection = false;
         BufferedReader r = null;
         try {
-            r = new BufferedReader(new InputStreamReader(new FileInputStream(f), "UTF-8"), 1 << 14);
+            r = new BufferedReader(new InputStreamReader(in, "UTF-8"), 1 << 14);
             String raw;
             while ((raw = r.readLine()) != null) {
                 String t = raw.trim();

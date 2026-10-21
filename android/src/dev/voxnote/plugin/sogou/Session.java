@@ -1,4 +1,4 @@
-package dev.voxnote.reader;
+package dev.voxnote.plugin.sogou;
 
 import java.util.ArrayList;
 import java.util.List;

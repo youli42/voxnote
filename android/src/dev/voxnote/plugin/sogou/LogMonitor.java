@@ -1,9 +1,9 @@
-package dev.voxnote;
+package dev.voxnote.plugin.sogou;
 
-import dev.voxnote.reader.LogParser;
-import dev.voxnote.reader.Segment;
-import dev.voxnote.reader.Session;
-import dev.voxnote.reader.Store;
+
+
+
+
 
 import org.json.JSONObject;
 
@@ -117,20 +117,5 @@ public class LogMonitor {
             // 统计不上就算了，别让 UI 因为一个字段挂掉
         }
         return o;
-    }
-
-    /** 卡片列表要的逐句（秒），把毫秒事实转成 UI 单位。 */
-    public static void appendSegments(Item it, Session s) {
-        if (it == null || s == null) return;
-        for (int i = 0; i < s.segments.size(); i++) {
-            Segment g = s.segments.get(i);
-            if (g.kind != Segment.FINAL) continue;
-            if (g.text == null || g.text.length() == 0) continue;
-            it.segs.add(new Item.Seg(g.startMs / 1000.0, g.endMs / 1000.0, g.text));
-        }
-    }
-
-    public static boolean exists(String path) {
-        return path != null && path.length() > 0 && new File(path).isFile();
     }
 }

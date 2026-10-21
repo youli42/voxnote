@@ -462,19 +462,45 @@ a:focus,button:focus,input:focus,select:focus,textarea:focus{outline:none;}
 
       <div class="group">
         <div class="group-title">存储位置</div>
-        <div class="row col">
-          <div class="row-label">录音目录</div>
-          <div class="row-inline">
-            <input class="field mono" id="setRecordDir">
-            <button class="btn small" data-pick="recordDir">选择</button>
+        <div class="row">
+          <div class="row-main"><div class="row-label">录音放在</div></div>
+          <select class="field small" id="selStorage">
+            <option value="public">公共目录</option>
+            <option value="saf">自定义目录</option>
+            <option value="private">应用私有</option>
+          </select>
+        </div>
+        <div class="row col" id="rowPublicSub">
+          <div class="row-label">公共子目录</div>
+          <input class="field mono" id="setPublicSub" placeholder="Music/voxnote">
+        </div>
+        <div class="row" id="rowSaf">
+          <div class="row-main">
+            <div class="row-label">自定义目录</div>
+            <div class="row-desc" id="safLabel">未选择</div>
           </div>
+          <div class="row-inline">
+            <button class="btn small" id="btnPickSaf">选择</button>
+            <button class="btn small" id="btnClearSaf">清除</button>
+          </div>
+        </div>
+        <div class="row col">
+          <div class="row-label">实际写入</div>
+          <div class="row-desc" id="storageTarget">—</div>
+        </div>
+        <div class="row" id="rowPerm" hidden>
+          <div class="row-main">
+            <div class="row-label">还没有存储权限</div>
+            <div class="row-desc">此时写进应用私有目录（卸载即删）</div>
+          </div>
+          <button class="btn small" id="btnPerm">授予</button>
         </div>
         <div class="row">
           <div class="row-main">
-            <div class="row-label">转写文本</div>
-            <div class="row-desc">只读取：录音目录 + /sdcard/年.月 与 sogou/md</div>
+            <div class="row-label">日期文件夹</div>
+            <div class="row-desc">自动按 年.月 建子目录</div>
           </div>
-          <div class="row-value">自动</div>
+          <div class="row-value" id="dateDir">—</div>
         </div>
       </div>
 
@@ -496,23 +522,9 @@ a:focus,button:focus,input:focus,select:focus,textarea:focus{outline:none;}
         </div>
       </div>
 
-      <div class="group">
-        <div class="group-title">转录监控</div>
-        <div class="row">
-          <div class="row-main">
-            <div class="row-label">厂商日志</div>
-            <div class="row-desc" id="monDir">/sdcard/sogou/log/app</div>
-          </div>
-          <div class="row-value" id="monSessions">—</div>
-        </div>
-        <div class="row">
-          <div class="row-main">
-            <div class="row-label">上次扫描</div>
-            <div class="row-desc" id="monInfo">尚未扫描</div>
-          </div>
-          <div class="row-value" id="monSentences">—</div>
-        </div>
-        <button class="btn block" id="btnScanLogs">立即扫描并导入</button>
+      <div class="group" id="groupSources" style="display:none">
+        <div class="group-title">外部来源</div>
+        <div id="sourceList"></div>
       </div>
 
       <div class="group">
@@ -571,7 +583,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
    装到设备上之后，列表、音频、录音、用户态全部来自 Java 侧。 */
 const NATIVE = (typeof window.voxnote !== 'undefined' && window.voxnote) ? window.voxnote : null;
 let nativeStats = null;
-let nativeMonitor = null;
+let nativeSources = [];
+let nativeStorage = null;
 
 function jcall(name, ...args) {
   try { return NATIVE[name](...args); } catch (e) { console.error('bridge:' + name, e); return null; }
@@ -584,12 +597,12 @@ function savePatch(it, patch) {
   if (!NATIVE) return;
   jcall('patch', String(it.id), JSON.stringify(patch));
 }
-function configureNative() {
-  if (!NATIVE) return;
-  jcall('configure', JSON.stringify(settings));
-}
 const MODE_LABEL = { meeting: '会议', memo: '备忘', interview: '采访', shorthand: '速记', news: '新闻', general: '通用', rec: '录音' };
 const modeLabel = m => MODE_LABEL[(m || '').toLowerCase()] || '';
+const sourceLabel = id => {
+  const s = (nativeSources || []).find(x => x && x.id === id);
+  return (s && s.label) || '导入';
+};
 
 /* ==================== 设置 ==================== */
 const LS_KEY = 's1rec.v5';
@@ -601,7 +614,6 @@ const DEFAULTS = {
   apiKey: '',
   model: 'whisper-1',
   lang: 'zh',
-  recordDir: '/sdcard/s1rec/records',
   keyMode: 'none',
   keyBinding: null,
   markKey: ' ',
@@ -637,7 +649,6 @@ function loadSettings() {
 let settings = loadSettings();
 function saveSettings() {
   try { localStorage.setItem(LS_KEY, JSON.stringify(settings)); } catch (e) {}
-  configureNative();
 }
 
 /* ==================== 语料 ==================== */
@@ -752,7 +763,8 @@ function initialLoad() {
 /* 拉一次真实数据并重绘。 */
 function hydrate(res, first) {
   nativeStats = (res && res.stats) || nativeStats;
-  nativeMonitor = (res && res.monitor) || nativeMonitor;
+  nativeSources = (res && res.sources) || nativeSources;
+  nativeStorage = (res && res.storage) || nativeStorage;
   const list = (res && res.items) || [];
   items = list.map(normalizeItem);
   loadedOffset = 9999;
@@ -760,7 +772,8 @@ function hydrate(res, first) {
   renderFilters();
   renderList();
   renderStats();
-  renderMonitorUI();
+  renderSourcesUI();
+  renderStorageUI();
   if (first) switchView('record');
 }
 
@@ -787,7 +800,9 @@ function normalizeItem(raw) {
   it.status = it.status || 'empty';
   it.mode = it.mode || '';
   it.audioPath = it.audioPath || null;
-  it.mdPath = it.mdPath || null;
+  it.audioUri = it.audioUri || null;
+  it.mdUri = it.mdUri || null;
+  it.fromSource = it.fromSource || null;
   return it;
 }
 
@@ -820,23 +835,75 @@ function renderStats() {
   el.textContent = `${s.total | 0} 场 · ${s.done | 0} 已转写 · ${s.sentences | 0} 句` + at;
 }
 
-/* 转录监控（旧 Magisk 模块内核）在 App 里的状态 */
-function renderMonitorUI() {
-  const m = nativeMonitor;
-  const dir = $('#monDir');
-  const ss = $('#monSessions');
-  const sn = $('#monSentences');
-  const si = $('#monInfo');
-  if (!m) { if (si) si.textContent = NATIVE ? '尚未扫描' : '仅设备可用'; return; }
-  if (dir) dir.textContent = m.dir || '/sdcard/sogou/log/app';
-  if (ss) ss.textContent = `${m.sessions | 0} 场`;
-  if (sn) sn.textContent = `${m.sentences | 0} 句`;
-  if (!si) return;
-  if (m.error) { si.textContent = '⚠️ ' + m.error; return; }
-  if (m.available === false) { si.textContent = '读不到日志目录（未装厂商 App？）'; return; }
-  const t = m.lastRunAt ? new Date(m.lastRunAt) : null;
-  const at = t ? `${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())}` : '—';
-  si.textContent = `${at} 扫描${m.wrote ? ' · 已写出 sessions/' : ''}${m.new ? ` · 新增 ${m.new} 场` : ''}`;
+/* 外部来源：由 Java 侧的插件提供，没有可用来源就整组隐藏 */
+function renderSourcesUI() {
+  const box = $('#sourceList');
+  const grp = $('#groupSources');
+  if (!box || !grp) return;
+  const list = (nativeSources || []).filter(s => s && s.available !== false);
+  if (!NATIVE || !list.length) { grp.style.display = 'none'; return; }
+  grp.style.display = '';
+  box.innerHTML = list.map(s => {
+    const t = s.lastRunAt ? new Date(s.lastRunAt) : null;
+    const at = t ? `${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())} 扫描` : '尚未扫描';
+    const line = s.error ? ('⚠️ ' + s.error)
+      : `${at}${s.wrote ? ' · 已导出' : ''}${s.new ? ` · 新增 ${s.new} 场` : ''}`;
+    return `<div class="row">
+      <div class="row-main">
+        <div class="row-label">${esc(s.label || s.id)}</div>
+        <div class="row-desc">${esc(s.dir || '')}</div>
+        <div class="row-desc">${esc(line)}</div>
+      </div>
+      <div class="row-value">${s.sessions | 0} 场 / ${s.sentences | 0} 句</div>
+    </div>
+    <button class="btn block" data-scan="${esc(s.id)}">扫描并导入</button>`;
+  }).join('');
+
+  $$('#sourceList [data-scan]').forEach(b => {
+    b.addEventListener('click', () => {
+      const id = b.dataset.scan;
+      b.disabled = true;
+      const res = jparse(jcall('scanSources', id), null);
+      b.disabled = false;
+      if (!res) { toast('扫描失败'); return; }
+      hydrate(res);
+      let msg = '已导入';
+      (res.sources || []).forEach(x => {
+        if (x && x.id === id) msg = `已导入 ${x.sessions | 0} 场 / ${x.sentences | 0} 句`;
+      });
+      toast(msg);
+    });
+  });
+}
+
+/* 存储位置：公共 / 自定义（SAF）/ 应用私有，随时能切 */
+function renderStorageUI() {
+  const s = nativeStorage;
+  if (!s) return;
+  const sel = $('#selStorage');
+  if (sel && document.activeElement !== sel) sel.value = s.mode || 'public';
+  const sub = $('#setPublicSub');
+  if (sub && document.activeElement !== sub) sub.value = s.publicSub || '';
+  const saf = $('#safLabel');
+  if (saf) saf.textContent = s.safTree ? s.safTree : '未选择';
+  const tg = $('#storageTarget');
+  if (tg) tg.textContent = s.target || '';
+  const dd = $('#dateDir');
+  if (dd) dd.textContent = s.dateDir || '';
+  const perm = $('#rowPerm');
+  if (perm) perm.hidden = !s.needPermission;
+  const rps = $('#rowPublicSub');
+  if (rps) rps.style.display = (s.mode === 'public') ? '' : 'none';
+  const rs = $('#rowSaf');
+  if (rs) rs.style.display = (s.mode === 'saf') ? '' : 'none';
+}
+
+function applyStorage(mode) {
+  if (!NATIVE) return;
+  const sub = ($('#setPublicSub') && $('#setPublicSub').value) || '';
+  const res = jparse(jcall('setStorage', mode || ($('#selStorage') && $('#selStorage').value) || 'public', sub), null);
+  if (res) { nativeStorage = res; renderStorageUI(); }
+  rescan(false);
 }
 
 /* ==================== 状态 ==================== */
@@ -905,8 +972,8 @@ function rowHTML(it) {
   if (it.cat) meta.push(`<span class="tag cat">${esc(catName(it.cat))}</span>`);
   if (it.marks && it.marks.length) meta.push(`<span class="tag mark">${it.marks.length} 标记</span>`);
   if (modeLabel(it.mode)) meta.push(`<span class="tag">${esc(modeLabel(it.mode))}</span>`);
-  if (it.fromLog) meta.push(`<span class="tag src">日志</span>`);
-  else if (!it.audioPath) meta.push(`<span class="tag src">仅文稿</span>`);
+  if (it.fromSource) meta.push(`<span class="tag src">${esc(sourceLabel(it.fromSource))}</span>`);
+  else if (!it.audioPath && !it.audioUri) meta.push(`<span class="tag src">仅文稿</span>`);
 
   const todosHTML = (showSummary && it.todos.length)
     ? `<div class="card-todos">${it.todos.map(t => `<div class="card-todo">${esc(t)}</div>`).join('')}</div>`
@@ -1242,12 +1309,12 @@ function renderDetail() {
       <span class="d-auto">点击句子跳转</span>
     </div>
     <div class="d-segs" id="dSegs"></div>
-    ${it.mdPath ? `<div class="d-save-tip">文稿 ${esc(it.mdPath)}</div>` : ''}
-    ${it.audioPath ? `<div class="d-save-tip">音频 ${esc(it.audioPath)}</div>` : ''}
+    ${(it.mdPath || it.mdUri) ? `<div class="d-save-tip">文稿 ${esc(it.mdPath || it.mdUri)}</div>` : ''}
+    ${(it.audioPath || it.audioUri) ? `<div class="d-save-tip">音频 ${esc(it.audioPath || it.audioUri)}</div>` : ''}
   `;
 
   $('#dPlay').addEventListener('click', togglePlay);
-  if (!it.audioPath) { const pb = $('#dPlay'); if (pb) pb.disabled = true; }
+  if (!it.audioPath && !it.audioUri) { const pb = $('#dPlay'); if (pb) pb.disabled = true; }
   $('#dMark').addEventListener('click', addMark);
   $('#dCatChip').addEventListener('click', () => pickCategoryFor(it));
   $('#dMarks').addEventListener('click', e => {
@@ -1369,8 +1436,8 @@ function startPlay() {
   if (markBtn) markBtn.disabled = false;
 
   if (NATIVE) {
-    if (!it.audioPath) { toast('这场没有录音文件'); stopPlay(); return; }
-    if (!jcall('open', it.audioPath)) { toast('打不开录音文件'); stopPlay(); return; }
+    if (!it.audioPath && !it.audioUri) { toast('这场没有录音文件'); stopPlay(); return; }
+    if (!jcall('open', it.audioPath || '', it.audioUri || '')) { toast('打不开录音文件'); stopPlay(); return; }
     const nd = jcall('duration') | 0;
     if (nd > 0) playTotal = nd;
     if (playPos >= playTotal) playPos = 0;
@@ -1999,6 +2066,34 @@ function bindInput(sel, key) {
   el.addEventListener('input', () => { settings[key] = el.value; saveSettings(); });
 }
 
+function bindStorageUI() {
+  const sel = $('#selStorage');
+  if (sel) sel.addEventListener('change', () => applyStorage(sel.value));
+
+  const sub = $('#setPublicSub');
+  if (sub) sub.addEventListener('change', () => applyStorage('public'));
+
+  const pick = $('#btnPickSaf');
+  if (pick) pick.addEventListener('click', () => {
+    if (!NATIVE) return;
+    jcall('pickSafDir');
+    toast('选一个文件夹，返回后自动切换');
+  });
+
+  const clr = $('#btnClearSaf');
+  if (clr) clr.addEventListener('click', () => {
+    if (!NATIVE) return;
+    jcall('clearSafTree');
+    applyStorage('public');
+    toast('已清除自定义目录');
+  });
+
+  const perm = $('#btnPerm');
+  if (perm) perm.addEventListener('click', () => {
+    if (NATIVE) jcall('requestStoragePerms');
+  });
+}
+
 function bindSettingsUI() {
   const sf = $('#setShowFirstLine');
   sf.checked = !!settings.showFirstLine;
@@ -2019,7 +2114,7 @@ function bindSettingsUI() {
   bindInput('#setApiUrl', 'apiUrl');
   bindInput('#setApiKey', 'apiKey');
   bindInput('#setModel', 'model');
-  bindInput('#setRecordDir', 'recordDir');
+  bindStorageUI();
 
   refreshCatSelects();
   renderCatList();
@@ -2044,14 +2139,7 @@ function bindSettingsUI() {
 
   $$('[data-pick]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const key = btn.dataset.pick;
-      const presets = ['/sdcard/s1rec/records', '/storage/emulated/0', '/sdcard/Record', '/storage/emulated/0/sogou/records'];
-      const v = await pickModal('选择目录', presets.map(p => ({ value: p, label: p, mono: true })));
-      if (v) {
-        settings[key] = v; saveSettings();
-        $('#setRecordDir').value = v;
-        toast('已切换目录');
-      }
+      toast('存储位置请在「存储位置」里选');
     });
   });
 
@@ -2200,24 +2288,21 @@ if (sortBtn) sortBtn.addEventListener('click', () => {
 });
 
 if (NATIVE) {
-  configureNative();
   const av = $('#aboutVersion');
-  if (av) av.textContent = 'v' + (jcall('version') || '1.4');
+  if (av) av.textContent = 'v' + (jcall('version') || '2.0');
   const ad = $('#aboutDir');
-  if (ad) ad.textContent = (nativeStats && nativeStats.roots && nativeStats.roots[0]) || 's1rec/';
+  if (ad) ad.textContent = (nativeStorage && nativeStorage.target) || '—';
   const rs = $('#btnRescan');
   if (rs) rs.addEventListener('click', () => rescan(true));
-  const sl = $('#btnScanLogs');
-  if (sl) sl.addEventListener('click', () => {
-    sl.disabled = true;
-    const res = jparse(jcall('scanLogs'), null);
-    sl.disabled = false;
-    if (!res || res.ok === false) { toast((res && res.message) || '扫描失败'); return; }
-    hydrate(res);
-    const m = (res && res.monitor) || {};
-    toast(`已导入日志：${m.sessions | 0} 场 / ${m.sentences | 0} 句`);
-  });
 }
+
+/* 用户从系统文件选择器回来后，重新拉一次存储位置与列表 */
+window.__onStorageChanged = () => {
+  if (!NATIVE) return;
+  const res = jparse(jcall('refresh'), null);
+  if (res) hydrate(res);
+  toast('已切换存储位置');
+};
 
 /* 从后台回来重扫一次：厂商刚录完的东西能立刻出现 */
 window.__onResume = () => {

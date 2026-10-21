@@ -17,18 +17,24 @@
 
 | 能力 | 状态 |
 | --- | --- |
-| 录音目录扫描（`/sdcard/<年.月>/*.wav` + 旁车 `*.md`，以及 `sogou/md/` 镜像） | ✅ 可用 |
+| 自录（`MediaRecorder` 16 kHz 单声道 AAC） | ✅ 可用 |
+| 录音位置可选：公共目录 / 自定义目录（SAF）/ 应用私有目录 | ✅ 可用（无权限自动落私有） |
+| 按 `年.月` 自动建日期文件夹 | ✅ 可用 |
 | 卡片列表 + 搜索 + 分类筛选 + 左/右滑归类 | ✅ 可用 |
 | 详情：逐句文稿、播放/拖动、打点、改名、分类 | ✅ 可用 |
-| 用户态落盘（`/sdcard/s1rec/app-state.json`，机器派生不覆盖人工） | ✅ 可用 |
-| 自录（`MediaRecorder` 16 kHz 单声道 AAC，落盘即出现在列表） | ✅ 可用 |
-| 厂商日志导入（会话 / 逐句 / 摘要 / 错误 / 音频挂接） | ✅ 已接（设置 → 转录监控；卡片带「日志」标记） |
+| 用户态落盘（应用私有 `app-state.json`，机器派生不覆盖人工） | ✅ 可用 |
+| 兼容 targetSdk 34（分区存储）+ 老系统（≤28 遗留路径） | ✅ 编译/装机通过；29+ 分支按规范实现，**未真机验证** |
+| 外部来源插件：厂商日志导入（会话 / 逐句 / 摘要 / 音频挂接） | ✅ 可用（设备定制，可整体拆除） |
 | 可插拔转写引擎 | ⬜ 未开始（"转文字"当前如实提示未接入） |
-| 编辑层（`edits.jsonl` 追加层） | ⬜ 部分：改名/分类/标记已落 app-state，尚未做追加式编辑流 |
+| 编辑层（`edits.jsonl` 追加层） | ⬜ 部分：改名/分类/标记已落 app-state |
 | 同步 / 自动化 | ⬜ 未开始 |
 
 界面是你给的原型（`deepseek_html_*.html`）的移植：**H5 负责观感与手势，Java 负责文件与媒体**，
 两边通过 `window.voxnote` 桥接，详见 [docs/APP.md](docs/APP.md)。
+
+**分层原则**：核心（录音 / 存储 / 阅读 / 编辑）不认识任何具体设备；凡是为某台机器定制的
+导入，都做成 `dev.voxnote.plugin.*` 下的插件，核心只依赖 `ContentSource` 接口。
+把 `android/src/dev/voxnote/plugin/` 整个目录删掉，App 照常编译、照常运行，只是没有"外部来源"。
 
 
 ## 架构一句话
@@ -44,9 +50,10 @@
 ```
 android/            安卓应用（当前为无 Gradle 的最小构建链）
   assets/index.html     原型移植后的界面（真实数据由 JS 桥驱动）
-  src/dev/voxnote/      MainActivity（WebView 宿主）/ Bridge / Library / MdParser /
-                        Player / Recorder / State
-  src/dev/voxnote/reader/ 日志导入内核（LogParser / Store / Session），待接入 UI
+  src/dev/voxnote/      核心：MainActivity（WebView 宿主）/ Bridge / Storage / Library /
+                        MdParser / Player / Recorder / State / ContentSource / Plugins
+  src/dev/voxnote/plugin/sogou/
+                        设备定制插件：厂商日志与月目录导入（可整个删掉）
 docs/               需求、架构、数据契约、App 实现说明
 tools/              工具链获取脚本
 ```
@@ -59,17 +66,21 @@ tools/              工具链获取脚本
 pwsh -NoProfile -File tools/fetch_toolchain.ps1 -Proxy http://127.0.0.1:10808
 ```
 
-然后构建 / 安装（已有工具链时可用 `$env:VOXNOTE_TOOLCHAIN` 或 `-Toolchain` 指过去）：
+然后构建 / 安装（已有工具链时用 `-Toolchain` 指 JDK、`-Sdk` 指 build-tools/platforms）：
 
 ```powershell
-pwsh -NoProfile -File android/build.ps1            # 只出 APK
-pwsh -NoProfile -File android/build.ps1 -Install   # 出包 + adb install + 拉起
+pwsh -NoProfile -File android/build.ps1 -Toolchain <jdk根> -Sdk <android-sdk根>
+pwsh -NoProfile -File android/build.ps1 -Toolchain <jdk根> -Sdk <android-sdk根> -Install
 ```
 
 构建链是 `javac → d8 → aapt2 → zipalign → apksigner`，不依赖 Gradle 与网络；
 `aapt2 link -A assets` 负责把 H5 打进包里。签名用 `android/debug.keystore`（首次自动生成，
 位置在 build 目录之外，所以反复构建不会换签名、能覆盖安装）。
-迁移到 Gradle/AGP 时，`android/src`、`android/assets` 与 `AndroidManifest.xml` 可原样沿用。
+`-Sdk` 目录里有多个 platform 时自动挑 API 最高的 `android.jar`（当前 API 36），
+`targetSdk` 由 `build.ps1` 里的 `$TargetSdk` 控制（现为 34），`minSdk` 为 27。
+
+> 直接拷 `android/` 到别的机器时，`-Toolchain` 与 `-Sdk` 也可以指向 `tools/fetch_toolchain.ps1`
+> 拉下来的同一套目录（那个脚本产出 `{jdk,build-tools,platforms}`，此时两个参数填同一个根即可）。
 
 ## 设备事实（S1 AI Recorder，实测）
 
