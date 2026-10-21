@@ -71,7 +71,7 @@ public class Picker implements Overlay {
                     ? Ui.pressable(Ui.rounded(9, Ui.SURFACE3, Ui.LINE2, 1), 0x22FFFFFF)
                     : Ui.pressable(Ui.rounded(9, Ui.SURFACE2, Ui.LINE, 1), 0x22FFFFFF));
             b.setGravity(Gravity.CENTER_VERTICAL);
-            Ui.pad(b, 12, 10, 12, 10);
+            Ui.pad(b, 12, 14, 12, 14);
             LinearLayout.LayoutParams p = Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
             p.bottomMargin = Ui.dp(6);
@@ -84,7 +84,7 @@ public class Picker implements Overlay {
             });
         }
         int maxH = (int) (Ui.screenHeight() * 0.46f);
-        int wanted = labels.length * Ui.dp(50) + Ui.dp(6);
+        int wanted = labels.length * Ui.dp(58) + Ui.dp(6);
         sc.setLayoutParams(Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, Math.min(maxH, wanted)));
         panel.addView(sc);
 

@@ -721,10 +721,10 @@ public class HomeActivity extends Activity implements Picker.Host {
         }
         recording = true;
         recStart = System.currentTimeMillis();
-        recTitle.setText("");
         recBtn.setRecording(true);
         recWave.setActive(true);
         recTimer.setText("00:00");
+        if (!"record".equals(tab)) switchTab("record");
         ui.post(recTimerTick);
         ui.post(recWaveTick);
     }
@@ -752,11 +752,21 @@ public class HomeActivity extends Activity implements Picker.Host {
                 data.patch(pendingStamp, p, null);
             } catch (Throwable ignore) { }
         }
+        final String stamp = pendingStamp;
         pendingStamp = null;
         pendingTitle = "";
-        toast("已保存 " + RecordVm.fmtDur(durSec) + (loc == null || loc.length() == 0 ? "" : ""));
+        recTitle.setText("");
+        toast("已保存 " + RecordVm.fmtDur(durSec));
         load(false, null, false);
         list.setSelection(0);
+        if (settings.autoTranscribe && stamp != null) {
+            ui.postDelayed(new Runnable() {
+                public void run() {
+                    RecordVm vm = findVm(stamp);
+                    if (vm != null) transcribe(vm);
+                }
+            }, 400);
+        }
     }
 
     // ------------------------------------------------------------ 权限 / 存储
@@ -791,7 +801,10 @@ public class HomeActivity extends Activity implements Picker.Host {
 
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
-        if (code == REQ_PERMS) load(false, null, false);
+        if (code == REQ_PERMS) {
+            load(false, null, false);
+            if (settingsPage != null) settingsPage.refresh();
+        }
     }
 
     public void pickSafDir() {
@@ -821,6 +834,7 @@ public class HomeActivity extends Activity implements Picker.Host {
         storage.setSafTree(uri.toString());
         storage.setMode(Storage.MODE_SAF);
         toast("已切换自定义目录");
+        if (settingsPage != null) settingsPage.refresh();
         load(false, null, false);
     }
 
