@@ -850,6 +850,7 @@ function catName(id) {
 }
 function isVisible(it) {
   if (filterCat === 'all') return true;
+  if (filterCat === '@failed') return it.status === 'failed';
   if (filterCat === 'none') return !it.cat;
   return it.cat === filterCat;
 }
@@ -942,13 +943,22 @@ function renderSortBtn() {
 }
 
 function renderFilters() {
-  const chips = [{ id: 'all', name: '全部' }, { id: 'none', name: '未分类' }];
+  const chips = [
+    { id: 'all', name: '全部' },
+    { id: '@failed', name: '转写失败' },
+    { id: 'none', name: '未分类' },
+  ];
   settings.categories.forEach(c => chips.push({ id: c.id, name: c.name }));
   const total = items.length;
   const noneCount = items.filter(it => !it.cat).length;
+  const failCount = items.filter(it => it.status === 'failed').length;
 
   $('#filters').innerHTML = chips.map(c => {
-    let cnt = c.id === 'all' ? total : (c.id === 'none' ? noneCount : items.filter(it => it.cat === c.id).length);
+    let cnt;
+    if (c.id === 'all') cnt = total;
+    else if (c.id === '@failed') cnt = failCount;
+    else if (c.id === 'none') cnt = noneCount;
+    else cnt = items.filter(it => it.cat === c.id).length;
     return `<button class="chip ${filterCat === c.id ? 'active' : ''}" data-cat="${c.id}">
       ${esc(c.name)}<span class="cnt">${cnt}</span>
     </button>`;
@@ -976,7 +986,8 @@ function renderList() {
   });
 
   $('#emptyState').hidden = list.length > 0;
-  $('#emptyState').textContent = searchQ ? '没有匹配的录音' : '该分类下还没有录音';
+  $('#emptyState').textContent = searchQ ? '没有匹配的录音'
+    : (filterCat === '@failed' ? '没有转写失败的录音' : '该分类下还没有录音');
 
   $('#view-record').scrollTop = scroll;
   if (window.__stickyApply) window.__stickyApply();
