@@ -88,7 +88,7 @@ $base = "$build\base.apk"
 & $aapt2 link -o $base --manifest "$here\AndroidManifest.xml" -I $androidJar `
     --min-sdk-version $MinSdk --target-sdk-version $TargetSdk `
     -A "$here\assets" `
-    --version-code 3 --version-name 2.0
+    --version-code 4 --version-name 3.0
 if ($LASTEXITCODE -ne 0) { throw "aapt2 失败" }
 
 Write-Output '--- 4/5 打包 dex ---'
