@@ -60,14 +60,20 @@ body.recording .rec-btn-inner{width:20px;height:20px;border-radius:6px;}
    改由 JS 在滚动时把它钉在顶部（见 initSticky），这里只留视觉样式。 */
 .sticky-bar{position:relative;z-index:5;background:var(--bg);
   margin:0 -10px;padding:6px 10px 0;}
-.search-wrap{padding:0 0 6px;}
+.search-wrap{position:relative;padding:0 0 6px;}
 .search-input{width:100%;background:var(--surface2);border:1px solid var(--line);border-radius:9px;
-  color:var(--text);font-size:12.5px;padding:7px 10px 7px 30px;outline:none;font-family:inherit;
+  color:var(--text);font-size:12.5px;padding:7px 34px 7px 30px;outline:none;font-family:inherit;
   background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%235b5f68' stroke-width='2' stroke-linecap='round'><circle cx='11' cy='11' r='7'/><path d='M20 20l-3.5-3.5'/></svg>");
   background-repeat:no-repeat;background-position:9px center;background-size:14px;
   transition:border-color .16s;}
 .search-input:focus{border-color:var(--line2);}
 .search-input::placeholder{color:var(--faint);}
+.search-clear{position:absolute;right:7px;top:6px;width:20px;height:20px;padding:0;
+  border:none;border-radius:50%;background:var(--surface3);color:var(--dim);
+  font-size:11px;line-height:20px;text-align:center;font-family:inherit;
+  cursor:pointer;display:none;-webkit-appearance:none;outline:none;}
+.search-clear.show{display:block;}
+.search-clear:active{background:var(--line2);color:var(--text);}
 
 .filters{display:flex;gap:6px;overflow-x:auto;padding:0 0 8px;scrollbar-width:none;}
 .filters::-webkit-scrollbar{display:none;}
@@ -361,6 +367,7 @@ a:focus,button:focus,input:focus,select:focus,textarea:focus{outline:none;}
       <div class="sticky-bar">
         <div class="search-wrap">
           <input class="search-input" id="searchInput" placeholder="搜索标题、摘要、转写全文">
+          <button class="search-clear" id="searchClear" aria-label="清空搜索">✕</button>
         </div>
         <div class="srcbar">
           <span id="srcText">正在扫描…</span>
@@ -2032,6 +2039,7 @@ function bindSettingsUI() {
   $('#btnReset').addEventListener('click', () => {
     settings = clone(DEFAULTS); filterCat = 'all'; searchQ = '';
     $('#searchInput').value = '';
+    syncSearchClear();
     saveSettings(); capturing = false;
     items.forEach(it => { it.cat = null; });
     bindSettingsUI(); renderFilters(); renderList();
@@ -2041,10 +2049,32 @@ function bindSettingsUI() {
 
 /* ==================== 全局事件 ==================== */
 let searchTimer = null;
+
+function syncSearchClear() {
+  const inp = $('#searchInput');
+  const btn = $('#searchClear');
+  if (!inp || !btn) return;
+  btn.classList.toggle('show', inp.value.length > 0);
+}
+
 $('#searchInput').addEventListener('input', e => {
+  syncSearchClear();
   clearTimeout(searchTimer);
   const v = e.target.value;
   searchTimer = setTimeout(() => { searchQ = v.trim(); renderList(); }, 200);
+});
+
+$('#searchClear').addEventListener('click', () => {
+  const inp = $('#searchInput');
+  inp.value = '';
+  syncSearchClear();
+  clearTimeout(searchTimer);
+  searchQ = '';
+  renderList();
+  const v = $('#view-record');
+  if (v) v.scrollTop = 0;
+  // 清空是"回到全量列表"，不该顺手把键盘弹起来
+  inp.blur();
 });
 
 $('#filters').addEventListener('click', e => {
