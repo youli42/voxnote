@@ -75,11 +75,26 @@ android/src/dev/s1rec/
 | `pointerdown/move/up` | 触摸屏上收不到 | 有 `ontouchstart` 时走 touch 事件，否则走鼠标 |
 | `placeholder:center`、`place-items` | 部分不支持 | `.rec-btn` 用 flex 居中 |
 
-## 5. 已知限制 / 下一步
+## 5. 转录监控（旧 Magisk 模块内核）
 
-- **没有转写后端**：卡片上的"转文字/重新转写"只会如实提示未接入；
-  接入点就在 `Bridge.transcribe`。
-- **厂商日志未接 UI**：`reader/` 里的 `LogParser` + `Store` 仍可编译、仍能写出
-  `/sdcard/s1rec/sessions/`，但列表暂时只读文件；`feat/log-monitor` 分支做这件事。
+`android/src/dev/s1rec/reader/` 里的 `LogParser` + `Store` 是旧模块"常驻 shell 守护 + 定时轮询
+日志"的内核，现在由 `LogMonitor` 在 App 里直接调用，不再需要那个守护进程：
+
+- `Bridge.refresh()` 顺手跑一次（一分钟内复用上次结果，所以切回 App 不会反复重读 3 MB 日志）；
+- 设置页「转录监控」可手动 `立即扫描并导入`（强制重扫 + 重写 `/sdcard/s1rec/sessions/`）；
+- 结果并进同一张卡片列表：同一时间戳的场次补正文、补摘要、补会话号，
+  只有日志没有音频的场次也会作为卡片出现，并带「日志」标签；
+- 卡片上的「转写 / 重写转写」走的也是这里：立刻重扫日志，有内容就报"已导入 N 句"，
+  没有就如实说"日志里没有这场的内容"。
+
+`startMs <= 0` 的会话（只有 summary 回写、没有引擎创建锚点）不参与合并——
+它们既对不上录音文件，也会在 `sessions/` 下产出 1970 目录。
+
+## 6. 已知限制 / 下一步
+
+- **没有转写后端**：卡片上的「转文字」只会触发日志重扫并如实报告结果；
+  接自建 API / 本地模型时，改的就是 `Bridge.transcribe`。
 - **录音无暂停/波形存档**：只有开始/停止，波形是实时电平。
 - **列表是全量扫描**：几十场没问题，上到几千场需要加索引（`DATA-CONTRACT` 里预留过）。
+- **冻结搜索区是 JS 兜底**：本机 Chromium 59 的 `position:sticky` 不可靠，
+  用滚动时改绝对定位实现，效果等价但不是原生 sticky。

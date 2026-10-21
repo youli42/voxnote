@@ -2,6 +2,8 @@ package dev.s1rec;
 
 import android.media.MediaMetadataRetriever;
 
+import dev.s1rec.reader.Session;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -48,6 +50,7 @@ public class Library {
 
     private final State state;
     private String recordDir;
+    private List<Session> logSessions;
     private String lastError = "";
     private int fileCount;
     private final List<String> roots = new ArrayList<String>();
@@ -59,6 +62,11 @@ public class Library {
 
     public void setRecordDir(String dir) {
         this.recordDir = dir;
+    }
+
+    /** 转录监控扫出来的场次，合并进同一张列表。 */
+    public void setLogSessions(List<Session> sessions) {
+        this.logSessions = sessions;
     }
 
     public String error() {
@@ -144,6 +152,7 @@ public class Library {
         }
 
         for (int i = 0; i < dirs.size(); i++) scanDir(dirs.get(i), map, 0);
+        mergeLog(map);
 
         List<Item> out = new ArrayList<Item>();
         for (Item it : map.values()) {
@@ -253,6 +262,43 @@ public class Library {
             }
         }
         if (it.startMs <= 0) it.startMs = System.currentTimeMillis();
+    }
+
+    /**
+     * 把转录监控的场次合进文件扫描结果。
+     *
+     * 同一场录音三种来源的优先级：文件里的 md 正文（已成形、带标题）> 日志逐句 > 无。
+     * 日志只做两件事：给没正文的场次补正文，给没有音频文件的场次建卡片。
+     */
+    private void mergeLog(Map<String, Item> map) {
+        if (logSessions == null || logSessions.isEmpty()) return;
+        for (int i = 0; i < logSessions.size(); i++) {
+            Session s = logSessions.get(i);
+            if (s.startMs <= 0) continue;
+            String key = keyOf(s.startMs);
+            Item it = map.get(key);
+            if (it == null) {
+                it = new Item();
+                it.id = key;
+                it.startMs = s.startMs;
+                it.source = "log";
+                map.put(key, it);
+            }
+            if (it.sid == 0) it.sid = s.sid;
+            if (it.durMs <= 0) it.durMs = s.durationMs();
+            if (it.mode.length() == 0 && s.mode != null) it.mode = s.mode;
+            if (it.summary.length() == 0 && s.summary != null) it.summary = s.summary;
+            if (it.errorCount == 0) it.errorCount = s.errorCount;
+            if (it.audioPath == null && LogMonitor.exists(s.wavPath)) it.audioPath = s.wavPath;
+            if (it.segs.isEmpty() && s.finalCount() > 0) LogMonitor.appendSegments(it, s);
+            it.fromLog = true;
+        }
+    }
+
+    private static String keyOf(long ms) {
+        synchronized (KEY_FMT) {
+            return KEY_FMT.format(new Date(ms));
+        }
     }
 
     private static String summarize(List<Item.Seg> segs) {
