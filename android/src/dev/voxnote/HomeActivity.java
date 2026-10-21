@@ -382,6 +382,7 @@ public class HomeActivity extends Activity implements Picker.Host {
         }
 
         public void onCategoryDeleted(String catId) {
+            if (catId != null && catId.equals(filterCat)) filterCat = "all";
             data.clearCat(catId, new DataCenter.DoneCallback() {
                 public void onDone() {
                     load(false, null, false);
@@ -862,6 +863,8 @@ public class HomeActivity extends Activity implements Picker.Host {
             toast("已绑定：" + label);
             return true;
         }
+        // 正在输入（标题/搜索/API Key…）时，空格与音量键都该归输入法/系统
+        if (isTextFocused()) return super.onKeyDown(keyCode, event);
         if (detail != null && detail.isOpen() && matchesMarkKey(keyCode) && detail.triggerMark()) {
             return true;
         }
@@ -948,6 +951,9 @@ public class HomeActivity extends Activity implements Picker.Host {
         } catch (Throwable ignore) { }
         try {
             player.release();
+        } catch (Throwable ignore) { }
+        try {
+            data.shutdown();
         } catch (Throwable ignore) { }
         ui.removeCallbacksAndMessages(null);
         super.onDestroy();

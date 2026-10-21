@@ -61,6 +61,12 @@ public class LegacySettingsImporter {
                         public void run() {
                             if (done[0]) return;
                             done[0] = true;
+                            if (act.isFinishing() || (android.os.Build.VERSION.SDK_INT >= 17 && act.isDestroyed())) {
+                                // Activity 没了：不落标记，下次启动再迁
+                                try { ((ViewGroup) w.getParent()).removeView(w); } catch (Throwable ignore) { }
+                                try { w.destroy(); } catch (Throwable ignore) { }
+                                return;
+                            }
                             boolean imported = settings.importLegacy(json);
                             settings.markLegacyImported();
                             Log.i(TAG, imported ? "imported legacy ui settings" : "legacy settings empty");
@@ -78,11 +84,14 @@ public class LegacySettingsImporter {
                 public void run() {
                     if (done[0]) return;
                     done[0] = true;
-                    // 页面没回来（WebView 挂了/被系统禁用）：也要落标记，别每次启动都卡一下。
-                    settings.markLegacyImported();
-                    Log.w(TAG, "legacy export timed out");
                     try { ((ViewGroup) w.getParent()).removeView(w); } catch (Throwable ignore) { }
                     try { w.destroy(); } catch (Throwable ignore) { }
+                    if (act.isFinishing() || (android.os.Build.VERSION.SDK_INT >= 17 && act.isDestroyed())) {
+                        return;   // 下次启动再试，别把“没读到”当成已迁移
+                    }
+                    // 页面没回来（WebView 挂了/被系统禁用）：落标记，别每次启动都卡一下。
+                    settings.markLegacyImported();
+                    Log.w(TAG, "legacy export timed out");
                     cb.onDone(false);
                 }
             }, TIMEOUT_MS);

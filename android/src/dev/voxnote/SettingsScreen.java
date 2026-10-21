@@ -528,7 +528,9 @@ public class SettingsScreen {
             toast("至少保留一个分类");
             return;
         }
-        s.categories.remove(s.find(id));
+        UiSettings.Cat cat = s.find(id);
+        if (cat == null) return;
+        s.categories.remove(cat);
         if (id.equals(s.swipeRightCat)) s.swipeRightCat = s.categories.get(0).id;
         if (id.equals(s.swipeLeftCat)) {
             s.swipeLeftCat = s.categories.get(Math.min(1, s.categories.size() - 1)).id;

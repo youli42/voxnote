@@ -157,7 +157,10 @@ public class UiSettings {
                 .apply();
     }
 
-    /** 恢复默认设置（保留已迁移标记，避免下次启动又导一遍旧数据）。 */
+    /**
+     * 恢复界面默认值。**不动分类**：分类与滑动映射是用户手写的东西，
+     * 一次“恢复默认”把它们删掉会连带所有记录的归类失效（旧 H5 就是这么丢的）。
+     */
     public void resetDefaults() {
         showFirstLine = true;
         autoTranscribe = false;
@@ -171,7 +174,7 @@ public class UiSettings {
         keyBindingLabel = "";
         markKey = " ";
         sortDesc = true;
-        seedDefaults();
+        normalize();
         save();
     }
 

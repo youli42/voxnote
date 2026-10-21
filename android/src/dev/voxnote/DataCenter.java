@@ -71,6 +71,14 @@ public class DataCenter {
         return arr;
     }
 
+    /** Activity 销毁时停掉后台线程；未完成的任务随进程一起丢弃。 */
+    public void shutdown() {
+        try {
+            io.shutdownNow();
+        } catch (Throwable ignore) { }
+        ui.removeCallbacksAndMessages(null);
+    }
+
     /** forceAll=true 时让插件忽略缓存重扫；onlySourceId 限定只强刷某个来源。 */
     public void load(final boolean forceAll, final String onlySourceId, final LoadCallback cb) {
         io.execute(new Runnable() {
