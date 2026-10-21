@@ -45,7 +45,7 @@ import java.util.List;
  *   - 搜索/筛选条固定在顶部（旧版是滚动到顶后才钉住）；功能一致、实现更稳；
  *   - 不再有“无限加载占位”，ListView 自己回收视图。
  */
-public class HomeActivity extends Activity {
+public class HomeActivity extends Activity implements Picker.Host {
 
     private static final int REQ_PERMS = 7;
     private static final int REQ_TREE = 8;
@@ -83,6 +83,8 @@ public class HomeActivity extends Activity {
     private final ArrayList<RecordVm> all = new ArrayList<RecordVm>();
     private final ArrayList<RecordVm> shown = new ArrayList<RecordVm>();
     private final java.util.HashMap<String, String> sourceLabels = new java.util.HashMap<String, String>();
+    private final ArrayList<Overlay> overlays = new ArrayList<Overlay>();
+    private DetailSheet detail;
 
     private String filterCat = "all";
     private String searchQ = "";
@@ -136,6 +138,8 @@ public class HomeActivity extends Activity {
         } catch (Throwable ignore) { }
         content.setFocusableInTouchMode(true);
         content.requestFocus();
+
+        detail = new DetailSheet(this, player, data, settings, this, detailListener);
 
         LegacySettingsImporter.run(this, settings, new LegacySettingsImporter.Callback() {
             public void onDone(boolean imported) {
@@ -392,23 +396,32 @@ public class HomeActivity extends Activity {
                 loading = false;
                 refreshBtn.setEnabled(true);
                 loadedAt = System.currentTimeMillis();
-                all.clear();
-                all.addAll(r.items);
-                sourceLabels.clear();
-                sourceLabels.putAll(r.sourceLabels);
-
-                if (r.error != null && r.error.length() > 0) {
-                    statusText.setText("⚠️ " + r.error);
-                } else {
-                    String at = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
-                            .format(new java.util.Date(r.scannedAt));
-                    statusText.setText(r.total + " 场 · " + r.done + " 已转写 · "
-                            + r.sentences + " 句 · " + at + " 扫描");
-                }
-                applyFilter(true, keepPos, keepTop);
-                if (toastResult) toast("已扫描 " + r.total + " 场");
+                applyResult(r, true, keepPos, keepTop, toastResult);
             }
         });
+    }
+
+    private void applyResult(DataCenter.Result r, boolean keepScroll, int keepPos, int keepTop,
+                             boolean toastResult) {
+        all.clear();
+        all.addAll(r.items);
+        sourceLabels.clear();
+        sourceLabels.putAll(r.sourceLabels);
+
+        if (r.error != null && r.error.length() > 0) {
+            statusText.setText("⚠️ " + r.error);
+        } else {
+            String at = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+                    .format(new java.util.Date(r.scannedAt));
+            statusText.setText(r.total + " 场 · " + r.done + " 已转写 · "
+                    + r.sentences + " 句 · " + at + " 扫描");
+        }
+        applyFilter(keepScroll, keepPos, keepTop);
+        if (detail != null && detail.isOpen()) {
+            RecordVm cur = findVm(detail.id());
+            if (cur != null) detail.refresh(cur);
+        }
+        if (toastResult) toast("已扫描 " + r.total + " 场");
     }
 
     private void applyFilter(boolean keepScroll) {
@@ -556,29 +569,63 @@ public class HomeActivity extends Activity {
     }
 
     private void openDetail(RecordVm vm) {
-        toast("详情面板：下一步接入");
+        detail.open(vm);
+        pushOverlay(detail);
+    }
+
+    private final DetailSheet.Listener detailListener = new DetailSheet.Listener() {
+        public void onTitleChanged(RecordVm vm) {
+            adapter.notifyDataSetChanged();
+        }
+
+        public void onMetaChanged(RecordVm vm) {
+            adapter.notifyDataSetChanged();
+            rebuildFilters();
+        }
+
+        public void onTranscribe(RecordVm vm) {
+            transcribe(vm);
+        }
+    };
+
+    // ------------------------------------------------------------ Overlay 栈（返回键按顺序关）
+
+    public void pushOverlay(Overlay o) {
+        if (o != null && !overlays.contains(o)) overlays.add(o);
+    }
+
+    public void removeOverlay(Overlay o) {
+        overlays.remove(o);
     }
 
     private void transcribe(final RecordVm vm) {
         toast("转写：正在重扫外部来源…");
+        final int keepPos = list.getFirstVisiblePosition();
+        final View keep = list.getChildAt(0);
+        final int keepTop = keep == null ? 0 : keep.getTop();
         data.load(true, null, new DataCenter.LoadCallback() {
             public void onLoaded(DataCenter.Result r) {
-                for (int i = 0; i < r.items.size(); i++) {
-                    RecordVm x = r.items.get(i);
-                    if (x.id.equals(vm.id)) {
-                        if (!x.segs.isEmpty()) {
-                            toast("已从外部来源导入 " + x.segs.size() + " 句");
-                        } else {
-                            toast("外部来源里没有这场的内容（自录的录音只有声音，没有字）");
-                        }
-                        load(false, null, false);
-                        return;
+                applyResult(r, true, keepPos, keepTop, false);
+                RecordVm updated = findVm(vm.id);
+                if (updated != null) {
+                    if (!updated.segs.isEmpty()) {
+                        toast("已从外部来源导入 " + updated.segs.size() + " 句");
+                    } else {
+                        toast("外部来源里没有这场的内容（自录的录音只有声音，没有字）");
                     }
+                    if (detail.isOpen() && vm.id.equals(detail.id())) detail.refresh(updated);
+                } else {
+                    toast("外部来源里没有这场的内容");
                 }
-                toast("外部来源里没有这场的内容");
-                load(false, null, false);
             }
         });
+    }
+
+    private RecordVm findVm(String id) {
+        for (int i = 0; i < all.size(); i++) {
+            if (all.get(i).id.equals(id)) return all.get(i);
+        }
+        return null;
     }
 
     // ------------------------------------------------------------ 录音
@@ -717,6 +764,14 @@ public class HomeActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (!overlays.isEmpty()) {
+            Overlay o = overlays.get(overlays.size() - 1);
+            if (o != null && o.isOpen()) {
+                o.dismiss();
+                return;
+            }
+            overlays.remove(o);
+        }
         if ("settings".equals(tab)) {
             switchTab("record");
             return;
