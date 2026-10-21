@@ -252,13 +252,20 @@ public class Storage {
         scanDir(privateRecords(), out, 0);
         scanDir(new File(Environment.getExternalStorageDirectory(), "s1rec/records"), out, 0);
 
-        String r = resolved();
-        if (MODE_PUBLIC.equals(r)) {
-            if (Build.VERSION.SDK_INT > 28) queryMediaStore(out);
-            else scanDir(publicRoot(), out, 0);
-        } else if (MODE_SAF.equals(r)) {
-            scanSaf(out);
+        // 公共目录：当前子目录 + 默认子目录（换过子目录时旧录音也还在）
+        List<String> subs = new ArrayList<String>();
+        subs.add(publicSub());
+        if (!DEFAULT_SUB.equals(publicSub())) subs.add(DEFAULT_SUB);
+
+        for (int i = 0; i < subs.size(); i++) {
+            if (Build.VERSION.SDK_INT > 28) {
+                queryMediaStore(out, subs.get(i));
+            } else {
+                scanDir(new File(Environment.getExternalStorageDirectory(), subs.get(i)), out, 0);
+            }
         }
+
+        if (safTree().length() > 0) scanSaf(out);
         return out;
     }
 
@@ -285,7 +292,7 @@ public class Storage {
         }
     }
 
-    private void queryMediaStore(List<Blob> out) {
+    private void queryMediaStore(List<Blob> out, String sub) {
         try {
             ContentResolver cr = ctx.getContentResolver();
             String[] proj = {
@@ -295,7 +302,7 @@ public class Storage {
                     MediaStore.Audio.Media.DATE_MODIFIED,
             };
             String sel = MediaStore.Audio.Media.RELATIVE_PATH + " LIKE ?";
-            String[] args = {publicSub() + "/%"};
+            String[] args = {sub + "/%"};
             Cursor c = cr.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, proj, sel, args, null);
             if (c == null) return;
             try {
