@@ -1,10 +1,15 @@
 # 架构
 
+> UI 技术栈：v3.0 起为原生 Java View（`HomeActivity` / `DetailSheet` / `SettingsScreen`），
+> 不再有 WebView 界面。UI 只是视图层的一个实现，核心（扫描/存储/解析/用户态）不依赖它，
+> 换 UI 不动数据契约。
+
 ## 1. 分层与不变量
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 视图层  view     卡片 / 文稿 / 导出 md、jsonl（随时可删可重建）│
+│                  原生 View：列表 / 详情 / 设置 / 录音面板      │
 ├─────────────────────────────────────────────────────────────┤
 │ 意图层  intent   编辑、标记、待办（append-only，永不被覆盖）★ │
 ├─────────────────────────────────────────────────────────────┤
@@ -31,8 +36,19 @@
 | `asr` | 转写引擎抽象（partial/final 流）、结果落库、重跑 | 不做 UI、不决定用哪个引擎 |
 | `importer` | 外部来源导入（厂商日志、第三方文件） | 不做实时转写 |
 | `store` | 数据契约实现、原子写、迁移 | 不含解析规则 |
-| `ui` | 列表 / 阅读 / 编辑 / 设置 | 不直接读原始日志 |
+| `ui` | 列表 / 阅读 / 编辑 / 设置（原生 View） | 不直接读原始日志 |
 | `sync` | 文件级、记录级（LWW） | 不做冲突合并 UI |
+
+**v3.0 的实现映射**（都在 `android/src/dev/voxnote/`）：
+
+| 设计层 | 实现 |
+| --- | --- |
+| 平台能力 / 存储 | `Storage`（三态 + SAF + MediaStore） |
+| 事实层 | `Library` / `MdParser` / `Item` / `plugin.sogou` |
+| 意图层 | `State`（`app-state.json`：改名 / 分类 / 标记） |
+| 视图层 | `HomeActivity` / `DetailSheet` / `SettingsScreen` / `CardRow` / `SwipeRow` |
+| 界面设置 | `UiSettings`（SharedPreferences）+ `LegacySettingsImporter`（一次性迁移） |
+| 线程边界 | `DataCenter`（单线程 IO → 主线程回调） |
 
 ## 3. 转写引擎抽象（后端切换的核心）
 
