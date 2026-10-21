@@ -1,0 +1,40 @@
+# 隐私：设备日志 / 数据库 / 抓包 / 录音一律不许进仓库
+logs/
+asrlog/
+db/
+*.tmlog
+*.logcat
+*.pcap
+*_dump.db
+*.db
+*.db-wal
+*.db-shm
+recordings/
+*.wav
+*.mp3
+*.m4a
+*.amr
+
+# Android / 构建产物
+android/build/
+*.apk
+*.aab
+*.keystore
+*.jks
+local.properties
+
+# 工具链（体积大，用 tools/fetch_toolchain.ps1 重建）
+toolchain/
+sdk/
+jdk/
+
+# IDE / 系统垃圾
+.idea/
+.gradle/
+.vscode/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+*.tmp
+*.part
