@@ -59,7 +59,8 @@ Write-Output '--- 3/5 aapt2 link ---'
 $base = "$build\base.apk"
 & $aapt2 link -o $base --manifest "$here\AndroidManifest.xml" -I $androidJar `
     --min-sdk-version 27 --target-sdk-version 27 `
-    --version-code 1 --version-name 0.1
+    -A "$here\assets" `
+    --version-code 2 --version-name 1.4
 if ($LASTEXITCODE -ne 0) { throw "aapt2 失败" }
 
 Write-Output '--- 4/5 打包 dex ---'
@@ -71,7 +72,7 @@ $aligned = "$build\aligned.apk"
 & $zipalign -f -p 4 $unsigned $aligned
 
 Write-Output '--- 5/5 签名 ---'
-$ks = "$build\debug.keystore"
+$ks = Join-Path $here 'debug.keystore'
 if (-not (Test-Path $ks)) {
     & $keytool -genkeypair -keystore $ks -storepass android -keypass android `
         -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 `

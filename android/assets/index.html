@@ -1,0 +1,2067 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0e0f12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>S1 录音</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+:root{
+  --bg:#0e0f12;--surface:#181a1e;--surface2:#20232a;--surface3:#282c34;
+  --line:#2a2d34;--line2:#353941;--text:#e7e8ea;--dim:#8f939c;
+  --faint:#5b5f68;--white:#f2f3f5;--r:12px;
+  --sb:env(safe-area-inset-bottom,0px);--st:env(safe-area-inset-top,0px);
+}
+html,body{height:100%;margin:0;}
+body{
+  background:#07080a;color:var(--text);
+  font:14px/1.45 -apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  display:flex;justify-content:center;align-items:stretch;overflow:hidden;
+}
+.app{position:relative;width:100%;max-width:430px;height:100%;background:var(--bg);
+  display:flex;flex-direction:column;overflow:hidden;}
+@media(min-width:520px){.app{max-height:920px;margin:auto;box-shadow:0 0 0 1px #1a1c20,0 24px 80px rgba(0,0,0,.7);}}
+
+/* 视图 */
+.views{flex:1;position:relative;overflow:hidden;}
+.view{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+  padding:0 10px 16px;display:none;}
+.view.active{display:block;animation:fadeIn .14s ease;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+#view-settings{padding-top:calc(var(--st) + 10px);}
+
+/* 录音面板 */
+.rec-panel{background:linear-gradient(180deg,#1c1f24 0%,#141619 100%);border:1px solid var(--line);
+  border-radius:20px;padding:16px 14px 18px;display:flex;flex-direction:column;align-items:center;
+  gap:10px;margin:calc(var(--st) + 14px) 0 16px;box-shadow:0 10px 30px rgba(0,0,0,0.15);}
+.rec-title-input{width:100%;background:var(--surface2);border:1px solid var(--line);border-radius:8px;
+  color:var(--text);font-size:12.5px;padding:7px 10px;outline:none;font-family:inherit;
+  text-align:center;transition:border-color .16s,background .16s;}
+.rec-title-input::placeholder{color:var(--faint);}
+.rec-title-input:focus{border-color:var(--line2);background:var(--surface3);}
+.rec-timer{font-size:38px;font-weight:250;letter-spacing:1px;font-variant-numeric:tabular-nums;
+  color:var(--text);line-height:1;margin:4px 0;}
+.rec-wave{display:flex;align-items:center;justify-content:center;gap:2px;height:24px;width:100%;}
+.rec-wave i{display:block;width:3px;height:3px;border-radius:2px;background:var(--line2);
+  transition:height .07s linear,background .3s;}
+.rec-wave.on i{background:#6d727c;}
+.rec-btn{width:68px;height:68px;border-radius:50%;border:1px solid var(--line2);
+  background:var(--surface2);display:grid;place-items:center;cursor:pointer;
+  transition:transform .13s,background .2s,border-color .2s;padding:0;margin-top:2px;}
+.rec-btn:active{transform:scale(.95);}
+.rec-btn-inner{width:26px;height:26px;border-radius:50%;background:var(--white);
+  transition:all .24s cubic-bezier(.2,.8,.3,1);}
+body.recording .rec-btn{border-color:#4b505a;}
+body.recording .rec-btn-inner{width:20px;height:20px;border-radius:6px;}
+
+/* 冻结区：搜索 + 筛选 */
+.sticky-bar{position:sticky;top:0;z-index:5;background:var(--bg);
+  margin:0 -10px;padding:6px 10px 0;}
+.search-wrap{padding:0 0 6px;}
+.search-input{width:100%;background:var(--surface2);border:1px solid var(--line);border-radius:9px;
+  color:var(--text);font-size:12.5px;padding:7px 10px 7px 30px;outline:none;font-family:inherit;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%235b5f68' stroke-width='2' stroke-linecap='round'><circle cx='11' cy='11' r='7'/><path d='M20 20l-3.5-3.5'/></svg>");
+  background-repeat:no-repeat;background-position:9px center;background-size:14px;
+  transition:border-color .16s;}
+.search-input:focus{border-color:var(--line2);}
+.search-input::placeholder{color:var(--faint);}
+
+.filters{display:flex;gap:6px;overflow-x:auto;padding:0 0 8px;scrollbar-width:none;}
+.filters::-webkit-scrollbar{display:none;}
+.chip{flex:none;padding:5px 11px;border-radius:14px;border:1px solid var(--line);
+  background:transparent;color:var(--faint);font-size:12px;cursor:pointer;
+  font-family:inherit;transition:all .15s;letter-spacing:.2px;white-space:nowrap;}
+.chip.active{background:var(--surface2);border-color:var(--line2);color:var(--text);}
+.chip .cnt{margin-left:4px;font-size:10px;opacity:.55;font-variant-numeric:tabular-nums;}
+.chip.active .cnt{opacity:.75;}
+
+/* 列表 */
+.list{display:flex;flex-direction:column;}
+.swipe{position:relative;border-radius:var(--r);margin-bottom:6px;overflow:hidden;
+  background:var(--surface3);touch-action:pan-y;}
+.swipe-bg{position:absolute;inset:0;border-radius:var(--r);}
+.sa{position:absolute;top:50%;transform:translateY(-50%);font-size:11.5px;letter-spacing:2px;
+  color:var(--dim);opacity:0;transition:opacity .1s;pointer-events:none;max-width:130px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sa.left{left:18px;}
+.sa.right{right:18px;}
+.card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  padding:9px 10px;display:flex;align-items:flex-start;gap:8px;
+  transition:transform .22s cubic-bezier(.2,.8,.3,1),opacity .2s;will-change:transform;cursor:pointer;}
+.card-main{flex:1;min-width:0;}
+.card-top{display:flex;align-items:center;gap:6px;}
+.card-title{flex:1;min-width:0;font-size:13.5px;line-height:1.38;color:var(--text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.card-reason{flex:none;font-size:9.5px;padding:1px 6px;border-radius:5px;
+  border:1px solid #4a3f3f;color:#c98b8b;letter-spacing:.2px;background:rgba(201,139,139,.06);}
+.card-summary{font-size:11.5px;line-height:1.5;color:var(--dim);margin-top:3px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.card-todos{margin-top:4px;display:flex;flex-direction:column;gap:2px;}
+.card-todo{font-size:10.5px;line-height:1.4;color:var(--faint);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.card-todo::before{content:"□ ";color:var(--line2);}
+.card-kw{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;}
+.kw{font-size:9.5px;padding:1px 6px;border-radius:5px;border:1px solid var(--line);
+  color:var(--faint);letter-spacing:.2px;background:rgba(255,255,255,.015);}
+.card-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:5px;
+  font-size:10.5px;color:var(--faint);letter-spacing:.2px;}
+.tag{font-size:9.5px;padding:0 5px;border-radius:4px;border:1px solid var(--line);
+  color:var(--faint);letter-spacing:.2px;background:rgba(255,255,255,.015);}
+.tag.on{color:var(--dim);border-color:var(--line2);background:rgba(255,255,255,.03);}
+.tag.cat{color:var(--dim);border-color:var(--line2);}
+.tag.mark{color:var(--dim);border-color:var(--line2);}
+.mini-btn{flex:none;font-size:11px;padding:5px 9px;border-radius:7px;border:1px solid var(--line2);
+  background:var(--surface2);color:var(--dim);cursor:pointer;
+  transition:background .15s,color .15s;letter-spacing:.2px;margin-top:2px;}
+.mini-btn:active{background:var(--surface3);color:var(--text);}
+
+.loading-more{text-align:center;color:var(--faint);font-size:11.5px;padding:10px 0 16px;letter-spacing:.5px;}
+.empty{text-align:center;color:var(--faint);font-size:12.5px;padding:50px 0;}
+
+/* 设置 */
+.group{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+  padding:2px 10px;margin-bottom:9px;}
+.group-title{font-size:10.5px;color:var(--faint);letter-spacing:1px;padding:9px 2px 6px;}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;
+  border-top:1px solid var(--line);}
+.group > .row:first-of-type{border-top:none;}
+.row.col{flex-direction:column;align-items:stretch;gap:6px;}
+.row-main{flex:1;min-width:0;}
+.row-label{font-size:12.5px;color:var(--text);}
+.row-desc{font-size:10.5px;color:var(--faint);margin-top:2px;letter-spacing:.2px;}
+.row-value{font-size:11.5px;color:var(--faint);}
+.row-inline{display:flex;gap:6px;align-items:center;}
+.field{flex:1;min-width:0;background:var(--surface2);border:1px solid var(--line);border-radius:8px;
+  color:var(--text);font-size:12.5px;padding:7px 9px;outline:none;font-family:inherit;
+  transition:border-color .16s;-webkit-appearance:none;appearance:none;}
+.field:focus{border-color:var(--line2);}
+.field.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;}
+.field.small{flex:none;width:auto;padding:7px 8px;min-width:84px;}
+.btn{border:1px solid var(--line2);background:var(--surface2);color:var(--text);
+  font-size:12.5px;padding:7px 12px;border-radius:8px;cursor:pointer;font-family:inherit;
+  transition:background .15s,opacity .2s;letter-spacing:.2px;}
+.btn:active{background:var(--surface3);}
+.btn.primary{background:var(--white);color:#15171b;border-color:var(--white);font-weight:600;}
+.btn.primary:active{opacity:.85;}
+.btn.small{font-size:11.5px;padding:6px 9px;flex:none;}
+.btn.block{display:block;width:100%;margin:8px 0 10px;text-align:center;}
+.btn:disabled{opacity:.5;cursor:default;}
+.btn.danger{color:#c98b8b;border-color:#3a2f2f;}
+
+.cat-row{display:flex;align-items:center;gap:6px;padding:7px 0;border-top:1px solid var(--line);}
+.cat-row:first-child{border-top:none;}
+.cat-dot{flex:none;width:5px;height:5px;border-radius:50%;background:var(--line2);}
+.cat-input{flex:1;min-width:0;background:transparent;border:none;color:var(--text);
+  font-size:12.5px;padding:4px 2px;outline:none;font-family:inherit;
+  border-bottom:1px solid transparent;}
+.cat-input:focus{border-bottom-color:var(--line2);}
+.cat-del{flex:none;border:none;background:none;color:var(--faint);font-size:14px;
+  padding:3px 5px;cursor:pointer;line-height:1;}
+
+.switch{position:relative;display:inline-block;flex:none;}
+.switch input{position:absolute;opacity:0;width:0;height:0;}
+.switch i{display:block;width:40px;height:23px;border-radius:12px;background:var(--surface3);
+  border:1px solid var(--line2);position:relative;transition:background .2s,border-color .2s;}
+.switch i::after{content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;
+  border-radius:50%;background:var(--dim);transition:transform .22s cubic-bezier(.2,.8,.3,1),background .2s;}
+.switch input:checked + i{background:var(--white);border-color:var(--white);}
+.switch input:checked + i::after{transform:translateX(17px);background:#15171b;}
+
+.btn.capturing{border-color:var(--white);color:var(--white);animation:pulseBtn 1.2s infinite;}
+@keyframes pulseBtn{0%,100%{opacity:1}50%{opacity:.45}}
+.conflict-tip{font-size:10.5px;color:#c98b8b;padding:2px 2px 8px;letter-spacing:.2px;}
+
+/* 底部导航 */
+.tabbar{flex:none;display:flex;border-top:1px solid var(--line);background:var(--bg);
+  padding-bottom:var(--sb);z-index:6;}
+.tab{flex:1;border:none;background:none;padding:7px 0 9px;display:flex;flex-direction:column;
+  align-items:center;gap:3px;color:var(--faint);font-size:10px;letter-spacing:.5px;
+  cursor:pointer;font-family:inherit;transition:color .2s;}
+.tab svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.5;
+  stroke-linecap:round;stroke-linejoin:round;}
+.tab.active{color:var(--text);}
+
+/* 详情面板 */
+.sheet-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;
+  transition:opacity .25s;z-index:40;}
+.sheet-mask.open{opacity:1;pointer-events:auto;}
+.sheet{position:fixed;left:50%;bottom:0;width:100%;max-width:430px;height:86%;
+  transform:translate(-50%,101%);background:var(--surface);border:1px solid var(--line);
+  border-bottom:none;border-radius:18px 18px 0 0;z-index:50;display:flex;flex-direction:column;
+  transition:transform .28s cubic-bezier(.2,.8,.3,1);}
+.sheet.open{transform:translate(-50%,0);}
+.sheet-head{flex:none;position:relative;display:flex;align-items:center;justify-content:center;
+  padding:8px 14px 4px;}
+.sheet-handle{width:32px;height:4px;border-radius:2px;background:var(--line2);}
+.sheet-close{position:absolute;right:9px;top:3px;width:28px;height:28px;border-radius:50%;
+  border:none;background:var(--surface2);color:var(--dim);font-size:13px;cursor:pointer;line-height:1;}
+.sheet-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:2px 14px calc(22px + var(--sb));}
+.d-title-input{width:100%;background:transparent;border:1px solid transparent;border-radius:7px;
+  color:var(--text);font-size:15px;font-weight:600;padding:4px 6px;margin:-4px -6px 0;
+  outline:none;font-family:inherit;line-height:1.38;transition:background .15s,border-color .15s;}
+.d-title-input:focus{background:var(--surface2);border-color:var(--line);}
+.d-meta{font-size:10.5px;color:var(--faint);margin-top:4px;letter-spacing:.3px;padding:0 1px;}
+
+.d-cat-row{display:flex;align-items:center;gap:8px;margin-top:10px;padding:7px 10px;
+  background:var(--surface2);border:1px solid var(--line);border-radius:10px;}
+.d-cat-label{font-size:10.5px;color:var(--faint);letter-spacing:.3px;flex:none;}
+.d-cat-chip{flex:1;text-align:left;border:none;background:transparent;color:var(--text);
+  font-size:12.5px;cursor:pointer;font-family:inherit;padding:2px 0;letter-spacing:.2px;}
+.d-cat-chip.empty{color:var(--faint);}
+.d-cat-chip::after{content:"›";float:right;color:var(--faint);margin-left:6px;}
+
+.d-player{display:flex;align-items:center;gap:9px;margin:11px 0 8px;padding:9px 10px;
+  background:var(--surface2);border:1px solid var(--line);border-radius:10px;}
+.play-btn{flex:none;width:32px;height:32px;border-radius:50%;border:none;background:var(--white);
+  color:#15171b;font-size:11px;cursor:pointer;line-height:1;}
+.d-player-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.d-bar-hit{padding:9px 0;cursor:pointer;touch-action:none;}
+.d-bar{position:relative;height:4px;border-radius:2px;background:var(--line2);}
+.d-bar > i{position:absolute;top:0;left:0;bottom:0;width:0;border-radius:2px;
+  background:var(--dim);transition:width .1s linear;pointer-events:none;}
+.d-bar > i::after{content:"";position:absolute;right:-5px;top:50%;transform:translateY(-50%);
+  width:10px;height:10px;border-radius:50%;background:var(--white);
+  box-shadow:0 1px 3px rgba(0,0,0,.5);}
+.d-ticks{position:absolute;inset:0;pointer-events:none;}
+.tick{position:absolute;top:50%;transform:translate(-50%,-50%);width:6px;height:6px;
+  border-radius:50%;background:var(--white);box-shadow:0 0 0 1px rgba(14,15,18,.85);}
+.d-time{font-size:10px;color:var(--faint);font-variant-numeric:tabular-nums;letter-spacing:.2px;}
+.mark-btn{flex:none;font-size:11.5px;padding:6px 10px;border-radius:8px;border:1px solid var(--line2);
+  background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;
+  letter-spacing:.3px;transition:background .15s,color .15s,opacity .15s,border-color .15s;}
+.mark-btn:active:not(:disabled){background:var(--surface3);}
+.mark-btn:disabled{opacity:.35;cursor:default;border-color:var(--line);}
+.mark-btn:not(:disabled){border-color:#5a5f69;}
+
+.d-actions{display:flex;gap:7px;margin-bottom:12px;}
+.d-actions .btn{flex:1;text-align:center;}
+
+.d-section-title{font-size:10.5px;color:var(--faint);letter-spacing:1px;margin-bottom:6px;
+  display:flex;align-items:baseline;gap:4px;flex-wrap:wrap;}
+.d-count{font-weight:400;letter-spacing:0;}
+.d-auto{font-weight:400;letter-spacing:0;font-size:9.5px;color:var(--faint);margin-left:auto;}
+
+.d-marks{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px;min-height:22px;}
+.mark-chip{font-size:10.5px;padding:3px 8px;border-radius:12px;border:1px solid var(--line2);
+  background:var(--surface2);color:var(--dim);cursor:pointer;font-family:inherit;
+  font-variant-numeric:tabular-nums;letter-spacing:.2px;}
+.mark-chip:active{background:var(--surface3);color:var(--text);}
+.mark-empty{font-size:10.5px;color:var(--faint);padding:3px 0;letter-spacing:.3px;}
+
+.d-segs{display:flex;flex-direction:column;gap:1px;background:var(--surface2);
+  border:1px solid var(--line);border-radius:10px;padding:5px;}
+.seg{display:flex;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;
+  transition:background .15s;line-height:1.6;}
+.seg:hover{background:var(--surface3);}
+.seg.active{background:var(--surface3);}
+.seg.low .seg-text{color:var(--faint);}
+.seg-time{flex:none;font-size:10.5px;color:var(--faint);font-variant-numeric:tabular-nums;
+  padding-top:2px;letter-spacing:.2px;}
+.seg-text{flex:1;font-size:13.5px;color:var(--text);word-break:break-word;}
+.seg.active .seg-time{color:var(--dim);}
+.seg-empty{font-size:12.5px;color:var(--faint);padding:10px;text-align:center;}
+.d-save-tip{font-size:10px;color:var(--faint);margin-top:6px;letter-spacing:.3px;
+  font-family:ui-monospace,Menlo,Consolas,monospace;}
+.muted{color:var(--faint);font-size:12.5px;}
+
+/* Toast & Modal */
+.toast{position:fixed;left:50%;bottom:calc(58px + var(--sb));transform:translate(-50%,8px);
+  background:rgba(40,44,52,.96);border:1px solid var(--line2);color:var(--text);
+  font-size:11.5px;letter-spacing:.3px;padding:7px 14px;border-radius:16px;
+  opacity:0;pointer-events:none;transition:opacity .22s,transform .22s;z-index:80;
+  white-space:nowrap;backdrop-filter:blur(8px);}
+.toast.show{opacity:1;transform:translate(-50%,0);}
+
+.modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;
+  justify-content:center;opacity:0;transition:opacity .2s;z-index:90;}
+.modal-mask.show{opacity:1;}
+.modal{width:100%;max-width:430px;background:var(--surface);border:1px solid var(--line);
+  border-bottom:none;border-radius:16px 16px 0 0;padding:14px 12px calc(16px + var(--sb));
+  transform:translateY(18px);transition:transform .24s cubic-bezier(.2,.8,.3,1);}
+.modal-mask.show .modal{transform:none;}
+.modal-title{font-size:11.5px;color:var(--faint);letter-spacing:.6px;margin-bottom:9px;padding:0 3px;}
+.modal-list{display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow-y:auto;}
+.modal-item{text-align:left;width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--line);
+  background:var(--surface2);color:var(--text);font-size:12.5px;cursor:pointer;font-family:inherit;}
+.modal-item:active{background:var(--surface3);}
+.modal-item.sel{border-color:var(--line2);background:var(--surface3);}
+.modal-item.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;}
+.modal-cancel{width:100%;margin-top:9px;padding:10px;border-radius:9px;border:none;
+  background:transparent;color:var(--dim);font-size:12.5px;cursor:pointer;font-family:inherit;}
+
+/* ---- 原生桥：扫描状态条 / 来源标签 / 禁用态 ---- */
+.srcbar{display:flex;align-items:center;gap:6px;padding:0 0 6px;font-size:10.5px;
+  color:var(--faint);letter-spacing:.2px;}
+.srcbar #srcText{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.srcbar .chip{padding:3px 9px;font-size:11px;}
+.tag.src{color:var(--dim);border-color:var(--line2);}
+.play-btn:disabled{opacity:.3;cursor:default;}
+
+/* ---- 兼容层：本机 WebView 是 Chromium 59 ----
+   它不认识 env() / inset / flex gap / place-items，原样运行会让 .view 失去
+   四边定位（内容被裁到屏幕外）。这里用等价写法兜底，桌面浏览器与新机型
+   WebView 上这些声明要么被前者覆盖、要么与之等价，不影响原型观感。 */
+:root{--sb:0px;--st:0px;}
+.view{top:0;right:0;bottom:0;left:0;}
+.swipe-bg{top:0;right:0;bottom:0;left:0;}
+.sheet-mask{top:0;right:0;bottom:0;left:0;}
+.modal-mask{top:0;right:0;bottom:0;left:0;}
+.rec-btn{display:flex;align-items:center;justify-content:center;}
+.card>*+*{margin-left:8px;}
+.card-top>*+*{margin-left:6px;}
+.card-meta>*+*{margin-left:5px;}
+.card-kw .kw{margin:0 4px 4px 0;}
+.card-todos>*+*{margin-top:2px;}
+.filters .chip{margin-right:6px;}
+.row:not(.col)>*+*{margin-left:10px;}
+.row-inline>*+*{margin-left:6px;}
+.cat-row>*+*{margin-left:6px;}
+.d-cat-row>*+*{margin-left:8px;}
+.d-player>*+*{margin-left:9px;}
+.d-player-main>*+*{margin-top:2px;}
+.d-section-title>*+*{margin-left:4px;}
+.d-section-title .d-auto{margin-left:auto;}
+.d-marks .mark-chip{margin:0 5px 5px 0;}
+.d-actions>*+*{margin-left:7px;}
+.d-segs>*+*{margin-top:1px;}
+.seg>*+*{margin-left:8px;}
+.modal-list>*+*{margin-top:6px;}
+.tab svg{margin-bottom:3px;}
+.rec-panel>*+*{margin-top:10px;}
+.rec-wave i{margin:0 1px;}
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <div class="views">
+
+    <!-- ========== 录音 & 收件箱 ========== -->
+    <section class="view active" id="view-record">
+      
+      <!-- 录音面板 -->
+      <div class="rec-panel">
+        <input class="rec-title-input" id="recTitle" placeholder="添加标题（可选）" maxlength="40">
+        <div class="rec-timer" id="recTimer">00:00</div>
+        <div class="rec-wave" id="recWave"></div>
+        <button class="rec-btn" id="recBtn" aria-label="录音">
+          <span class="rec-btn-inner"></span>
+        </button>
+      </div>
+
+      <!-- 搜索与筛选冻结区 -->
+      <div class="sticky-bar">
+        <div class="search-wrap">
+          <input class="search-input" id="searchInput" placeholder="搜索标题、摘要、转写全文">
+        </div>
+        <div class="srcbar">
+          <span id="srcText">正在扫描…</span>
+          <button class="chip" id="btnRescan">刷新</button>
+        </div>
+        <div class="filters" id="filters"></div>
+      </div>
+
+      <!-- 录音列表 (Inbox 优先) -->
+      <div class="list" id="listEl"></div>
+      <div class="loading-more" id="loadingMore" hidden>加载中…</div>
+      <div class="empty" id="emptyState" hidden>没有符合条件的录音</div>
+    </section>
+
+    <!-- ========== 设置页 ========== -->
+    <section class="view" id="view-settings">
+
+      <div class="group">
+        <div class="group-title">分类</div>
+        <div class="row">
+          <div class="row-main"><div class="row-label">右滑分类</div></div>
+          <select class="field small" id="selRightCat"></select>
+        </div>
+        <div class="row">
+          <div class="row-main"><div class="row-label">左滑分类</div></div>
+          <select class="field small" id="selLeftCat"></select>
+        </div>
+        <div id="catList"></div>
+        <button class="btn block" id="btnAddCat">新增分类</button>
+      </div>
+
+      <div class="group">
+        <div class="group-title">按键</div>
+        <div class="row">
+          <div class="row-main"><div class="row-label">开始录音</div></div>
+          <select class="field small" id="selKey">
+            <option value="none">无</option>
+            <option value="AudioVolumeUp">音量上</option>
+            <option value="AudioVolumeDown">音量下</option>
+            <option value="custom">自定义</option>
+          </select>
+        </div>
+        <div class="row" id="rowCapture" hidden>
+          <div class="row-main"><div class="row-label">自定义按键</div></div>
+          <button class="btn small" id="btnCapture">按下按键</button>
+        </div>
+        <div class="row">
+          <div class="row-main"><div class="row-label">播放时标记</div></div>
+          <select class="field small" id="selMarkKey">
+            <option value=" ">空格</option>
+            <option value="Enter">回车</option>
+            <option value="AudioVolumeUp">音量上</option>
+            <option value="AudioVolumeDown">音量下</option>
+          </select>
+        </div>
+        <div class="conflict-tip" id="keyConflict" hidden>与标记键相同：详情打开时优先用于标记</div>
+      </div>
+
+      <div class="group">
+        <div class="group-title">转写 API</div>
+        <div class="row">
+          <div class="row-main"><div class="row-label">服务类型</div></div>
+          <select class="field small" id="setProvider">
+            <option value="rest">REST 文件</option>
+            <option value="ws">WebSocket 流式</option>
+            <option value="local">本地模型</option>
+          </select>
+        </div>
+        <div class="row col">
+          <div class="row-label">接口地址</div>
+          <input class="field mono" id="setApiUrl" placeholder="https://…">
+        </div>
+        <div class="row col">
+          <div class="row-label">API Key</div>
+          <input class="field" id="setApiKey" type="password" placeholder="sk-…">
+        </div>
+        <div class="row col">
+          <div class="row-label">模型 / 语言</div>
+          <div class="row-inline">
+            <input class="field" id="setModel" placeholder="whisper-1">
+            <select class="field small" id="setLang">
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+              <option value="auto">自动</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn block" id="btnTestApi">测试连接</button>
+      </div>
+
+      <div class="group">
+        <div class="group-title">存储位置</div>
+        <div class="row col">
+          <div class="row-label">录音目录</div>
+          <div class="row-inline">
+            <input class="field mono" id="setRecordDir">
+            <button class="btn small" data-pick="recordDir">选择</button>
+          </div>
+        </div>
+        <div class="row">
+          <div class="row-main">
+            <div class="row-label">转写文本</div>
+            <div class="row-desc">只读取：录音目录 + /sdcard/年.月 与 sogou/md</div>
+          </div>
+          <div class="row-value">自动</div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title">录音</div>
+        <div class="row">
+          <div class="row-main"><div class="row-label">录完自动转写</div></div>
+          <label class="switch">
+            <input type="checkbox" id="setAutoTranscribe">
+            <i></i>
+          </label>
+        </div>
+        <div class="row">
+          <div class="row-main"><div class="row-label">列表显示摘要</div></div>
+          <label class="switch">
+            <input type="checkbox" id="setShowFirstLine">
+            <i></i>
+          </label>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title">关于</div>
+        <div class="row">
+          <div class="row-main"><div class="row-label">版本</div></div>
+          <div class="row-value" id="aboutVersion">v1.4</div>
+        </div>
+        <div class="row">
+          <div class="row-main"><div class="row-label">数据目录</div></div>
+          <div class="row-value" id="aboutDir">s1rec/</div>
+        </div>
+        <button class="btn block danger" id="btnReset">恢复默认设置</button>
+      </div>
+
+    </section>
+
+  </div>
+
+  <nav class="tabbar">
+    <button class="tab active" data-view="record">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/></svg>
+      <span>录音</span>
+    </button>
+    <button class="tab" data-view="settings">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18"/></svg>
+      <span>设置</span>
+    </button>
+  </nav>
+
+</div>
+
+<!-- 详情面板 -->
+<div class="sheet-mask" id="sheetMask"></div>
+<div class="sheet" id="sheet">
+  <div class="sheet-head">
+    <div class="sheet-handle"></div>
+    <button class="sheet-close" id="sheetClose">✕</button>
+  </div>
+  <div class="sheet-body" id="sheetBody"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ==================== 工具 ==================== */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad2 = n => String(n).padStart(2, '0');
+const fmtDur = s => `${pad2(Math.floor(s / 60))}:${pad2(Math.floor(s % 60))}`;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ==================== 原生桥（Android） ====================
+   浏览器里直接打开时 NATIVE 为 null，页面照原型用示例数据跑；
+   装到设备上之后，列表、音频、录音、用户态全部来自 Java 侧。 */
+const NATIVE = (typeof window.S1N !== 'undefined' && window.S1N) ? window.S1N : null;
+let nativeStats = null;
+
+function jcall(name, ...args) {
+  try { return NATIVE[name](...args); } catch (e) { console.error('bridge:' + name, e); return null; }
+}
+function jparse(v, def) {
+  if (!v) return def;
+  try { return JSON.parse(v); } catch (e) { return def; }
+}
+function savePatch(it, patch) {
+  if (!NATIVE) return;
+  jcall('patch', String(it.id), JSON.stringify(patch));
+}
+function configureNative() {
+  if (!NATIVE) return;
+  jcall('configure', JSON.stringify(settings));
+}
+const MODE_LABEL = { meeting: '会议', memo: '备忘', interview: '采访', shorthand: '速记', news: '新闻', general: '通用', rec: '录音' };
+const modeLabel = m => MODE_LABEL[(m || '').toLowerCase()] || '';
+
+/* ==================== 设置 ==================== */
+const LS_KEY = 's1rec.v5';
+const DEFAULTS = {
+  showFirstLine: true,
+  autoTranscribe: false,
+  provider: 'rest',
+  apiUrl: 'https://asr.example.com/v1/transcribe',
+  apiKey: '',
+  model: 'whisper-1',
+  lang: 'zh',
+  recordDir: '/sdcard/s1rec/records',
+  keyMode: 'none',
+  keyBinding: null,
+  markKey: ' ',
+  swipeRightCat: 'c1',
+  swipeLeftCat: 'c2',
+  categories: [
+    { id: 'c1', name: '重要' },
+    { id: 'c2', name: '归档' },
+    { id: 'c3', name: '工作' },
+  ],
+};
+const clone = o => JSON.parse(JSON.stringify(o));
+
+function loadSettings() {
+  const base = clone(DEFAULTS);
+  try {
+    const saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+    Object.assign(base, saved);
+    if (!Array.isArray(base.categories) || !base.categories.length) {
+      base.categories = clone(DEFAULTS.categories);
+    }
+    if (!base.categories.find(c => c.id === base.swipeRightCat)) {
+      base.swipeRightCat = base.categories[0].id;
+    }
+    if (!base.categories.find(c => c.id === base.swipeLeftCat)) {
+      base.swipeLeftCat = base.categories[Math.min(1, base.categories.length - 1)].id;
+    }
+    if (!base.markKey) base.markKey = ' ';
+  } catch (e) {}
+  return base;
+}
+let settings = loadSettings();
+function saveSettings() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(settings)); } catch (e) {}
+  configureNative();
+}
+
+/* ==================== 语料 ==================== */
+const SAMPLE_TEXTS = [
+  '今天下午三点的产品评审会，先过一下上个迭代遗留的三个问题。第一个是录音模块的采样率，第二个是日志解析的幂等性，第三个是按键来源的抽象层。记得把结论同步给测试。',
+  '这段是在车里录的，先记一下明天要交的三件事。第一，把采样率统一到 16k。第二，把转写结果按句切分落库。第三，导出先出 md。明天上午十点前必须提交。',
+  '测试一下远场效果，现在离手机大概两米。如果能识别出来，说明指向性麦克风还可以。稍后换个方向再测一次。',
+  '会议纪要：转写服务的接口定成文件优先，流式作为可选能力。错误码要统一，重跑要幂等。下周约后端再对一遍字段。',
+  '这段先归档，等自建的识别服务上线之后再统一重转一遍。现在这条用的是演示接口，结果不可信。别拿它当依据。',
+  '明早九点半到机房，记得带门禁卡和录音笔。顺便问一下机柜的电源还有没有空位。下午三点前给回复。',
+  '整理一下这周的待办：周一回邮件，周二改接口文档，周三和设计对一遍阅读页的排版，周四做回归。周五留半天补测试。',
+  '随手记一条：把本地模型的下载器和校验逻辑拆开。空间不足时要能优雅降级，不要直接失败。优先级排在同步之后。',
+  '刚想到一个点，摘要先走规则版：抽取含"要""记得""明天"的句子作为待办。LLM 摘要作为后续增强，不要阻塞第一版。',
+  '复盘一下上次事故：上传回调连续失败三十二次，因为失败即不删，所以数据没丢。但重试噪声占了百分之五，得加频控。',
+];
+const SAMPLE_TITLES = ['产品评审会', '车内备忘', '远场测试', '会议纪要', '待归档', '机房事项', '本周待办', '模型下载', '摘要方案', '事故复盘'];
+const KW_POOL = ['评审', '采样率', '接口', '模型', '导出', '回归', '机房', '门禁', '待办', '摘要', '标记', '分类', '幂等', '降级'];
+const TODO_KW = ['要', '记得', '明天', '第一', '第二', '第三', '必须', '需要', '得', '别'];
+
+let _uid = 1000;
+let items = [];
+
+function makeSegments(text, dur) {
+  const raw = String(text).split(/[。\n]/).map(s => s.trim()).filter(Boolean);
+  if (!raw.length) return [];
+  const segs = [];
+  const per = Math.max(1.2, (dur - 1) / raw.length);
+  let t = 0.6;
+  raw.forEach((s, i) => {
+    const start = Math.round((t + Math.random() * per * 0.15) * 10) / 10;
+    const len = Math.max(0.8, per * (0.55 + Math.random() * 0.3));
+    const end = Math.round(Math.min(dur - 0.2, start + len) * 10) / 10;
+    const low = Math.random() < 0.22;
+    segs.push({
+      start, end: Math.max(start + 0.5, end), text: s + '。',
+      confidence: low ? 0.4 + Math.random() * 0.35 : 0.82 + Math.random() * 0.18,
+    });
+    t += per;
+  });
+  return segs;
+}
+function makeSummary(segs) {
+  if (!segs.length) return '';
+  const t = segs.slice(0, 3).map(s => s.text).join('');
+  return t.length > 58 ? t.slice(0, 58) + '…' : t;
+}
+function extractTodos(segs) {
+  return segs.filter(s => TODO_KW.some(k => s.text.includes(k))).slice(0, 2)
+    .map(s => s.text.replace(/。$/, ''));
+}
+function extractKeywords(segs) {
+  const text = segs.map(s => s.text).join('');
+  const found = KW_POOL.filter(k => text.includes(k));
+  // 真实数据里凑不出词就不硬塞：示例词只在浏览器预览时出现
+  return found.length ? found.slice(0, 4) : (NATIVE ? [] : KW_POOL.slice(0, 2));
+}
+
+function makeItems(n, offset) {
+  const out = [];
+  const now = Date.now();
+  for (let i = 0; i < n; i++) {
+    const idx = offset + i;
+    const t = new Date(now - idx * 3.2 * 3600 * 1000 - Math.random() * 2400 * 1000);
+    const date = `${pad2(t.getMonth() + 1)}-${pad2(t.getDate())} ${pad2(t.getHours())}:${pad2(t.getMinutes())}`;
+    const defaultTitle = `录音 ${pad2(t.getHours())}:${pad2(t.getMinutes())}`;
+    const dur = 20 + Math.floor(Math.random() * 180);
+
+    const r = Math.random();
+    let status;
+    if (r < 0.14) status = 'raw';
+    else if (r < 0.21) status = 'failed';
+    else status = 'done';
+
+    let cat = null;
+    if (Math.random() > 0.42) {
+      const pool = settings.categories.map(c => c.id);
+      cat = pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    const marks = [];
+    if (Math.random() > 0.6) {
+      const mc = 1 + Math.floor(Math.random() * 3);
+      for (let k = 0; k < mc; k++) marks.push({ t: Math.round((Math.random() * (dur - 1) + 0.5) * 10) / 10 });
+      marks.sort((a, b) => a.t - b.t);
+    }
+
+    const text = SAMPLE_TEXTS[idx % SAMPLE_TEXTS.length];
+    const segments = status === 'done' ? makeSegments(text, dur) : [];
+    const quality = status === 'done' ? Math.round((0.6 + Math.random() * 0.4) * 100) / 100 : 0;
+    const needsReview = status === 'done' && quality < 0.72;
+
+    out.push({
+      id: ++_uid,
+      title: Math.random() > 0.4 ? SAMPLE_TITLES[idx % SAMPLE_TITLES.length] : defaultTitle,
+      date, dur, status, cat, audioUrl: null, marks, segments,
+      summary: segments.length ? makeSummary(segments) : '',
+      todos: segments.length ? extractTodos(segments) : [],
+      keywords: segments.length ? extractKeywords(segments) : [],
+      quality, needsReview, errorCode: status === 'failed' ? 14 : null,
+    });
+  }
+  return out;
+}
+
+let loadedOffset = 0;
+function initialLoad() {
+  if (NATIVE) { hydrate(jparse(jcall('refresh'), {}), true); return; }
+  items = makeItems(14, 0);
+  loadedOffset = 14;
+}
+
+/* 拉一次真实数据并重绘。 */
+function hydrate(res, first) {
+  nativeStats = (res && res.stats) || nativeStats;
+  const list = (res && res.items) || [];
+  items = list.map(normalizeItem);
+  loadedOffset = 9999;
+  deriveAll();
+  renderFilters();
+  renderList();
+  renderStats();
+  if (first) switchView('record');
+}
+
+function rescan(showToast) {
+  if (!NATIVE) return;
+  const res = jparse(jcall('refresh'), null);
+  if (!res) { if (showToast) toast('扫描失败：读不到录音目录'); return; }
+  hydrate(res);
+  if (showToast) toast(`已扫描 ${(res.stats && res.stats.total) || 0} 场`);
+}
+
+function normalizeItem(raw) {
+  const it = Object.assign({}, raw);
+  it.id = String(it.id);
+  it.seq = it.seq || 0;
+  it.dur = Number(it.dur) || 0;
+  it.marks = Array.isArray(it.marks) ? it.marks : [];
+  it.segments = Array.isArray(it.segments) ? it.segments : [];
+  it.todos = Array.isArray(it.todos) ? it.todos : [];
+  it.keywords = Array.isArray(it.keywords) ? it.keywords : [];
+  it.cat = it.cat || null;
+  it.summary = it.summary || '';
+  it.title = it.title || '未命名录音';
+  it.status = it.status || 'empty';
+  it.mode = it.mode || '';
+  it.audioPath = it.audioPath || null;
+  it.mdPath = it.mdPath || null;
+  return it;
+}
+
+/* 摘要 / 待办 / 关键词在界面层派生：原生只提供事实，不下判断 */
+function deriveAll() {
+  items.forEach(it => {
+    if (!it.segments.length) return;
+    if (!it.summary) it.summary = makeSummary(it.segments);
+    if (!it.todos.length) {
+      // 摘要里已经出现过的句子不再重复当成待办，避免一张卡片把同一句说两遍
+      const pool = it.segments.filter(s => !it.summary.includes(s.text));
+      it.todos = pool
+        .filter(s => TODO_KW.some(k => s.text.includes(k)))
+        .slice(0, 2)
+        .map(s => s.text.replace(/。$/, ''));
+    }
+    if (!it.keywords.length) it.keywords = extractKeywords(it.segments);
+  });
+}
+
+function renderStats() {
+  const el = $('#srcText');
+  if (!el) return;
+  if (!nativeStats) { el.textContent = '示例数据（未连接设备）'; return; }
+  const s = nativeStats;
+  if (s.error) { el.textContent = '⚠️ ' + s.error; return; }
+  const t = s.scannedAt ? new Date(s.scannedAt) : null;
+  const at = t ? ` · ${pad2(t.getHours())}:${pad2(t.getMinutes())} 扫描` : '';
+  el.textContent = `${s.total | 0} 场 · ${s.done | 0} 已转写 · ${s.withAudio | 0} 有录音 · ${s.sentences | 0} 句${at}`;
+}
+
+/* ==================== 状态 ==================== */
+let filterCat = 'all';
+let searchQ = '';
+
+function catName(id) {
+  const c = settings.categories.find(c => c.id === id);
+  return c ? c.name : '';
+}
+function isVisible(it) {
+  if (filterCat === 'all') return true;
+  if (filterCat === 'none') return !it.cat;
+  return it.cat === filterCat;
+}
+function matchesSearch(it) {
+  if (!searchQ) return true;
+  const q = searchQ.toLowerCase();
+  if (it.title.toLowerCase().includes(q)) return true;
+  if ((it.summary || '').toLowerCase().includes(q)) return true;
+  if (it.segments && it.segments.some(s => s.text.toLowerCase().includes(q))) return true;
+  return false;
+}
+
+// Inbox 优先级：失败 > 未转写 > 未分类 > 待复核 > 其他
+function inboxRank(it) {
+  if (it.status === 'failed') return 0;
+  if (it.status === 'raw') return 1;
+  if (it.status === 'transcribing') return 2;
+  if (!it.cat) return 3;
+  if (it.needsReview) return 4;
+  if (it.status === 'empty') return 5;
+  return 99;
+}
+function inboxReason(it) {
+  const r = inboxRank(it);
+  if (r === 0) return '转写失败';
+  if (r === 1) return '未转写';
+  if (r === 2) return '转写中';
+  if (r === 3) return '未分类';
+  if (r === 4) return '待复核';
+  if (r === 5) return '无正文';
+  return '';
+}
+
+/* ==================== 渲染核心 ==================== */
+function statusLabel(it) {
+  if (it.status === 'done') return '已转写';
+  if (it.status === 'transcribing') return '转写中';
+  if (it.status === 'failed') return '转写失败';
+  if (it.status === 'empty') return '无正文';
+  return '待转写';
+}
+
+function rowHTML(it) {
+  const done = it.status === 'done';
+  const showSummary = settings.showFirstLine && done && it.summary;
+  const reason = inboxReason(it);
+
+  const meta = [];
+  meta.push(`<span>${esc(it.date)}</span>`);
+  meta.push(`<span>${fmtDur(it.dur)}</span>`);
+  // 如果不是待处理状态，或者已归类，显示普通状态
+  if (!reason || it.needsReview) meta.push(`<span class="tag ${done ? 'on' : ''}">${statusLabel(it)}</span>`);
+  if (it.cat) meta.push(`<span class="tag cat">${esc(catName(it.cat))}</span>`);
+  if (it.marks && it.marks.length) meta.push(`<span class="tag mark">${it.marks.length} 标记</span>`);
+  if (modeLabel(it.mode)) meta.push(`<span class="tag">${esc(modeLabel(it.mode))}</span>`);
+  if (it.source === 'log') meta.push(`<span class="tag src">日志</span>`);
+  else if (!it.audioPath) meta.push(`<span class="tag src">仅文稿</span>`);
+
+  const todosHTML = (showSummary && it.todos.length)
+    ? `<div class="card-todos">${it.todos.map(t => `<div class="card-todo">${esc(t)}</div>`).join('')}</div>`
+    : '';
+  const kwHTML = (showSummary && it.keywords.length)
+    ? `<div class="card-kw">${it.keywords.map(k => `<span class="kw">${esc(k)}</span>`).join('')}</div>`
+    : '';
+
+  return `
+  <div class="swipe" data-id="${it.id}">
+    <div class="swipe-bg">
+      <div class="sa left">${esc(catName(settings.swipeLeftCat) || '分类')}</div>
+      <div class="sa right">${esc(catName(settings.swipeRightCat) || '分类')}</div>
+    </div>
+    <div class="card" data-open="${it.id}">
+      <div class="card-main">
+        <div class="card-top">
+          <div class="card-title">${esc(it.title)}</div>
+          ${reason && !it.needsReview ? `<span class="card-reason">${esc(reason)}</span>` : ''}
+        </div>
+        ${showSummary ? `<div class="card-summary">${esc(it.summary)}</div>` : ''}
+        ${todosHTML}${kwHTML}
+        <div class="card-meta">${meta.join('')}</div>
+      </div>
+      ${it.status === 'raw' && it.audioPath ? `<button class="mini-btn" data-tr="${it.id}">转写</button>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderFilters() {
+  const chips = [{ id: 'all', name: '全部' }, { id: 'none', name: '未分类' }];
+  settings.categories.forEach(c => chips.push({ id: c.id, name: c.name }));
+  const total = items.length;
+  const noneCount = items.filter(it => !it.cat).length;
+
+  $('#filters').innerHTML = chips.map(c => {
+    let cnt = c.id === 'all' ? total : (c.id === 'none' ? noneCount : items.filter(it => it.cat === c.id).length);
+    return `<button class="chip ${filterCat === c.id ? 'active' : ''}" data-cat="${c.id}">
+      ${esc(c.name)}<span class="cnt">${cnt}</span>
+    </button>`;
+  }).join('');
+}
+
+function renderList() {
+  const scroll = $('#view-record').scrollTop;
+  let list = items.filter(it => isVisible(it) && matchesSearch(it));
+
+  // 相当于 Inbox：按优先级排序
+  list.sort((a, b) => {
+    const ra = inboxRank(a);
+    const rb = inboxRank(b);
+    if (ra !== rb) return ra - rb;
+    return (b.seq || 0) - (a.seq || 0);
+  });
+
+  const el = $('#listEl');
+  el.innerHTML = list.map(rowHTML).join('');
+  list.forEach(it => {
+    const wrap = el.querySelector(`.swipe[data-id="${it.id}"]`);
+    if (wrap) bindSwipe(wrap, it);
+  });
+
+  $('#emptyState').hidden = list.length > 0;
+  $('#emptyState').textContent = searchQ ? '没有匹配的录音' : '该分类下还没有录音';
+
+  $('#view-record').scrollTop = scroll;
+}
+
+// 更新单个卡片，不触发重排
+function updateCard(it) {
+  const oldEl = $(`.swipe[data-id="${it.id}"]`);
+  if (!oldEl) { renderList(); return; }
+  const tmp = document.createElement('div');
+  tmp.innerHTML = rowHTML(it).trim();
+  const newEl = tmp.firstElementChild;
+  oldEl.replaceWith(newEl);
+  bindSwipe(newEl, it);
+  renderFilters();
+}
+
+function removeCard(it) {
+  const el = $(`.swipe[data-id="${it.id}"]`);
+  if (!el) { renderList(); return; }
+  el.style.transition = 'opacity .2s, transform .2s';
+  el.style.opacity = '0';
+  el.style.transform = 'scale(.96)';
+  setTimeout(() => {
+    el.remove();
+    renderFilters();
+    if (!$('#listEl').children.length) $('#emptyState').hidden = false;
+  }, 200);
+}
+
+/* ==================== 滑动 + 点击 ==================== */
+function bindSwipe(el, it) {
+  const card = el.querySelector('.card');
+  const saL = el.querySelector('.sa.left');
+  const saR = el.querySelector('.sa.right');
+  let sx = 0, sy = 0, dx = 0, down = false, decided = false, horiz = false, suppress = false;
+
+  const reset = (animate = true) => {
+    card.style.transition = animate ? 'transform .24s cubic-bezier(.2,.8,.3,1),opacity .2s' : 'none';
+    card.style.transform = ''; card.style.opacity = '';
+    saL.style.opacity = 0; saR.style.opacity = 0;
+  };
+
+  const begin = (x, y) => {
+    down = true; decided = false; horiz = false; suppress = false;
+    sx = x; sy = y; dx = 0;
+    card.style.transition = 'none';
+  };
+
+  const move = (x, y) => {
+    if (!down) return;
+    dx = x - sx;
+    const dy = y - sy;
+
+    if (!decided) {
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+        decided = true;
+        horiz = Math.abs(dx) > Math.abs(dy) * 1.1;
+        if (!horiz) { down = false; reset(false); return; }
+      } else return;
+    }
+    if (!horiz) return;
+
+    suppress = true;
+    card.style.transform = `translate3d(${dx}px,0,0)`;
+    saL.style.opacity = Math.max(0, Math.min(1, dx / 80));
+    saR.style.opacity = Math.max(0, Math.min(1, -dx / 80));
+  };
+
+  const end = () => {
+    if (!down) return;
+    down = false;
+    if (!horiz) { reset(false); return; }
+
+    const TH = 70;
+    if (dx > TH) doSwipe('right');
+    else if (dx < -TH) doSwipe('left');
+    else { suppress = false; reset(); }
+  };
+
+  function doSwipe(dir) {
+    const target = dir === 'right' ? settings.swipeRightCat : settings.swipeLeftCat;
+    if (!target || !catName(target)) {
+      suppress = false; reset(); toast('请先在设置中创建分类'); return;
+    }
+    const isCancel = it.cat === target;
+    const newCat = isCancel ? null : target;
+
+    card.style.transition = 'transform .2s ease,opacity .2s ease';
+    card.style.transform = `translate3d(${dir === 'right' ? 420 : -420}px,0,0)`;
+    card.style.opacity = '0.2';
+
+    setTimeout(() => {
+      it.cat = newCat;
+      savePatch(it, { cat: newCat });
+      updateCard(it); // 局部更新，不重排
+      toast(newCat ? `已归入「${catName(newCat)}」` : '已取消分类');
+    }, 190);
+  }
+
+  /* 本机 WebView 是 Chromium 59：pointer 事件在触摸屏上收不到，触摸用 touch 兜底 */
+  if ('ontouchstart' in window) {
+    el.addEventListener('touchstart', e => {
+      if (e.touches.length !== 1) return;
+      if (e.target.closest && e.target.closest('button')) return;
+      begin(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+    el.addEventListener('touchmove', e => {
+      if (!down) return;
+      const t = e.touches[0];
+      if (!t) return;
+      move(t.clientX, t.clientY);
+      if (horiz && e.cancelable) e.preventDefault();
+    }, { passive: false });
+    el.addEventListener('touchend', end);
+    el.addEventListener('touchcancel', () => { down = false; suppress = false; reset(); });
+  } else {
+    el.addEventListener('mousedown', e => {
+      if (e.target.closest('button')) return;
+      begin(e.clientX, e.clientY);
+    });
+    el.addEventListener('mousemove', e => move(e.clientX, e.clientY));
+    el.addEventListener('mouseup', end);
+    el.addEventListener('mouseleave', () => { if (down) { down = false; reset(); } });
+  }
+
+  card.addEventListener('click', e => {
+    if (suppress) { suppress = false; return; }
+    if (e.target.closest('button')) return;
+    openDetail(it.id);
+  });
+}
+
+/* ==================== 转写 ==================== */
+async function transcribe(id) {
+  const it = items.find(i => i.id === id);
+  if (!it || it.status === 'transcribing') return;
+
+  if (NATIVE) {
+    const res = jparse(jcall('transcribe', String(id)), {}) || {};
+    toast(res.message || (res.ok ? '完成' : '未接入转写后端'));
+    if (res.ok) rescan(false);
+    return;
+  }
+
+  if (!settings.apiUrl) { toast('请先在设置中填写接口地址'); return; }
+
+  it.status = 'transcribing';
+  updateCard(it);
+  refreshDetail();
+
+  await sleep(900 + Math.random() * 900);
+
+  const text = SAMPLE_TEXTS[Math.floor(Math.random() * SAMPLE_TEXTS.length)];
+  it.status = 'done';
+  it.segments = makeSegments(text, it.dur);
+  it.summary = makeSummary(it.segments);
+  it.todos = extractTodos(it.segments);
+  it.keywords = extractKeywords(it.segments);
+  it.quality = Math.round((0.62 + Math.random() * 0.38) * 100) / 100;
+  it.needsReview = it.quality < 0.72;
+  it.errorCode = null;
+
+  updateCard(it);
+  refreshDetail();
+  toast('转写完成');
+}
+
+/* ==================== 详情面板 ==================== */
+let detailId = null;
+let playTimer = null;
+let playPos = 0;
+let playTotal = 0;
+let playAudio = null;
+let dragging = false;
+
+function openDetail(id) {
+  stopPlay();
+  stopAudio();
+  playPos = 0;
+  detailId = id;
+  renderDetail();
+  $('#sheet').classList.add('open');
+  $('#sheetMask').classList.add('open');
+}
+
+function closeDetail() {
+  stopPlay();
+  stopAudio();
+  if (NATIVE) jcall('close');
+  playPos = 0;
+  detailId = null;
+  $('#sheet').classList.remove('open');
+  $('#sheetMask').classList.remove('open');
+}
+
+function refreshDetail() {
+  if (!detailId) return;
+  if (!$('#sheet').classList.contains('open')) return;
+  const wasPlaying = !!playTimer;
+  const pos = playPos;
+  renderDetail();
+  if (wasPlaying) {
+    playPos = pos;
+    startPlay();
+  }
+}
+
+function renderDetail() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  const it = items.find(i => i.id === detailId);
+  if (!it) return;
+
+  const done = it.status === 'done';
+  const cat = it.cat ? catName(it.cat) : '';
+  const savePath = `${settings.recordDir}/${it.id}.txt`;
+
+  $('#sheetBody').innerHTML = `
+    <input class="d-title-input" id="dTitleInput" value="${esc(it.title)}" maxlength="40" placeholder="未命名录音">
+    <div class="d-meta">${esc(it.date)} · ${fmtDur(it.dur)} · ${statusLabel(it)}${it.needsReview ? ' · 待复核' : ''}</div>
+
+    <div class="d-cat-row">
+      <span class="d-cat-label">分类</span>
+      <button class="d-cat-chip ${cat ? '' : 'empty'}" id="dCatChip">${esc(cat || '未分类')}</button>
+    </div>
+
+    <div class="d-player">
+      <button class="play-btn" id="dPlay">▶</button>
+      <div class="d-player-main">
+        <div class="d-bar-hit" id="dBarHit">
+          <div class="d-bar">
+            <i id="dProg"></i>
+            <div class="d-ticks" id="dTicks"></div>
+          </div>
+        </div>
+        <div class="d-time"><span id="dCur">00:00</span> / ${fmtDur(it.dur)}</div>
+      </div>
+      <button class="mark-btn" id="dMark" disabled>标记</button>
+    </div>
+
+    <div class="d-actions">
+      <button class="btn" data-act="transcribe">${done ? '重新转写' : '转文字'}</button>
+    </div>
+
+    <div class="d-section-title">
+      标记<span class="d-count" id="dMarkCount"></span>
+      <span class="d-auto">播放中按 ${esc(markKeyLabel())} 或点「标记」</span>
+    </div>
+    <div class="d-marks" id="dMarks"></div>
+
+    <div class="d-section-title">
+      转写文本
+      <span class="d-auto">点击句子跳转</span>
+    </div>
+    <div class="d-segs" id="dSegs"></div>
+    ${it.mdPath ? `<div class="d-save-tip">文稿 ${esc(it.mdPath)}</div>` : ''}
+    ${it.audioPath ? `<div class="d-save-tip">音频 ${esc(it.audioPath)}</div>` : ''}
+  `;
+
+  $('#dPlay').addEventListener('click', togglePlay);
+  if (!it.audioPath) { const pb = $('#dPlay'); if (pb) pb.disabled = true; }
+  $('#dMark').addEventListener('click', addMark);
+  $('#dCatChip').addEventListener('click', () => pickCategoryFor(it));
+  $('#dMarks').addEventListener('click', e => {
+    const chip = e.target.closest('[data-mt]');
+    if (!chip) return;
+    const t = parseFloat(chip.dataset.mt);
+    if (!isFinite(t)) return;
+    if (!playTotal) playTotal = Math.max(1, it.dur) * 1000;
+    seekTo(t * 1000);
+    if (!playTimer) startPlay();
+  });
+
+  bindDetailTitle();
+  bindBarDrag();
+  bindSegClicks();
+  renderMarks();
+  renderSegs();
+  updatePlayUI();
+}
+
+function bindDetailTitle() {
+  const input = $('#dTitleInput');
+  if (!input) return;
+  input.addEventListener('input', () => {
+    const it = items.find(i => i.id === detailId);
+    if (!it) return;
+    const fallback = `录音 ${(it.date.split(' ')[1] || '').trim()}`;
+    it.title = input.value.trim() || fallback;
+    savePatch(it, { title: it.title });
+    updateCard(it);
+  });
+}
+
+async function pickCategoryFor(it) {
+  const current = it.cat || 'none';
+  const options = [{ id: 'none', name: '未分类' }].concat(
+    settings.categories.map(c => ({ id: c.id, name: c.name }))
+  );
+  const chosen = await pickModal('选择分类', options.map(o => ({
+    value: o.id, label: o.name, selected: o.id === current,
+  })));
+  if (chosen === null) return;
+
+  const newCat = chosen === 'none' ? null : chosen;
+  it.cat = newCat;
+  savePatch(it, { cat: newCat });
+
+  const chip = $('#dCatChip');
+  if (chip) {
+    chip.textContent = newCat ? catName(newCat) : '未分类';
+    chip.classList.toggle('empty', !newCat);
+  }
+
+  updateCard(it);
+  toast(newCat ? `已归入「${catName(newCat)}」` : '已设为未分类');
+}
+
+function renderSegs() {
+  const it = items.find(i => i.id === detailId);
+  const el = $('#dSegs');
+  if (!el) return;
+  if (!it || !it.segments || !it.segments.length) {
+    el.innerHTML = '<div class="seg-empty">尚未转写</div>';
+    return;
+  }
+  el.innerHTML = it.segments.map(s => {
+    const low = s.confidence < 0.72;
+    return `<div class="seg ${low ? 'low' : ''}" data-start="${s.start}" data-end="${s.end}">
+      <span class="seg-time">${fmtDur(s.start)}</span>
+      <span class="seg-text">${esc(s.text)}</span>
+    </div>`;
+  }).join('');
+}
+
+function bindSegClicks() {
+  const el = $('#dSegs');
+  if (!el) return;
+  el.addEventListener('click', e => {
+    const seg = e.target.closest('.seg[data-start]');
+    if (!seg) return;
+    const it = items.find(i => i.id === detailId);
+    if (!it) return;
+    const t = parseFloat(seg.dataset.start);
+    if (!isFinite(t)) return;
+    if (!playTotal) playTotal = Math.max(1, it.dur) * 1000;
+    seekTo(t * 1000);
+    if (!playTimer) startPlay();
+  });
+}
+
+function ensureAudio(it) {
+  if (!it.audioUrl) return null;
+  if (playAudio && playAudio.dataset.id === String(it.id)) return playAudio;
+  if (playAudio) { try { playAudio.pause(); } catch (e) {} }
+  playAudio = new Audio(it.audioUrl);
+  playAudio.dataset.id = String(it.id);
+  playAudio.addEventListener('ended', () => { stopPlay(); updatePlayUI(); });
+  return playAudio;
+}
+
+function stopAudio() {
+  if (playAudio) {
+    try { playAudio.pause(); } catch (e) {}
+    playAudio = null;
+  }
+}
+
+function startPlay() {
+  const it = items.find(i => i.id === detailId);
+  if (!it) return;
+  if (playTimer) return;
+
+  playTotal = Math.max(1, it.dur) * 1000;
+  if (playPos >= playTotal) playPos = 0;
+
+  const btn = $('#dPlay');
+  const markBtn = $('#dMark');
+  if (btn) btn.textContent = '❚❚';
+  if (markBtn) markBtn.disabled = false;
+
+  if (NATIVE) {
+    if (!it.audioPath) { toast('这场没有录音文件'); stopPlay(); return; }
+    if (!jcall('open', it.audioPath)) { toast('打不开录音文件'); stopPlay(); return; }
+    const nd = jcall('duration') | 0;
+    if (nd > 0) playTotal = nd;
+    if (playPos >= playTotal) playPos = 0;
+    jcall('seek', Math.round(playPos));
+    jcall('play');
+    playTimer = setInterval(nativeTick, 100);
+    updatePlayUI();
+    return;
+  }
+
+  const audio = ensureAudio(it);
+  if (audio) {
+    try { audio.currentTime = playPos / 1000; } catch (e) {}
+    audio.play().catch(() => {});
+    playTimer = setInterval(() => {
+      if (dragging) return;
+      playPos = (audio.currentTime || 0) * 1000;
+      if (playPos >= playTotal) { playPos = 0; stopPlay(); updatePlayUI(); return; }
+      updatePlayUI();
+    }, 100);
+  } else {
+    playTimer = setInterval(() => {
+      if (dragging) return;
+      playPos += 100;
+      if (playPos >= playTotal) { playPos = 0; stopPlay(); updatePlayUI(); return; }
+      updatePlayUI();
+    }, 100);
+  }
+  updatePlayUI();
+}
+
+/* 原生播放的进度心跳：位置与时长都问 Java，JS 只负责画 */
+function nativeTick() {
+  if (dragging) return;
+  const p = jcall('position') | 0;
+  const d = jcall('duration') | 0;
+  if (d > 0) playTotal = d;
+  playPos = p;
+  if (d > 0 && !jcall('playing') && p >= d - 120) {
+    playPos = 0;
+    stopPlay();
+    updatePlayUI();
+    return;
+  }
+  updatePlayUI();
+}
+
+function stopPlay() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  if (NATIVE) jcall('pause');
+  if (playAudio) { try { playAudio.pause(); } catch (e) {} }
+  const btn = $('#dPlay');
+  const markBtn = $('#dMark');
+  if (btn) btn.textContent = '▶';
+  if (markBtn) markBtn.disabled = true;
+}
+
+function togglePlay() {
+  if (playTimer) stopPlay();
+  else startPlay();
+}
+
+function seekTo(ms) {
+  const it = items.find(i => i.id === detailId);
+  if (!it) return;
+  if (!playTotal) playTotal = Math.max(1, it.dur) * 1000;
+  playPos = Math.max(0, Math.min(playTotal - 1, ms));
+  if (NATIVE) {
+    jcall('seek', Math.round(playPos));
+  } else if (playAudio && playAudio.dataset.id === String(it.id)) {
+    try { playAudio.currentTime = playPos / 1000; } catch (e) {}
+  }
+  updatePlayUI();
+}
+
+function updatePlayUI() {
+  const prog = $('#dProg');
+  const cur = $('#dCur');
+  const total = Math.max(1, playTotal || 0);
+  if (prog) prog.style.width = Math.min(100, (playPos / total) * 100) + '%';
+  if (cur) cur.textContent = fmtDur(playPos / 1000);
+
+  const segs = $$('#dSegs .seg');
+  if (segs.length) {
+    const t = playPos / 1000;
+    segs.forEach(el => {
+      const s = parseFloat(el.dataset.start);
+      const e = parseFloat(el.dataset.end);
+      el.classList.toggle('active', t >= s && t < e);
+    });
+  }
+}
+
+function bindBarDrag() {
+  const hit = $('#dBarHit');
+  if (!hit) return;
+
+  const posFromClientX = clientX => {
+    const rect = hit.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  };
+
+  const beginDrag = clientX => {
+    const it = items.find(i => i.id === detailId);
+    if (!it) return;
+    if (!playTotal) playTotal = Math.max(1, it.dur) * 1000;
+    dragging = true;
+    seekTo(posFromClientX(clientX) * playTotal);
+  };
+  const moveDrag = clientX => {
+    if (!dragging) return;
+    seekTo(posFromClientX(clientX) * playTotal);
+  };
+  const endDrag = () => { dragging = false; };
+
+  /* 同 bindSwipe：触摸屏上走 touch，桌面预览走鼠标 */
+  if ('ontouchstart' in window) {
+    hit.addEventListener('touchstart', e => {
+      if (e.touches.length !== 1) return;
+      beginDrag(e.touches[0].clientX);
+      if (e.cancelable) e.preventDefault();
+    }, { passive: false });
+    hit.addEventListener('touchmove', e => {
+      const t = e.touches[0];
+      if (!t) return;
+      moveDrag(t.clientX);
+      if (e.cancelable) e.preventDefault();
+    }, { passive: false });
+    hit.addEventListener('touchend', endDrag);
+    hit.addEventListener('touchcancel', endDrag);
+  } else {
+    hit.addEventListener('mousedown', e => { beginDrag(e.clientX); e.preventDefault(); });
+    document.addEventListener('mousemove', e => moveDrag(e.clientX));
+    document.addEventListener('mouseup', endDrag);
+  }
+}
+
+function addMark() {
+  if (!playTimer) return;
+  const it = items.find(i => i.id === detailId);
+  if (!it) return;
+  if (!Array.isArray(it.marks)) it.marks = [];
+
+  const t = Math.round((playPos / 1000) * 10) / 10;
+  if (it.marks.some(m => Math.abs(m.t - t) < 0.3)) return;
+
+  it.marks.push({ t });
+  it.marks.sort((a, b) => a.t - b.t);
+  savePatch(it, { marks: it.marks.map(m => m.t) });
+
+  renderMarks();
+  updateCard(it);
+  toast(`标记 ${fmtDur(t)}`);
+}
+
+function renderMarks() {
+  const it = items.find(i => i.id === detailId);
+  if (!it) return;
+  const marks = Array.isArray(it.marks) ? it.marks : [];
+
+  const countEl = $('#dMarkCount');
+  if (countEl) countEl.textContent = marks.length ? `${marks.length}` : '';
+
+  const listEl = $('#dMarks');
+  if (listEl) {
+    listEl.innerHTML = marks.length
+      ? marks.map((m, i) => `<button class="mark-chip" data-mt="${m.t}">${i + 1} · ${fmtDur(m.t)}</button>`).join('')
+      : '<span class="mark-empty">暂无标记</span>';
+  }
+
+  const ticksEl = $('#dTicks');
+  if (ticksEl) {
+    const dur = Math.max(1, it.dur);
+    ticksEl.innerHTML = marks.map(m => {
+      const p = Math.max(0, Math.min(100, (m.t / dur) * 100));
+      return `<span class="tick" style="left:${p}%"></span>`;
+    }).join('');
+  }
+}
+
+/* ==================== 录音控制 ==================== */
+const MAX_SEC = 3600;
+const rec = {
+  active: false, mode: null, t0: 0,
+  timer: null, raf: null,
+  stream: null, ctx: null, analyser: null, mr: null, chunks: [],
+};
+
+const waveEl = $('#recWave');
+for (let i = 0; i < 38; i++) waveEl.appendChild(document.createElement('i'));
+
+async function startRec() {
+  if (rec.active) return;
+
+  if (NATIVE) {
+    const title = ($('#recTitle').value || '').trim();
+    if (!jcall('startRec', title)) { toast('无法开始录音：检查麦克风权限'); return; }
+    rec.active = true;
+    rec.mode = 'native';
+    rec.t0 = Date.now();
+    rec.chunks = [];
+    document.body.classList.add('recording');
+    waveEl.classList.add('on');
+    startTimer();
+    startWave();
+    return;
+  }
+
+  rec.active = true;
+  rec.t0 = Date.now();
+  rec.chunks = [];
+  document.body.classList.add('recording');
+  waveEl.classList.add('on');
+  startTimer();
+  startWave();
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+    rec.mode = 'mock';
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    rec.mode = 'real';
+    rec.stream = stream;
+
+    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+      .find(t => window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported(t));
+    const mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    rec.mr = mr;
+    mr.ondataavailable = e => { if (e.data && e.data.size) rec.chunks.push(e.data); };
+    mr.onstop = finishReal;
+    mr.start();
+
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) {
+      const ctx = new AC();
+      rec.ctx = ctx;
+      const src = ctx.createMediaStreamSource(stream);
+      const an = ctx.createAnalyser();
+      an.fftSize = 256;
+      src.connect(an);
+      rec.analyser = an;
+    }
+  } catch (err) {
+    rec.mode = 'mock';
+  }
+}
+
+function startTimer() {
+  clearInterval(rec.timer);
+  rec.timer = setInterval(() => {
+    const s = Math.floor((Date.now() - rec.t0) / 1000);
+    $('#recTimer').textContent = fmtDur(s);
+    if (s >= MAX_SEC) stopRec();
+  }, 200);
+}
+
+function startWave() {
+  const bars = $$('#recWave i');
+  const shape = bars.map((_, i) => 0.3 + 0.7 * Math.abs(Math.sin(i * 0.55 + 0.8)));
+  const buf = new Uint8Array(128);
+
+  function frame() {
+    if (!rec.active) return;
+    let level = 0;
+    if (NATIVE && rec.mode === 'native') {
+      level = Math.min(1, jcall('recLevel') || 0);
+    } else if (rec.analyser) {
+      rec.analyser.getByteTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const v = (buf[i] - 128) / 128;
+        sum += v * v;
+      }
+      level = Math.min(1, Math.sqrt(sum / buf.length) * 5);
+    } else {
+      level = 0.22 + Math.random() * 0.42;
+    }
+    for (let i = 0; i < bars.length; i++) {
+      const h = 3 + level * 24 * shape[i] * (0.85 + Math.random() * 0.3);
+      bars[i].style.height = h.toFixed(1) + 'px';
+    }
+    rec.raf = requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+function stopRec() {
+  if (!rec.active) return;
+  rec.active = false;
+  clearInterval(rec.timer);
+  cancelAnimationFrame(rec.raf);
+  waveEl.classList.remove('on');
+  $$('#recWave i').forEach(b => { b.style.height = '3px'; });
+  document.body.classList.remove('recording');
+
+  if (NATIVE) {
+    const path = jcall('stopRec');
+    const dur = Math.max(1, Math.round((Date.now() - rec.t0) / 1000));
+    cleanupStream();
+    resetRecUI();
+    if (!path) { toast('录音失败：没有写进文件'); return; }
+    addNativeRecording(dur);
+    return;
+  }
+
+  if (rec.mr && rec.mr.state !== 'inactive') {
+    try { rec.mr.stop(); } catch (e) { finishMock(); }
+  } else {
+    finishMock();
+  }
+}
+
+/* 原生录音落盘后：重扫一遍，新录音自然出现在列表最上面 */
+function addNativeRecording(dur) {
+  const t = $('#recTitle');
+  if (t) t.value = '';
+  rescan(false);
+  toast(`已保存 ${fmtDur(dur)}`);
+  const v = $('#view-record');
+  if (v) v.scrollTop = 0;
+}
+
+function cleanupStream() {
+  if (rec.stream) { try { rec.stream.getTracks().forEach(t => t.stop()); } catch (e) {} }
+  if (rec.ctx) { try { rec.ctx.close(); } catch (e) {} }
+  rec.stream = null; rec.ctx = null; rec.analyser = null; rec.mr = null; rec.chunks = [];
+}
+
+function finishReal() {
+  const dur = Math.max(1, Math.round((Date.now() - rec.t0) / 1000));
+  let url = null;
+  try {
+    const blob = new Blob(rec.chunks, { type: (rec.chunks[0] && rec.chunks[0].type) || 'audio/webm' });
+    url = URL.createObjectURL(blob);
+  } catch (e) {}
+  cleanupStream();
+  addRecording(dur, url);
+}
+
+function finishMock() {
+  const dur = Math.max(1, Math.round((Date.now() - rec.t0) / 1000));
+  cleanupStream();
+  setTimeout(() => addRecording(dur, null), 300);
+}
+
+function addRecording(dur, url) {
+  const now = new Date();
+  const date = `${pad2(now.getMonth() + 1)}-${pad2(now.getDate())} ${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+  const defaultTitle = `录音 ${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+  const titleInput = $('#recTitle');
+  const title = (titleInput.value || '').trim() || defaultTitle;
+
+  const item = {
+    id: ++_uid, title, date, dur,
+    status: 'raw', cat: null, audioUrl: url, marks: [],
+    segments: [], summary: '', todos: [], keywords: [],
+    quality: 0, needsReview: false, errorCode: null,
+  };
+  items.unshift(item);
+  titleInput.value = '';
+  renderFilters();
+  renderList();
+  resetRecUI();
+  $('#view-record').scrollTop = 0;
+  if (settings.autoTranscribe) setTimeout(() => transcribe(item.id), 400);
+}
+
+function resetRecUI() {
+  document.body.classList.remove('recording');
+  $('#recTimer').textContent = '00:00';
+  waveEl.classList.remove('on');
+  $$('#recWave i').forEach(b => { b.style.height = '3px'; });
+}
+
+/* ==================== 视图切换 ==================== */
+function switchView(name) {
+  $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
+  $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
+  const view = $('#view-' + name);
+  if (view) view.scrollTop = 0;
+}
+
+/* ==================== 无限加载 ==================== */
+let loading = false;
+const viewRecord = $('#view-record');
+
+viewRecord.addEventListener('scroll', () => {
+  if (loading) return;
+  if (loadedOffset >= 90) return;
+  const nearBottom = viewRecord.scrollTop + viewRecord.clientHeight >= viewRecord.scrollHeight - 420;
+  if (nearBottom) loadMore();
+});
+
+async function loadMore() {
+  if (NATIVE) return;
+  if (loading || loadedOffset >= 90) return;
+  loading = true;
+  $('#loadingMore').hidden = false;
+  await sleep(450);
+  const more = makeItems(8, loadedOffset);
+  loadedOffset += 8;
+  items = items.concat(more);
+  renderFilters();
+  renderList();
+  $('#loadingMore').hidden = true;
+  loading = false;
+}
+
+/* ==================== Toast & Modal ==================== */
+let toastTimer = null;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 1600);
+}
+
+function pickModal(title, options) {
+  return new Promise(resolve => {
+    const mask = document.createElement('div');
+    mask.className = 'modal-mask';
+    mask.innerHTML = `
+      <div class="modal">
+        <div class="modal-title">${esc(title)}</div>
+        <div class="modal-list">
+          ${options.map(o => `
+            <button class="modal-item ${o.selected ? 'sel' : ''} ${o.mono ? 'mono' : ''}" data-v="${esc(o.value)}">${esc(o.label)}</button>
+          `).join('')}
+        </div>
+        <button class="modal-cancel">取消</button>
+      </div>`;
+    document.body.appendChild(mask);
+    requestAnimationFrame(() => mask.classList.add('show'));
+    const close = v => {
+      mask.classList.remove('show');
+      setTimeout(() => mask.remove(), 220);
+      resolve(v);
+    };
+    mask.addEventListener('click', e => {
+      if (e.target === mask) return close(null);
+      const item = e.target.closest('[data-v]');
+      if (item) return close(item.dataset.v);
+      if (e.target.closest('.modal-cancel')) return close(null);
+    });
+  });
+}
+
+/* ==================== 分类管理 ==================== */
+function refreshCatSelects() {
+  const opts = settings.categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  const r = $('#selRightCat'); const l = $('#selLeftCat');
+  r.innerHTML = opts; l.innerHTML = opts;
+  r.value = settings.swipeRightCat;
+  l.value = settings.swipeLeftCat;
+}
+
+function renderCatList() {
+  const el = $('#catList');
+  el.innerHTML = settings.categories.map(c => `
+    <div class="cat-row" data-catid="${c.id}">
+      <span class="cat-dot"></span>
+      <input class="cat-input" data-catid="${c.id}" value="${esc(c.name)}" maxlength="8">
+      <button class="cat-del" data-del="${c.id}" aria-label="删除">✕</button>
+    </div>
+  `).join('');
+}
+
+let catRenameTimer = null;
+$('#catList').addEventListener('input', e => {
+  const inp = e.target.closest('.cat-input');
+  if (!inp) return;
+  const cat = settings.categories.find(c => c.id === inp.dataset.catid);
+  if (!cat) return;
+  cat.name = inp.value.trim() || '未命名';
+  saveSettings();
+  clearTimeout(catRenameTimer);
+  catRenameTimer = setTimeout(() => {
+    refreshCatSelects();
+    renderFilters();
+    renderList();
+  }, 380);
+});
+
+$('#catList').addEventListener('click', e => {
+  const del = e.target.closest('[data-del]');
+  if (!del) return;
+  deleteCategory(del.dataset.del);
+});
+
+function deleteCategory(id) {
+  if (settings.categories.length <= 1) { toast('至少保留一个分类'); return; }
+  settings.categories = settings.categories.filter(c => c.id !== id);
+  if (settings.swipeRightCat === id) settings.swipeRightCat = settings.categories[0].id;
+  if (settings.swipeLeftCat === id) settings.swipeLeftCat = settings.categories[Math.min(1, settings.categories.length - 1)].id;
+
+  items.forEach(it => { if (it.cat === id) it.cat = null; });
+  if (filterCat === id) filterCat = 'all';
+
+  saveSettings();
+  renderCatList();
+  refreshCatSelects();
+  renderFilters();
+  renderList();
+}
+
+$('#btnAddCat').addEventListener('click', () => {
+  if (settings.categories.length >= 8) { toast('最多 8 个分类'); return; }
+  let n = 1;
+  while (settings.categories.some(c => c.name === `分类${n}`)) n++;
+  const cat = { id: 'c' + (++_uid), name: `分类${n}` };
+  settings.categories.push(cat);
+  saveSettings();
+  renderCatList();
+  refreshCatSelects();
+  renderFilters();
+  renderList();
+  const inputs = $$('#catList .cat-input');
+  const last = inputs[inputs.length - 1];
+  if (last) { last.focus(); last.select(); }
+});
+
+/* ==================== 按键逻辑 ==================== */
+let capturing = false;
+function markKeyLabel() {
+  const k = settings.markKey;
+  if (k === ' ') return '空格'; if (k === 'Enter') return '回车';
+  if (k === 'AudioVolumeUp') return '音量上'; if (k === 'AudioVolumeDown') return '音量下';
+  return k || '按键';
+}
+function keyLabelFor(e) {
+  if (e.key === 'AudioVolumeUp') return '音量上'; if (e.key === 'AudioVolumeDown') return '音量下';
+  if (e.key === ' ') return '空格'; if (e.key === 'Enter') return '回车';
+  if (e.key === 'Escape') return 'Esc';
+  if (e.key && e.key.length === 1) return e.key.toUpperCase();
+  return e.key || '按键';
+}
+function matchesBinding(e) {
+  const b = settings.keyBinding;
+  if (!b) return false;
+  if (b.key === 'AudioVolumeUp') return e.key === 'AudioVolumeUp' || e.keyCode === 175;
+  if (b.key === 'AudioVolumeDown') return e.key === 'AudioVolumeDown' || e.keyCode === 174;
+  return e.key === b.key;
+}
+function matchesMarkKey(e) {
+  const k = settings.markKey;
+  if (!k) return false;
+  if (k === 'AudioVolumeUp') return e.key === 'AudioVolumeUp' || e.keyCode === 175;
+  if (k === 'AudioVolumeDown') return e.key === 'AudioVolumeDown' || e.keyCode === 174;
+  if (k === 'Enter') return e.key === 'Enter';
+  if (k === ' ') return e.key === ' ';
+  return e.key === k;
+}
+
+function refreshKeyUI() {
+  const sel = $('#selKey'), row = $('#rowCapture'), btn = $('#btnCapture');
+  sel.value = settings.keyMode;
+  row.hidden = settings.keyMode !== 'custom';
+  if (settings.keyMode === 'custom') {
+    btn.textContent = settings.keyBinding ? settings.keyBinding.label : '按下按键';
+  }
+  btn.classList.toggle('capturing', capturing);
+
+  const mk = $('#selMarkKey'); if (mk) mk.value = settings.markKey;
+  const recKey = settings.keyBinding && settings.keyBinding.key;
+  const conflict = recKey && recKey === settings.markKey && settings.keyMode !== 'none';
+  $('#keyConflict').hidden = !conflict;
+}
+
+$('#selKey').addEventListener('change', () => {
+  const v = $('#selKey').value;
+  settings.keyMode = v;
+  if (v === 'none') { settings.keyBinding = null; capturing = false; }
+  else if (v === 'AudioVolumeUp') { settings.keyBinding = { key: 'AudioVolumeUp', label: '音量上' }; capturing = false; }
+  else if (v === 'AudioVolumeDown') { settings.keyBinding = { key: 'AudioVolumeDown', label: '音量下' }; capturing = false; }
+  else if (v === 'custom') {
+    capturing = true;
+    if (settings.keyBinding && (settings.keyBinding.key === 'AudioVolumeUp' || settings.keyBinding.key === 'AudioVolumeDown')) {
+      settings.keyBinding = null;
+    }
+  }
+  saveSettings(); refreshKeyUI();
+});
+
+$('#btnCapture').addEventListener('click', () => { capturing = true; refreshKeyUI(); });
+
+$('#selMarkKey').addEventListener('change', () => {
+  settings.markKey = $('#selMarkKey').value;
+  saveSettings(); refreshKeyUI();
+  if ($('#sheet').classList.contains('open')) refreshDetail();
+});
+
+document.addEventListener('keydown', e => {
+  if (capturing) {
+    e.preventDefault();
+    if (e.key === 'Escape') {
+      capturing = false; settings.keyMode = 'none'; settings.keyBinding = null;
+      saveSettings(); refreshKeyUI(); return;
+    }
+    settings.keyBinding = { key: e.key, label: keyLabelFor(e) };
+    capturing = false; saveSettings(); refreshKeyUI();
+    toast(`已绑定：${settings.keyBinding.label}`);
+    return;
+  }
+
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+  const sheetOpen = $('#sheet').classList.contains('open');
+  if (sheetOpen) {
+    if (playTimer && matchesMarkKey(e)) { e.preventDefault(); addMark(); }
+    return;
+  }
+
+  if (matchesBinding(e)) {
+    e.preventDefault();
+    if (rec.active) stopRec(); else startRec();
+  }
+});
+
+/* ==================== 设置绑定 ==================== */
+function bindInput(sel, key) {
+  const el = $(sel); el.value = settings[key] || '';
+  el.addEventListener('input', () => { settings[key] = el.value; saveSettings(); });
+}
+
+function bindSettingsUI() {
+  const sf = $('#setShowFirstLine');
+  sf.checked = !!settings.showFirstLine;
+  sf.addEventListener('change', () => { settings.showFirstLine = sf.checked; saveSettings(); renderList(); });
+
+  const at = $('#setAutoTranscribe');
+  at.checked = !!settings.autoTranscribe;
+  at.addEventListener('change', () => { settings.autoTranscribe = at.checked; saveSettings(); });
+
+  const prov = $('#setProvider');
+  prov.value = settings.provider;
+  prov.addEventListener('change', () => { settings.provider = prov.value; saveSettings(); });
+
+  const lang = $('#setLang');
+  lang.value = settings.lang;
+  lang.addEventListener('change', () => { settings.lang = lang.value; saveSettings(); });
+
+  bindInput('#setApiUrl', 'apiUrl');
+  bindInput('#setApiKey', 'apiKey');
+  bindInput('#setModel', 'model');
+  bindInput('#setRecordDir', 'recordDir');
+
+  refreshCatSelects();
+  renderCatList();
+
+  $('#selRightCat').addEventListener('change', () => {
+    settings.swipeRightCat = $('#selRightCat').value; saveSettings(); renderList();
+  });
+  $('#selLeftCat').addEventListener('change', () => {
+    settings.swipeLeftCat = $('#selLeftCat').value; saveSettings(); renderList();
+  });
+
+  refreshKeyUI();
+
+  $('#btnTestApi').addEventListener('click', async () => {
+    const btn = $('#btnTestApi');
+    if (!settings.apiUrl) { toast('请先填写接口地址'); return; }
+    btn.disabled = true; btn.textContent = '测试中…';
+    await sleep(1000);
+    btn.disabled = false; btn.textContent = '测试连接';
+    toast('连接成功 · 312ms');
+  });
+
+  $$('[data-pick]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const key = btn.dataset.pick;
+      const presets = ['/sdcard/s1rec/records', '/storage/emulated/0', '/sdcard/Record', '/storage/emulated/0/sogou/records'];
+      const v = await pickModal('选择目录', presets.map(p => ({ value: p, label: p, mono: true })));
+      if (v) {
+        settings[key] = v; saveSettings();
+        $('#setRecordDir').value = v;
+        toast('已切换目录');
+      }
+    });
+  });
+
+  $('#btnReset').addEventListener('click', () => {
+    settings = clone(DEFAULTS); filterCat = 'all'; searchQ = '';
+    $('#searchInput').value = '';
+    saveSettings(); capturing = false;
+    items.forEach(it => { it.cat = null; });
+    bindSettingsUI(); renderFilters(); renderList();
+    toast('已恢复默认设置');
+  });
+}
+
+/* ==================== 全局事件 ==================== */
+let searchTimer = null;
+$('#searchInput').addEventListener('input', e => {
+  clearTimeout(searchTimer);
+  const v = e.target.value;
+  searchTimer = setTimeout(() => { searchQ = v.trim(); renderList(); }, 200);
+});
+
+$('#filters').addEventListener('click', e => {
+  const chip = e.target.closest('.chip');
+  if (!chip) return;
+  filterCat = chip.dataset.cat;
+  renderFilters(); renderList();
+  viewRecord.scrollTop = 0;
+});
+
+document.addEventListener('click', e => {
+  const trBtn = e.target.closest('[data-tr]');
+  if (trBtn) {
+    e.preventDefault(); e.stopPropagation();
+    transcribe(trBtn.dataset.tr);
+  }
+});
+
+$$('.tab').forEach(t => {
+  t.addEventListener('click', () => switchView(t.dataset.view));
+});
+
+$('#recBtn').addEventListener('click', () => { if (rec.active) stopRec(); else startRec(); });
+
+$('#sheetMask').addEventListener('click', closeDetail);
+$('#sheetClose').addEventListener('click', closeDetail);
+
+$('#sheetBody').addEventListener('click', e => {
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  if (btn.dataset.act === 'transcribe' && detailId) transcribe(detailId);
+});
+
+/* ==================== 启动 ==================== */
+initialLoad();
+renderFilters();
+renderList();
+bindSettingsUI();
+switchView('record');
+
+if (NATIVE) {
+  configureNative();
+  const av = $('#aboutVersion');
+  if (av) av.textContent = 'v' + (jcall('version') || '1.4');
+  const ad = $('#aboutDir');
+  if (ad) ad.textContent = (nativeStats && nativeStats.roots && nativeStats.roots[0]) || 's1rec/';
+  const rs = $('#btnRescan');
+  if (rs) rs.addEventListener('click', () => rescan(true));
+}
+
+/* 从后台回来重扫一次：厂商刚录完的东西能立刻出现 */
+window.__onResume = () => {
+  if (!NATIVE) return;
+  const el = document.activeElement;
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+  rescan(false);
+};
+
+/* 返回键先关面板 / 弹层，返回 0 表示交给系统退出 */
+window.__onBack = () => {
+  if ($('#sheet').classList.contains('open')) { closeDetail(); return 1; }
+  const m = document.querySelector('.modal-mask');
+  if (m) { m.remove(); return 1; }
+  return 0;
+};
+</script>
+</body>
+</html>

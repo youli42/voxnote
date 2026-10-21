@@ -10,13 +10,19 @@
 
 | 能力 | 状态 |
 | --- | --- |
-| 厂商日志导入（会话 / 逐句 / 摘要 / 错误 / 音频挂接） | ✅ 可用（`android/src/.../reader`） |
-| 卡片列表 + 逐句文稿呈现 | ✅ 可用 |
-| 结构化数据落盘（`/sdcard/s1rec/`） | ✅ 可用 |
-| 录音采集（`AudioRecord`） | ⬜ 未开始 |
-| 可插拔转写引擎 | ⬜ 未开始 |
-| 编辑层（`edits.jsonl`，机器派生不覆盖人工） | ⬜ 未开始 |
+| 录音目录扫描（`/sdcard/<年.月>/*.wav` + 旁车 `*.md`，以及 `sogou/md/` 镜像） | ✅ 可用 |
+| 卡片列表 + 搜索 + 分类筛选 + 左/右滑归类 | ✅ 可用 |
+| 详情：逐句文稿、播放/拖动、打点、改名、分类 | ✅ 可用 |
+| 用户态落盘（`/sdcard/s1rec/app-state.json`，机器派生不覆盖人工） | ✅ 可用 |
+| 自录（`MediaRecorder` 16 kHz 单声道 AAC，落盘即出现在列表） | ✅ 可用 |
+| 厂商日志导入（会话 / 逐句 / 摘要 / 错误 / 音频挂接） | ⬜ 内核保留（`reader/`），UI 待接（见分支 `feat/log-monitor`） |
+| 可插拔转写引擎 | ⬜ 未开始（"转文字"当前如实提示未接入） |
+| 编辑层（`edits.jsonl` 追加层） | ⬜ 部分：改名/分类/标记已落 app-state，尚未做追加式编辑流 |
 | 同步 / 自动化 | ⬜ 未开始 |
+
+界面是你给的原型（`deepseek_html_*.html`）的移植：**H5 负责观感与手势，Java 负责文件与媒体**，
+两边通过 `window.S1N` 桥接，详见 [docs/APP.md](docs/APP.md)。
+
 
 ## 架构一句话
 
@@ -30,8 +36,11 @@
 
 ```
 android/            安卓应用（当前为无 Gradle 的最小构建链）
-  src/dev/s1rec/reader/   日志导入 + 呈现（MVP，已可运行）
-docs/               需求、架构、数据契约
+  assets/index.html     原型移植后的界面（真实数据由 JS 桥驱动）
+  src/dev/s1rec/        MainActivity（WebView 宿主）/ Bridge / Library / MdParser /
+                        Player / Recorder / State
+  src/dev/s1rec/reader/ 日志导入内核（LogParser / Store / Session），待接入 UI
+docs/               需求、架构、数据契约、App 实现说明
 tools/              工具链获取脚本
 ```
 
@@ -43,15 +52,17 @@ tools/              工具链获取脚本
 pwsh -NoProfile -File tools/fetch_toolchain.ps1 -Proxy http://127.0.0.1:10808
 ```
 
-然后构建 / 安装：
+然后构建 / 安装（已有工具链时可用 `$env:S1REC_TOOLCHAIN` 或 `-Toolchain` 指过去）：
 
 ```powershell
 pwsh -NoProfile -File android/build.ps1            # 只出 APK
 pwsh -NoProfile -File android/build.ps1 -Install   # 出包 + adb install + 拉起
 ```
 
-构建链是 `javac → d8 → aapt2 → zipalign → apksigner`，不依赖 Gradle 与网络。
-迁移到 Gradle/AGP 时，`android/src` 与 `AndroidManifest.xml` 可原样沿用。
+构建链是 `javac → d8 → aapt2 → zipalign → apksigner`，不依赖 Gradle 与网络；
+`aapt2 link -A assets` 负责把 H5 打进包里。签名用 `android/debug.keystore`（首次自动生成，
+位置在 build 目录之外，所以反复构建不会换签名、能覆盖安装）。
+迁移到 Gradle/AGP 时，`android/src`、`android/assets` 与 `AndroidManifest.xml` 可原样沿用。
 
 ## 设备事实（S1 AI Recorder，实测）
 
