@@ -8,7 +8,12 @@ import android.os.Looper;
 import android.webkit.JavascriptInterface;
 import android.widget.Toast;
 
+import dev.s1rec.reader.Session;
+
+import org.json.JSONArray;
 import org.json.JSONObject;
+
+import java.util.List;
 
 /**
  * JS ⇄ Java 的唯一通道（页面里是 window.S1N）。
@@ -30,6 +35,7 @@ public class Bridge {
     private final Library lib;
     private final Player player = new Player();
     private final Recorder rec = new Recorder();
+    private final LogMonitor monitor = new LogMonitor();
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     private String pendingStamp;
@@ -54,15 +60,41 @@ public class Bridge {
         return VERSION;
     }
 
-    /** 全量重扫，返回 {items:[…], stats:{…}}。 */
+    /**
+     * 全量重扫，返回 {items, stats, monitor}。
+     * 日志监控一分钟内复用上次结果，所以切回 App 的刷新不会每次都重读 3 MB 日志。
+     */
     @JavascriptInterface
     public synchronized String refresh() {
         lib.setRecordDir(recordDir());
         try {
-            return lib.refresh().toString();
+            List<Session> sessions = monitor.scanIfStale();
+            lib.setLogSessions(sessions);
+            JSONObject o = lib.refresh();
+            o.put("monitor", monitor.info());
+            return o.toString();
         } catch (Throwable t) {
             return "{\"items\":[],\"stats\":{\"error\":\"" + esc(String.valueOf(t)) + "\"}}";
         }
+    }
+
+    /** 强制跑一次转录监控（日志重扫 + 写出 sessions/），并返回新列表。 */
+    @JavascriptInterface
+    public synchronized String scanLogs() {
+        try {
+            monitor.scan(true);
+            lib.setLogSessions(monitor.scanIfStale());
+            JSONObject o = lib.refresh();
+            o.put("monitor", monitor.info());
+            return o.toString();
+        } catch (Throwable t) {
+            return "{\"ok\":false,\"message\":\"" + esc(String.valueOf(t)) + "\"}";
+        }
+    }
+
+    @JavascriptInterface
+    public String monitorInfo() {
+        return monitor.info().toString();
     }
 
     /** 单条用户态更新：{"title":"…"} / {"cat":"c1"|null} / {"marks":[1.2,8.4]} */
@@ -100,12 +132,42 @@ public class Bridge {
     }
 
     /**
-     * "转文字"。v1 还没有接任何识别后端：这里如实告诉 UI，而不是假装成功。
-     * 分支 feat/log-monitor 会在这里接上厂商日志的重导入。
+     * "转文字"。本分支的简单实现 = 立刻重跑一次转录监控，看这场有没有新正文：
+     * 真正接识别后端（自建 API / 本地小模型）时，替换的就是这里。
      */
     @JavascriptInterface
-    public String transcribe(String id) {
-        return "{\"ok\":false,\"message\":\"v1 只读取已有文稿，转写后端尚未接入\"}";
+    public synchronized String transcribe(String id) {
+        if (id == null || id.length() == 0) {
+            return "{\"ok\":false,\"message\":\"未知记录\"}";
+        }
+        try {
+            monitor.scan(true);
+            lib.setLogSessions(monitor.scanIfStale());
+            JSONObject res = lib.refresh();
+
+            int n = 0;
+            JSONArray arr = res.optJSONArray("items");
+            if (arr != null) {
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject it = arr.optJSONObject(i);
+                    if (it != null && id.equals(it.optString("id"))) {
+                        JSONArray segs = it.optJSONArray("segments");
+                        n = segs == null ? 0 : segs.length();
+                        break;
+                    }
+                }
+            }
+            JSONObject out = new JSONObject();
+            out.put("ok", n > 0);
+            out.put("segments", n);
+            out.put("message", n > 0
+                    ? "已从日志导入 " + n + " 句"
+                    : "日志里没有这场的内容（厂商只在上传成功时写逐句）");
+            out.put("monitor", monitor.info());
+            return out.toString();
+        } catch (Throwable t) {
+            return "{\"ok\":false,\"message\":\"" + esc(String.valueOf(t)) + "\"}";
+        }
     }
 
     // ------------------------------------------------------------ 播放

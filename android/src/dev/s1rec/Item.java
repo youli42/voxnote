@@ -28,6 +28,7 @@ public class Item {
     public String audioPath;      // 音频绝对路径，null = 只有文本
     public String mdPath;         // 采用的文稿路径
     public String source = "audio";   // audio | md | log
+    public boolean fromLog;           // 有厂商日志的逐句兜底（转录监控合进来的）
     public String mode = "";          // meeting / memo / interview / shorthand ...
     public String title = "";         // 默认标题（用户改名走 state）
     public String summary = "";
@@ -79,6 +80,7 @@ public class Item {
             o.put("dur", durMs / 1000.0);
             o.put("status", status());
             o.put("source", source);
+            o.put("fromLog", fromLog);
             o.put("mode", mode);
             o.put("audioPath", audioPath == null ? JSONObject.NULL : audioPath);
             o.put("mdPath", mdPath == null ? JSONObject.NULL : mdPath);

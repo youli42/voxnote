@@ -56,8 +56,9 @@ body{
 body.recording .rec-btn{border-color:#4b505a;}
 body.recording .rec-btn-inner{width:20px;height:20px;border-radius:6px;}
 
-/* 冻结区：搜索 + 筛选 */
-.sticky-bar{position:sticky;top:0;z-index:5;background:var(--bg);
+/* 冻结区：搜索 + 筛选。本机 WebView 的 position:sticky 不可靠，
+   改由 JS 在滚动时把它钉在顶部（见 initSticky），这里只留视觉样式。 */
+.sticky-bar{position:relative;z-index:5;background:var(--bg);
   margin:0 -10px;padding:6px 10px 0;}
 .search-wrap{padding:0 0 6px;}
 .search-input{width:100%;background:var(--surface2);border:1px solid var(--line);border-radius:9px;
@@ -484,6 +485,25 @@ body.recording .rec-btn-inner{width:20px;height:20px;border-radius:6px;}
       </div>
 
       <div class="group">
+        <div class="group-title">转录监控</div>
+        <div class="row">
+          <div class="row-main">
+            <div class="row-label">厂商日志</div>
+            <div class="row-desc" id="monDir">/sdcard/sogou/log/app</div>
+          </div>
+          <div class="row-value" id="monSessions">—</div>
+        </div>
+        <div class="row">
+          <div class="row-main">
+            <div class="row-label">上次扫描</div>
+            <div class="row-desc" id="monInfo">尚未扫描</div>
+          </div>
+          <div class="row-value" id="monSentences">—</div>
+        </div>
+        <button class="btn block" id="btnScanLogs">立即扫描并导入</button>
+      </div>
+
+      <div class="group">
         <div class="group-title">关于</div>
         <div class="row">
           <div class="row-main"><div class="row-label">版本</div></div>
@@ -539,6 +559,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
    装到设备上之后，列表、音频、录音、用户态全部来自 Java 侧。 */
 const NATIVE = (typeof window.S1N !== 'undefined' && window.S1N) ? window.S1N : null;
 let nativeStats = null;
+let nativeMonitor = null;
 
 function jcall(name, ...args) {
   try { return NATIVE[name](...args); } catch (e) { console.error('bridge:' + name, e); return null; }
@@ -718,6 +739,7 @@ function initialLoad() {
 /* 拉一次真实数据并重绘。 */
 function hydrate(res, first) {
   nativeStats = (res && res.stats) || nativeStats;
+  nativeMonitor = (res && res.monitor) || nativeMonitor;
   const list = (res && res.items) || [];
   items = list.map(normalizeItem);
   loadedOffset = 9999;
@@ -725,6 +747,7 @@ function hydrate(res, first) {
   renderFilters();
   renderList();
   renderStats();
+  renderMonitorUI();
   if (first) switchView('record');
 }
 
@@ -780,7 +803,28 @@ function renderStats() {
   if (s.error) { el.textContent = '⚠️ ' + s.error; return; }
   const t = s.scannedAt ? new Date(s.scannedAt) : null;
   const at = t ? ` · ${pad2(t.getHours())}:${pad2(t.getMinutes())} 扫描` : '';
-  el.textContent = `${s.total | 0} 场 · ${s.done | 0} 已转写 · ${s.withAudio | 0} 有录音 · ${s.sentences | 0} 句${at}`;
+  let txt = `${s.total | 0} 场 · ${s.done | 0} 已转写 · ${s.withAudio | 0} 有录音 · ${s.sentences | 0} 句`;
+  if (nativeMonitor && nativeMonitor.sentences) txt += ` · 日志 ${nativeMonitor.sentences | 0} 句`;
+  el.textContent = txt + at;
+}
+
+/* 转录监控（旧 Magisk 模块内核）在 App 里的状态 */
+function renderMonitorUI() {
+  const m = nativeMonitor;
+  const dir = $('#monDir');
+  const ss = $('#monSessions');
+  const sn = $('#monSentences');
+  const si = $('#monInfo');
+  if (!m) { if (si) si.textContent = NATIVE ? '尚未扫描' : '仅设备可用'; return; }
+  if (dir) dir.textContent = m.dir || '/sdcard/sogou/log/app';
+  if (ss) ss.textContent = `${m.sessions | 0} 场`;
+  if (sn) sn.textContent = `${m.sentences | 0} 句`;
+  if (!si) return;
+  if (m.error) { si.textContent = '⚠️ ' + m.error; return; }
+  if (m.available === false) { si.textContent = '读不到日志目录（未装厂商 App？）'; return; }
+  const t = m.lastRunAt ? new Date(m.lastRunAt) : null;
+  const at = t ? `${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())}` : '—';
+  si.textContent = `${at} 扫描${m.wrote ? ' · 已写出 sessions/' : ''}${m.new ? ` · 新增 ${m.new} 场` : ''}`;
 }
 
 /* ==================== 状态 ==================== */
@@ -848,7 +892,7 @@ function rowHTML(it) {
   if (it.cat) meta.push(`<span class="tag cat">${esc(catName(it.cat))}</span>`);
   if (it.marks && it.marks.length) meta.push(`<span class="tag mark">${it.marks.length} 标记</span>`);
   if (modeLabel(it.mode)) meta.push(`<span class="tag">${esc(modeLabel(it.mode))}</span>`);
-  if (it.source === 'log') meta.push(`<span class="tag src">日志</span>`);
+  if (it.fromLog) meta.push(`<span class="tag src">日志</span>`);
   else if (!it.audioPath) meta.push(`<span class="tag src">仅文稿</span>`);
 
   const todosHTML = (showSummary && it.todos.length)
@@ -916,6 +960,7 @@ function renderList() {
   $('#emptyState').textContent = searchQ ? '没有匹配的录音' : '该分类下还没有录音';
 
   $('#view-record').scrollTop = scroll;
+  if (window.__stickyApply) window.__stickyApply();
 }
 
 // 更新单个卡片，不触发重排
@@ -2030,11 +2075,52 @@ $('#sheetBody').addEventListener('click', e => {
   if (btn.dataset.act === 'transcribe' && detailId) transcribe(detailId);
 });
 
+/* ==================== 冻结搜索区（sticky 兜底） ====================
+   滚动过录音面板后，把 .sticky-bar 绝对定位到 scrollTop，视觉上钉在顶部；
+   同时用一个等高占位保持列表位置不跳。 */
+function initSticky() {
+  const view = $('#view-record');
+  if (!view) return;
+  const bar = view.querySelector('.sticky-bar');
+  const panel = view.querySelector('.rec-panel');
+  if (!bar || !panel) return;
+
+  const spacer = document.createElement('div');
+  spacer.style.height = '0px';
+  spacer.style.margin = '0';
+  bar.parentNode.insertBefore(spacer, bar);
+
+  let barH = 0;
+  const apply = () => {
+    if (!barH) barH = bar.offsetHeight;
+    const panelBottom = panel.offsetTop + panel.offsetHeight;
+    if (view.scrollTop > panelBottom) {
+      spacer.style.height = barH + 'px';
+      bar.style.position = 'absolute';
+      bar.style.top = view.scrollTop + 'px';
+      bar.style.margin = '0';
+      bar.style.left = '0px';
+      bar.style.right = '0px';
+    } else {
+      spacer.style.height = '0px';
+      bar.style.position = '';
+      bar.style.top = '';
+      bar.style.margin = '';
+      bar.style.left = '';
+      bar.style.right = '';
+    }
+  };
+  window.__stickyApply = apply;
+  view.addEventListener('scroll', apply, { passive: true });
+  apply();
+}
+
 /* ==================== 启动 ==================== */
 initialLoad();
 renderFilters();
 renderList();
 bindSettingsUI();
+initSticky();
 switchView('record');
 
 if (NATIVE) {
@@ -2045,6 +2131,16 @@ if (NATIVE) {
   if (ad) ad.textContent = (nativeStats && nativeStats.roots && nativeStats.roots[0]) || 's1rec/';
   const rs = $('#btnRescan');
   if (rs) rs.addEventListener('click', () => rescan(true));
+  const sl = $('#btnScanLogs');
+  if (sl) sl.addEventListener('click', () => {
+    sl.disabled = true;
+    const res = jparse(jcall('scanLogs'), null);
+    sl.disabled = false;
+    if (!res || res.ok === false) { toast((res && res.message) || '扫描失败'); return; }
+    hydrate(res);
+    const m = (res && res.monitor) || {};
+    toast(`已导入日志：${m.sessions | 0} 场 / ${m.sentences | 0} 句`);
+  });
 }
 
 /* 从后台回来重扫一次：厂商刚录完的东西能立刻出现 */
