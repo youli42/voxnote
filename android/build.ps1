@@ -18,6 +18,17 @@ $build = Join-Path $here 'build'
 $TargetSdk = 34
 $MinSdk = 27
 
+# 版本号只在 AndroidManifest.xml 里维护，这里读出来传给 aapt2，避免两处漂移。
+$manifestPath = Join-Path $here 'AndroidManifest.xml'
+$manifestText = Get-Content $manifestPath -Raw
+$mCode = [regex]::Match($manifestText, 'android:versionCode="(\d+)"')
+$mName = [regex]::Match($manifestText, 'android:versionName="([^"]+)"')
+if (-not $mCode.Success -or -not $mName.Success) {
+    throw "AndroidManifest.xml 里读不到 versionCode / versionName"
+}
+$VersionCode = $mCode.Groups[1].Value
+$VersionName = $mName.Groups[1].Value
+
 if (-not $Toolchain) { $Toolchain = $env:VOXNOTE_TOOLCHAIN }
 if (-not $Toolchain) { $Toolchain = $env:S1REC_TOOLCHAIN }
 if (-not $Toolchain) { $Toolchain = Join-Path $repo 'toolchain' }
@@ -88,7 +99,7 @@ $base = "$build\base.apk"
 & $aapt2 link -o $base --manifest "$here\AndroidManifest.xml" -I $androidJar `
     --min-sdk-version $MinSdk --target-sdk-version $TargetSdk `
     -A "$here\assets" `
-    --version-code 4 --version-name 3.0
+    --version-code $VersionCode --version-name $VersionName
 if ($LASTEXITCODE -ne 0) { throw "aapt2 失败" }
 
 Write-Output '--- 4/5 打包 dex ---'
