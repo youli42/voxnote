@@ -68,7 +68,6 @@ public class HomeActivity extends Activity implements Picker.Host {
     private VoxAdapter adapter;
     private EditText searchInput;
     private TextView clearSearch;
-    private TextView statusText;
     private TextView sortBtn;
     private TextView refreshBtn;
     private LinearLayout filtersRow;
@@ -94,6 +93,7 @@ public class HomeActivity extends Activity implements Picker.Host {
     private boolean loading;
     private long loadedAt;
     private long lastBackAt;
+    private String lastScanError = "";
 
     private boolean recording;
     private long recStart;
@@ -180,10 +180,12 @@ public class HomeActivity extends Activity implements Picker.Host {
     private View buildTabBar() {
         LinearLayout bar = Ui.row(this);
         bar.setBackgroundColor(Ui.BG);
+        bar.setGravity(Gravity.CENTER);
         tabRecord = new TabItem(this, TabItem.ICON_RECORD, "录音");
         tabSettings = new TabItem(this, TabItem.ICON_SETTINGS, "设置");
-        bar.addView(tabRecord, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        bar.addView(tabSettings, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        // 两格固定宽度并居中：原来各占半屏，文字离得太开，看着像两条空栏。
+        bar.addView(tabRecord, Ui.lpm(Ui.dp(92), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, Ui.dp(8), 0));
+        bar.addView(tabSettings, Ui.lp(Ui.dp(92), ViewGroup.LayoutParams.WRAP_CONTENT));
         tabRecord.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 switchTab("record");
@@ -234,30 +236,29 @@ public class HomeActivity extends Activity implements Picker.Host {
         searchRow.addView(clearSearch, Ui.lpm(Ui.dp(20), Ui.dp(20), 6, 0, 0, 0));
         toolbar.addView(searchRow);
 
-        LinearLayout statusRow = Ui.row(this);
-        statusRow.setPadding(0, Ui.dp(4), 0, 0);
-        statusText = Ui.text(this, "正在扫描…", 10.5f, Ui.FAINT);
-        statusText.setSingleLine(true);
-        statusText.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        statusRow.addView(statusText, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout buttonsRow = Ui.row(this);
+        buttonsRow.setPadding(0, Ui.dp(5), 0, 0);
+        TextView dummy = Ui.text(this, "", 1f, Ui.BG);
+        buttonsRow.addView(dummy, Ui.lp(0, 0, 1f));
         sortBtn = Ui.text(this, "时间↓", 11f, Ui.FAINT);
         sortBtn.setBackground(Ui.pressable(Ui.rounded(14, 0x00000000, Ui.LINE, 1), 0x22FFFFFF));
         sortBtn.setGravity(Gravity.CENTER);
         Ui.pad(sortBtn, 9, 3, 9, 3);
-        statusRow.addView(sortBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
+        buttonsRow.addView(sortBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
         refreshBtn = Ui.text(this, "刷新", 11f, Ui.FAINT);
         refreshBtn.setBackground(Ui.pressable(Ui.rounded(14, 0x00000000, Ui.LINE, 1), 0x22FFFFFF));
         refreshBtn.setGravity(Gravity.CENTER);
         Ui.pad(refreshBtn, 9, 3, 9, 3);
-        statusRow.addView(refreshBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
-        toolbar.addView(statusRow);
+        buttonsRow.addView(refreshBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
+        toolbar.addView(buttonsRow);
 
+        // 筛选分类单独一行，和上面的排序/刷新拉开距离，不再挤在同一块里。
         HorizontalScrollView hs = new HorizontalScrollView(this);
         hs.setHorizontalScrollBarEnabled(false);
         filtersRow = Ui.row(this);
         hs.addView(filtersRow, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        hs.setPadding(0, Ui.dp(6), 0, Ui.dp(2));
+        hs.setPadding(0, Ui.dp(12), 0, Ui.dp(2));
         toolbar.addView(hs, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         screen.addView(toolbar, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -457,7 +458,7 @@ public class HomeActivity extends Activity implements Picker.Host {
         if (loading) return;
         loading = true;
         refreshBtn.setEnabled(false);
-        statusText.setText("正在扫描…");
+        refreshBtn.setText("扫描中…");
 
         final int keepPos = list.getFirstVisiblePosition();
         final View keep = list.getChildAt(0);
@@ -467,6 +468,7 @@ public class HomeActivity extends Activity implements Picker.Host {
             public void onLoaded(DataCenter.Result r) {
                 loading = false;
                 refreshBtn.setEnabled(true);
+                refreshBtn.setText("刷新");
                 loadedAt = System.currentTimeMillis();
                 applyResult(r, true, keepPos, keepTop, toastResult);
             }
@@ -481,12 +483,13 @@ public class HomeActivity extends Activity implements Picker.Host {
         sourceLabels.putAll(r.sourceLabels);
 
         if (r.error != null && r.error.length() > 0) {
-            statusText.setText("⚠️ " + r.error);
+            // 统计行已去掉，扫描失败只在出错时提示一次，不占版面。
+            if (!r.error.equals(lastScanError)) {
+                lastScanError = r.error;
+                toast("扫描失败：" + r.error);
+            }
         } else {
-            String at = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
-                    .format(new java.util.Date(r.scannedAt));
-            statusText.setText(r.total + " 场 · " + r.done + " 已转写 · "
-                    + r.sentences + " 句 · " + at + " 扫描");
+            lastScanError = "";
         }
         applyFilter(keepScroll, keepPos, keepTop);
         if (detail != null && detail.isOpen()) {
