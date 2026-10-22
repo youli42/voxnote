@@ -39,7 +39,7 @@
   .selbar .cnt b{font-size:15px;}
   .txtbtn{color:var(--accent); font-size:13px; padding:6px 4px; cursor:pointer; border:none; background:none;}
 
-  .statrow{display:flex; align-items:center; gap:6px; padding:0 12px 8px;}
+  .statrow{display:flex; align-items:center; justify-content:flex-end; gap:6px; padding:4px 12px 8px;}
   .statrow .info{flex:1; color:var(--dim); font-size:11px;}
   .pill{border:1px solid var(--chip-line); color:#cfd3dc; font-size:11px; border-radius:999px;
         padding:4px 10px; white-space:nowrap;}
@@ -95,8 +95,8 @@
   .bb.ghost{flex:0 0 52px; color:var(--dim); display:flex; align-items:center; justify-content:center;}
   .bb[disabled]{opacity:.4; pointer-events:none;}
 
-  .tabbar{height:54px; flex:none; border-top:1px solid #1b1d24; display:flex;}
-  .tab{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  .tabbar{height:54px; flex:none; border-top:1px solid #1b1d24; display:flex; justify-content:center;}
+  .tab{flex:0 0 92px; display:flex; flex-direction:column; align-items:center; justify-content:center;
        gap:3px; color:#6a7080; font-size:10.5px;}
   .tab .ico{width:20px; height:20px; border-radius:50%; border:2px solid currentColor;}
   .tab.on{color:#fff;}
@@ -146,7 +146,6 @@
       <div class="body">
         <div class="search">搜索标题、摘要、转写全文</div>
         <div class="statrow">
-          <span class="info">24 场 · 18 已转写 · 44 句 · 13:11 扫描</span>
           <span class="pill">时间↓</span><span class="pill">刷新</span>
           <span class="pill accent" data-act="enter-batch">管理</span>
         </div>
@@ -198,7 +197,7 @@
       <div class="sbar"><span>13:11</span><span>98% ▮</span></div>
       <div class="body" style="filter:brightness(.55);">
         <div class="search">搜索标题、摘要、转写全文</div>
-        <div class="statrow"><span class="info">24 场 · 18 已转写 · 44 句 · 13:11 扫描</span><span class="pill">时间↓</span><span class="pill">刷新</span><span class="pill accent">管理</span></div>
+        <div class="statrow"><span class="pill">时间↓</span><span class="pill">刷新</span><span class="pill accent">管理</span></div>
         <div class="chips"><span class="chip on">全部 24</span><span class="chip">转写失败 2</span><span class="chip">未分类 22</span><span class="chip">工作 0</span><span class="chip">记录与灵感 2</span></div>
         <div class="card" style="border-color:#5c3a3e; background:#221719;">
           <div class="trow"><span class="title">录音 12:10</span><span class="st uncat">未分类</span><span class="more">⋯</span></div>
