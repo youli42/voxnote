@@ -418,6 +418,56 @@ public class Storage {
         }
     }
 
+    // ------------------------------------------------------------ 删除
+
+    /**
+     * 这场录音是不是存在"我们能删"的位置：自录（私有 / 公共子目录 / 老 s1rec/records）
+     * 或 SAF / MediaStore（都记成 content://）。厂商目录（/sdcard/2026.10、/sdcard/sogou）
+     * 一律返回 false —— 那些文件不属于我们，不能碰。
+     */
+    public boolean isOwnAudio(String path, String uri) {
+        if (uri != null && uri.length() > 0) return true;
+        if (path == null || path.length() == 0) return false;
+        File sd = Environment.getExternalStorageDirectory();
+        String[] roots = {
+                privateRecords().getAbsolutePath(),
+                new File(sd, "s1rec/records").getAbsolutePath(),
+                new File(sd, publicSub()).getAbsolutePath(),
+                new File(sd, DEFAULT_SUB).getAbsolutePath(),
+        };
+        for (int i = 0; i < roots.length; i++) {
+            String r = roots[i];
+            if (path.equals(r) || path.startsWith(r + File.separator)) return true;
+        }
+        return false;
+    }
+
+    /** 删除一条自录音频：文件路径直接删；content:// 走 MediaStore 或 SAF 文档删除。 */
+    public boolean deleteOwnAudio(String path, String uri) {
+        if (uri != null && uri.length() > 0) {
+            try {
+                Uri u = Uri.parse(uri);
+                if (uri.contains("/document/")) {
+                    return DocumentsContract.deleteDocument(ctx.getContentResolver(), u);
+                }
+                return ctx.getContentResolver().delete(u, null, null) > 0;
+            } catch (Throwable t) {
+                return false;
+            }
+        }
+        return deleteFile(path);
+    }
+
+    public boolean deleteFile(String path) {
+        try {
+            if (path == null || path.length() == 0) return false;
+            File f = new File(path);
+            return f.isFile() && f.delete();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     // ------------------------------------------------------------ Blob
 
     /** 一个可读的音频/文稿：要么是文件路径，要么是 content:// URI。 */

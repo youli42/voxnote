@@ -20,6 +20,7 @@ public class CardRow extends LinearLayout {
 
     private final TextView title;
     private final TextView reason;
+    private final TextView more;
     private final TextView summary;
     private final LinearLayout todosBox;
     private final TextView todo1;
@@ -58,6 +59,13 @@ public class CardRow extends LinearLayout {
         reason.setBackground(Ui.rounded(5, 0x0FC98B8B, Ui.DANGER_LINE, 1));
         Ui.pad(reason, 6, 1, 6, 1);
         top.addView(reason, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
+
+        // 卡片菜单入口（打开详情 / 归类 / 删除）。批量模式下会被勾选框替换。
+        more = Ui.text(c, "⋯", 14f, Ui.FAINT);
+        more.setGravity(Gravity.CENTER);
+        more.setClickable(true);
+        Ui.pad(more, 8, 0, 0, 2);
+        top.addView(more, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 2, 0, 0, 0));
         main.addView(top, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         summary = Ui.text(c, "", 11.5f, Ui.DIM);
@@ -145,6 +153,10 @@ public class CardRow extends LinearLayout {
 
     public void setOnTranscribe(View.OnClickListener l) {
         transcribe.setOnClickListener(l);
+    }
+
+    public void setOnMore(View.OnClickListener l) {
+        more.setOnClickListener(l);
     }
 
     public void bind(RecordVm vm, UiSettings s, String catName, String sourceLabel) {

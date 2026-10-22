@@ -7,6 +7,7 @@ import android.os.Looper;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -121,6 +122,9 @@ public class DataCenter {
                 ArrayList<RecordVm> vms = new ArrayList<RecordVm>(items.size());
                 for (int i = 0; i < items.size(); i++) {
                     Item it = items.get(i);
+                    // 被"删除"的场次：厂商来源是屏蔽，自录的是文件已经没了，
+                    // 两种都不该再出现在列表、计数和筛选里。
+                    if (state.isIgnored(it.id)) continue;
                     RecordVm vm = new RecordVm(it, state.of(it.id));
                     vms.add(vm);
                     String st = vm.status();
@@ -178,6 +182,109 @@ public class DataCenter {
                 }
             }
         });
+    }
+
+    // ------------------------------------------------------------ 删除 / 屏蔽
+
+    public interface DeleteCallback {
+        /** files = 真删掉的自录文件数；hidden = 屏蔽掉的厂商场次数。 */
+        void onDeleted(int files, int hidden);
+    }
+
+    /**
+     * 删除若干场：自录的真删文件（不可恢复），厂商来源的只记屏蔽（物理文件不碰）。
+     * 全部在 IO 线程做，删完回主线程。
+     */
+    public void delete(final List<RecordVm> vms, final DeleteCallback cb) {
+        if (vms == null || vms.isEmpty()) return;
+        final ArrayList<RecordVm> list = new ArrayList<RecordVm>(vms);
+        io.execute(new Runnable() {
+            public void run() {
+                int files = 0, hidden = 0;
+                for (int i = 0; i < list.size(); i++) {
+                    RecordVm vm = list.get(i);
+                    if (storage.isOwnAudio(vm.audioPath, vm.audioUri)) {
+                        if (storage.deleteOwnAudio(vm.audioPath, vm.audioUri)) files++;
+                        storage.deleteFile(vm.mdPath);
+                        state.forget(vm.id);
+                    } else {
+                        state.setIgnored(vm.id, true);
+                        deleteMirror(vm.sid);
+                        hidden++;
+                    }
+                }
+                final int f = files, h = hidden;
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (cb != null) cb.onDeleted(f, h);
+                    }
+                });
+            }
+        });
+    }
+
+    /** 恢复全部被屏蔽的场次。 */
+    public void restoreIgnored(final DoneCallback done) {
+        io.execute(new Runnable() {
+            public void run() {
+                state.clearIgnored();
+                if (done != null) {
+                    ui.post(new Runnable() {
+                        public void run() {
+                            done.onDone();
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    /** 批量改分类（一次落盘调用，避免 n 次 save）。cat 传 null 表示清空。 */
+    public void patchCat(final List<String> ids, final String cat, final DoneCallback done) {
+        if (ids == null || ids.isEmpty()) return;
+        final ArrayList<String> list = new ArrayList<String>(ids);
+        io.execute(new Runnable() {
+            public void run() {
+                try {
+                    for (int i = 0; i < list.size(); i++) {
+                        JSONObject p = new JSONObject();
+                        p.put("cat", cat == null ? JSONObject.NULL : cat);
+                        state.patch(list.get(i), p);
+                    }
+                } catch (Throwable ignore) { }
+                if (done != null) {
+                    ui.post(new Runnable() {
+                        public void run() {
+                            done.onDone();
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    /** 删掉导出镜像 sessions/<stamp>_<sid>/；它只是可重建的视图。 */
+    private static void deleteMirror(long sid) {
+        if (sid <= 0) return;
+        try {
+            File dir = new File(State.DATA_DIR, "sessions");
+            File[] fs = dir.listFiles();
+            if (fs == null) return;
+            String suffix = "_" + sid;
+            for (int i = 0; i < fs.length; i++) {
+                if (fs[i].isDirectory() && fs[i].getName().endsWith(suffix)) deleteTree(fs[i]);
+            }
+        } catch (Throwable ignore) { }
+    }
+
+    private static void deleteTree(File f) {
+        try {
+            File[] fs = f.listFiles();
+            if (fs != null) {
+                for (int i = 0; i < fs.length; i++) deleteTree(fs[i]);
+            }
+            f.delete();
+        } catch (Throwable ignore) { }
     }
 
     private static final Comparator<RecordVm> BY_START = new Comparator<RecordVm>() {

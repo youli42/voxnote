@@ -31,6 +31,12 @@ public class SwipeRow extends FrameLayout {
         void onTranscribe(RecordVm vm);
 
         void onSwipe(RecordVm vm, String targetCat);
+
+        /** 卡片右上 ⋯：打开这张卡片的菜单。 */
+        void onMore(RecordVm vm);
+
+        /** 长按卡片：进批量管理（批量模式未开启时）。 */
+        void onLongPress(RecordVm vm);
     }
 
     private final TextView leftEdgeLabel;   // 卡片右移时从左边露出：右滑目标
@@ -83,9 +89,20 @@ public class SwipeRow extends FrameLayout {
                 if (host != null && vm != null) host.onOpen(vm);
             }
         });
+        card.setOnLongClickListener(new View.OnLongClickListener() {
+            public boolean onLongClick(View v) {
+                if (host != null && vm != null) host.onLongPress(vm);
+                return true;
+            }
+        });
         card.setOnTranscribe(new View.OnClickListener() {
             public void onClick(View v) {
                 if (host != null && vm != null) host.onTranscribe(vm);
+            }
+        });
+        card.setOnMore(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (host != null && vm != null) host.onMore(vm);
             }
         });
     }

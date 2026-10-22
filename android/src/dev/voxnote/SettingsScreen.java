@@ -47,6 +47,12 @@ public class SettingsScreen {
         void onResetDefaults();
 
         void onBeginKeyCapture();
+
+        /** 被"删除"（屏蔽）的场次数。 */
+        int ignoredCount();
+
+        /** 恢复所有被屏蔽的场次。 */
+        void onRestoreIgnored();
     }
 
     private final Activity act;
@@ -73,6 +79,7 @@ public class SettingsScreen {
     private final LinearLayout publicSubRow;
     private final LinearLayout permRow;
     private final TextView versionValue;
+    private final TextView ignoredValue;
 
     private boolean capturing;
 
@@ -304,6 +311,16 @@ public class SettingsScreen {
         }));
         content.addView(recGroup, groupLp());
 
+        // ---------------- 数据（删除进来的"屏蔽"在这里撤销）
+        LinearLayout dataGroup = Ui.group(act, "数据");
+        ignoredValue = valueButton();
+        dataGroup.addView(selectorRow("已屏蔽的场次", ignoredValue, new Runnable() {
+            public void run() {
+                host.onRestoreIgnored();
+            }
+        }));
+        content.addView(dataGroup, groupLp());
+
         // ---------------- 外部来源
         sourcesGroup = Ui.group(act, "外部来源");
         sourcesList = Ui.col(act);
@@ -377,6 +394,7 @@ public class SettingsScreen {
         publicSubRow.setVisibility(Storage.MODE_PUBLIC.equals(storage.mode()) ? View.VISIBLE : View.GONE);
         safRow.setVisibility(Storage.MODE_SAF.equals(storage.mode()) ? View.VISIBLE : View.GONE);
         permRow.setVisibility(storage.hasWritePermission() ? View.GONE : View.VISIBLE);
+        ignoredValue.setText(host.ignoredCount() + " 场");
         rebuildCats();
     }
 

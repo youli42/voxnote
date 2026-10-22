@@ -14,7 +14,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 
 /**
- * 用户态数据：改名 / 分类 / 标记。
+ * 用户态数据：改名 / 分类 / 标记 / 删除（屏蔽）。
  *
  * 放应用私有目录（filesDir/app-state.json）：这是"不可再生的东西"，
  * 不该暴露在公共目录里；私有目录在卸载时会清空，所以另配"导出/导入"把它搬走
@@ -23,13 +23,22 @@ import java.io.OutputStreamWriter;
  * 老版本把这份文件放在 /sdcard/s1rec/app-state.json，首次启动读不到私有文件时
  * 会去老路径捞一次，读到就迁过来，不丢分类与标记。
  *
- * 结构： {"<itemId>": {"title":"…","cat":"c1","marks":[1.2,8.4]}}
+ * 结构： {"<itemId>": {"title":"…","cat":"c1","marks":[1.2,8.4]},
+ *         "__ignored": {"<itemId>": true}}
+ *
+ * "__ignored" 是"删除"的落点：厂商来源的场次是从日志重放出来的，删掉导出文件下次
+ * 扫描还会回来，所以只能记成屏蔽（意图层），厂商的物理文件永久不动。
  */
 public class State {
 
-    /** 旧的公共目录，只用于一次性迁移。 */
-    public static final File LEGACY_DIR =
+    /** 公共数据目录：导出物，以及按 sid 清理镜像时要比对的 sessions/。 */
+    public static final File DATA_DIR =
             new File(android.os.Environment.getExternalStorageDirectory(), "s1rec");
+
+    /** 旧的公共目录，只用于一次性迁移。 */
+    public static final File LEGACY_DIR = DATA_DIR;
+
+    private static final String KEY_IGNORED = "__ignored";
 
     private final File file;
     private JSONObject root = new JSONObject();
@@ -73,6 +82,71 @@ public class State {
 
     public synchronized JSONObject of(String id) {
         return root.optJSONObject(id);
+    }
+
+    // ------------------------------------------------------------ 删除 / 屏蔽
+
+    /** 这场是否已被"删除"（厂商来源只记屏蔽）。 */
+    public synchronized boolean isIgnored(String id) {
+        JSONObject box = root.optJSONObject(KEY_IGNORED);
+        return box != null && id != null && box.has(id);
+    }
+
+    public synchronized void setIgnored(String id, boolean on) {
+        if (id == null || id.length() == 0) return;
+        try {
+            JSONObject box = root.optJSONObject(KEY_IGNORED);
+            if (box == null) box = new JSONObject();
+            if (on) box.put(id, true);
+            else box = without(box, id);
+            root.put(KEY_IGNORED, box);
+            dirty = true;
+            save();
+        } catch (Throwable ignore) { }
+    }
+
+    public synchronized int ignoredCount() {
+        JSONObject box = root.optJSONObject(KEY_IGNORED);
+        return box == null ? 0 : box.length();
+    }
+
+    /** 恢复全部被屏蔽的场次，返回恢复了几场。 */
+    public synchronized int clearIgnored() {
+        JSONObject box = root.optJSONObject(KEY_IGNORED);
+        int n = box == null ? 0 : box.length();
+        if (n > 0) {
+            try {
+                root = without(root, KEY_IGNORED);
+                dirty = true;
+                save();
+            } catch (Throwable ignore) { }
+        }
+        return n;
+    }
+
+    /** 真删之后把该记录的用户态一起丢掉，别留下悬空条目。 */
+    public synchronized void forget(String id) {
+        if (id == null || !root.has(id)) return;
+        try {
+            root = without(root, id);
+            dirty = true;
+            save();
+        } catch (Throwable ignore) { }
+    }
+
+    /** 复制一份去掉某个键的对象：不用 JSONObject.remove（老系统上不可靠）。 */
+    private static JSONObject without(JSONObject src, String key) {
+        JSONObject out = new JSONObject();
+        JSONArray names = src == null ? null : src.names();
+        if (names == null) return out;
+        for (int i = 0; i < names.length(); i++) {
+            String k = names.optString(i);
+            if (k == null || k.equals(key)) continue;
+            try {
+                out.put(k, src.get(k));
+            } catch (Throwable ignore) { }
+        }
+        return out;
     }
 
     /** 只合并给到的键；cat 传 JSONObject.NULL 表示"改为未分类"。 */

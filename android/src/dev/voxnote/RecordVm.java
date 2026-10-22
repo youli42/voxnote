@@ -23,6 +23,7 @@ public class RecordVm {
                     "待办", "摘要", "标记", "分类", "幂等", "降级"};
 
     public String id;
+    public long sid;
     public long startMs;
     public long durMs;
     public String audioPath;
@@ -44,6 +45,7 @@ public class RecordVm {
 
     public RecordVm(Item it, JSONObject state) {
         id = it.id;
+        sid = it.sid;
         startMs = it.startMs;
         durMs = it.durMs;
         audioPath = it.audioPath;

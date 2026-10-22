@@ -2,6 +2,8 @@ package dev.voxnote;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -448,6 +450,24 @@ public class HomeActivity extends Activity implements Picker.Host {
             settingsPage.setCapturing(true);
             toast("请按一个键（返回键取消）");
         }
+
+        public int ignoredCount() {
+            return state.ignoredCount();
+        }
+
+        public void onRestoreIgnored() {
+            if (state.ignoredCount() == 0) {
+                toast("没有被屏蔽的场次");
+                return;
+            }
+            data.restoreIgnored(new DataCenter.DoneCallback() {
+                public void onDone() {
+                    load(false, null, false);
+                    settingsPage.refresh();
+                    toast("已恢复被屏蔽的场次");
+                }
+            });
+        }
     };
 
     private boolean capturingKey;
@@ -614,7 +634,107 @@ public class HomeActivity extends Activity implements Picker.Host {
             rebuildFilters();
             toast(cancel ? "已取消分类" : "已归入「" + settings.catName(targetCat) + "」");
         }
+
+        public void onMore(RecordVm vm) {
+            showCardMenu(vm);
+        }
+
+        public void onLongPress(RecordVm vm) {
+            showCardMenu(vm);
+        }
     };
+
+    // ------------------------------------------------------------ 卡片菜单 / 删除
+
+    /** 卡片右上 ⋯（长按等同）：详情 / 归类 / 删除。 */
+    private void showCardMenu(final RecordVm vm) {
+        String[] items = {"打开详情", "归入分类…", "删除…"};
+        Picker.show(this, this, vm.title, items, -1, new Picker.OnPick() {
+            public void onPick(int i) {
+                if (i == 0) {
+                    openDetail(vm);
+                } else if (i == 1) {
+                    pickCategoryFor(java.util.Collections.singletonList(vm));
+                } else if (i == 2) {
+                    confirmDelete(java.util.Collections.singletonList(vm));
+                }
+            }
+        });
+    }
+
+    /** 给若干场挑一个分类；单条菜单和批量归并共用。 */
+    private void pickCategoryFor(final List<RecordVm> vms) {
+        if (vms == null || vms.isEmpty()) return;
+        if (settings.categories.isEmpty()) {
+            toast("先在设置里加一个分类");
+            return;
+        }
+        String[] labels = new String[settings.categories.size()];
+        int sel = -1;
+        for (int i = 0; i < settings.categories.size(); i++) {
+            labels[i] = settings.categories.get(i).name;
+            if (vms.size() == 1 && settings.categories.get(i).id.equals(vms.get(0).cat)) sel = i;
+        }
+        Picker.show(this, this, "归入分类", labels, sel, new Picker.OnPick() {
+            public void onPick(int i) {
+                final String cat = settings.categories.get(i).id;
+                ArrayList<String> ids = new ArrayList<String>();
+                for (int j = 0; j < vms.size(); j++) ids.add(vms.get(j).id);
+                data.patchCat(ids, cat, new DataCenter.DoneCallback() {
+                    public void onDone() {
+                        for (int j = 0; j < vms.size(); j++) vms.get(j).cat = cat;
+                        adapter.notifyDataSetChanged();
+                        rebuildFilters();
+                        toast("已归入「" + settings.catName(cat) + "」");
+                    }
+                });
+            }
+        });
+    }
+
+    /** 删除确认：按来源分别计数，文案写明哪部分不可恢复。 */
+    private void confirmDelete(final List<RecordVm> vms) {
+        if (vms == null || vms.isEmpty()) return;
+        int own = 0, vendor = 0;
+        for (int i = 0; i < vms.size(); i++) {
+            if (storage.isOwnAudio(vms.get(i).audioPath, vms.get(i).audioUri)) own++;
+            else vendor++;
+        }
+        StringBuilder msg = new StringBuilder();
+        if (own > 0) msg.append("· ").append(own).append(" 场自录：删除录音文件，不可恢复");
+        if (vendor > 0) {
+            if (msg.length() > 0) msg.append('\n');
+            msg.append("· ").append(vendor)
+                    .append(" 场厂商导入：仅从列表屏蔽（可撤销），原始录音与日志不动");
+        }
+        AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle(vms.size() == 1 ? "删除这场录音？" : "删除 " + vms.size() + " 场？")
+                .setMessage(msg.toString())
+                .setNegativeButton("取消", null)
+                .setPositiveButton("删除", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        doDelete(vms);
+                    }
+                }).create();
+        dlg.show();
+        try {
+            dlg.getButton(DialogInterface.BUTTON_POSITIVE).setTextColor(Ui.DANGER);
+        } catch (Throwable ignore) { }
+    }
+
+    private void doDelete(final List<RecordVm> vms) {
+        data.delete(vms, new DataCenter.DeleteCallback() {
+            public void onDeleted(int files, int hidden) {
+                load(false, null, false);
+                StringBuilder s = new StringBuilder("已删除 ").append(vms.size()).append(" 场");
+                if (hidden > 0) {
+                    s.append("（").append(hidden).append(" 场已屏蔽，设置里可恢复）");
+                }
+                toast(s.toString());
+                if (settingsPage != null) settingsPage.refresh();
+            }
+        });
+    }
 
     private class VoxAdapter extends BaseAdapter {
         public int getCount() {
