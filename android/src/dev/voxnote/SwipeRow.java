@@ -15,6 +15,11 @@ import android.widget.TextView;
 /**
  * 左/右滑分类的容器：底层是动作提示，上面是卡片。
  *
+ * 提示贴在「卡片让开的那一侧」，而且只显示那一侧松手后真正会归入的分类：
+ *   卡片右移（右滑）→ 左边露出 swipeRightCat；
+ *   卡片左移（左滑）→ 右边露出 swipeLeftCat。
+ * 名字随拖动从卡片底下露出来，看到什么就落到什么，不按手势名硬记左右。
+ *
  * 手势判定放在 onInterceptTouchEvent：竖滑一律不拦（交给 ListView 滚动），
  * 横滑超过 8dp 且明显偏水平才接管；这样列表滚动手感不受影响。
  */
@@ -28,8 +33,8 @@ public class SwipeRow extends FrameLayout {
         void onSwipe(RecordVm vm, String targetCat);
     }
 
-    private final TextView leftLabel;
-    private final TextView rightLabel;
+    private final TextView leftEdgeLabel;   // 卡片右移时从左边露出：右滑目标
+    private final TextView rightEdgeLabel;  // 卡片左移时从右边露出：左滑目标
     private final CardRow card;
     private final int slop;
     private final int threshold;
@@ -54,19 +59,19 @@ public class SwipeRow extends FrameLayout {
         addView(actionBg, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        leftLabel = actionLabel(c, Gravity.START | Gravity.CENTER_VERTICAL);
-        leftLabel.setLayoutParams(new FrameLayout.LayoutParams(
+        leftEdgeLabel = actionLabel(c, Gravity.START | Gravity.CENTER_VERTICAL);
+        leftEdgeLabel.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT,
                 Gravity.START | Gravity.CENTER_VERTICAL));
-        Ui.pad(leftLabel, 18, 0, 0, 0);
-        addView(leftLabel);
+        Ui.pad(leftEdgeLabel, 18, 0, 0, 0);
+        addView(leftEdgeLabel);
 
-        rightLabel = actionLabel(c, Gravity.END | Gravity.CENTER_VERTICAL);
-        rightLabel.setLayoutParams(new FrameLayout.LayoutParams(
+        rightEdgeLabel = actionLabel(c, Gravity.END | Gravity.CENTER_VERTICAL);
+        rightEdgeLabel.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT,
                 Gravity.END | Gravity.CENTER_VERTICAL));
-        Ui.pad(rightLabel, 0, 0, 18, 0);
-        addView(rightLabel);
+        Ui.pad(rightEdgeLabel, 0, 0, 18, 0);
+        addView(rightEdgeLabel);
 
         card = new CardRow(c);
         card.setLayoutParams(new FrameLayout.LayoutParams(
@@ -104,15 +109,17 @@ public class SwipeRow extends FrameLayout {
         card.animate().cancel();
         card.setTranslationX(0);
         card.setAlpha(1f);
-        leftLabel.setAlpha(0f);
-        rightLabel.setAlpha(0f);
+        leftEdgeLabel.setAlpha(0f);
+        rightEdgeLabel.setAlpha(0f);
         dx = 0;
         dragging = false;
 
-        String l = settings.catName(settings.swipeLeftCat);
-        String r = settings.catName(settings.swipeRightCat);
-        leftLabel.setText(l.length() > 0 ? l : "分类");
-        rightLabel.setText(r.length() > 0 ? r : "分类");
+        // 按"露出的那一侧"取分类，而不是按手势名：卡片右移时露左边＝右滑目标，
+        // 卡片左移时露右边＝左滑目标。两只提示各管一边，看到的就是会落到的。
+        String toRight = settings.catName(settings.swipeRightCat);
+        String toLeft = settings.catName(settings.swipeLeftCat);
+        leftEdgeLabel.setText(toRight.length() > 0 ? toRight : "分类");
+        rightEdgeLabel.setText(toLeft.length() > 0 ? toLeft : "分类");
         card.bind(vm, settings, vm.cat == null ? "" : settings.catName(vm.cat), sourceLabel);
     }
 
@@ -172,14 +179,14 @@ public class SwipeRow extends FrameLayout {
         card.setTranslationX(d);
         float a = Math.min(1f, Math.abs(d) / Ui.dp(80));
         if (d > 0) {
-            leftLabel.setAlpha(a);
-            rightLabel.setAlpha(0f);
+            leftEdgeLabel.setAlpha(a);
+            rightEdgeLabel.setAlpha(0f);
         } else if (d < 0) {
-            leftLabel.setAlpha(0f);
-            rightLabel.setAlpha(a);
+            leftEdgeLabel.setAlpha(0f);
+            rightEdgeLabel.setAlpha(a);
         } else {
-            leftLabel.setAlpha(0f);
-            rightLabel.setAlpha(0f);
+            leftEdgeLabel.setAlpha(0f);
+            rightEdgeLabel.setAlpha(0f);
         }
     }
 
@@ -206,8 +213,8 @@ public class SwipeRow extends FrameLayout {
                     public void run() {
                         card.setTranslationX(0);
                         card.setAlpha(1f);
-                        leftLabel.setAlpha(0f);
-                        rightLabel.setAlpha(0f);
+                        leftEdgeLabel.setAlpha(0f);
+                        rightEdgeLabel.setAlpha(0f);
                         dx = 0;
                         if (host != null && vm != null) host.onSwipe(vm, cat);
                     }
@@ -217,8 +224,8 @@ public class SwipeRow extends FrameLayout {
     private void reset() {
         card.animate().translationX(0).alpha(1f).setDuration(180)
                 .setInterpolator(new DecelerateInterpolator()).start();
-        leftLabel.animate().alpha(0f).setDuration(120).start();
-        rightLabel.animate().alpha(0f).setDuration(120).start();
+        leftEdgeLabel.animate().alpha(0f).setDuration(120).start();
+        rightEdgeLabel.animate().alpha(0f).setDuration(120).start();
         dx = 0;
     }
 }
