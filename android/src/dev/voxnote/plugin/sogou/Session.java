@@ -2,6 +2,9 @@ package dev.voxnote.plugin.sogou;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.TreeSet;
 
 /** 一场会话（一次录音 / 一次引擎会话）。 */
 public class Session {
@@ -13,7 +16,7 @@ public class Session {
     public String mode = "";      // recordMode，如 general / meeting
     public String model = "";     // model='iot'
     public String lang = "";      // fromLanguage
-    public int spkCount;          // SpeakerCount
+    public int spkCount;          // SpeakerCount（引擎参数，不是识别出的真人数）
     public boolean spkDetect;
 
     public String wavPath;        // 匹配到的音频（可能为 null）
@@ -22,6 +25,50 @@ public class Session {
     public int partialCount;
 
     public List<Segment> segments = new ArrayList<Segment>();
+
+    /**
+     * 厂商 AngleExtraProcessor 回调里的说话人事件（实测只信这条行的时间值——
+     * OnSpeechSoundDetect 行里的 speakerInfo_Begin 是流偏移，和句子时间轴对不上）。
+     * 一条事件 = "从 t 毫秒起，说话的人是 tag"；tag 仅在本会话内稳定。
+     */
+    public static class SpkEvent {
+        public final long t;
+        public final int tag;
+        public final int gender;   // 日志原样透传（实测 1/2，语义未证实）
+
+        public SpkEvent(long t, int tag, int gender) {
+            this.t = t;
+            this.tag = tag;
+            this.gender = gender;
+        }
+    }
+
+    public final List<SpkEvent> spkEvents = new ArrayList<SpkEvent>();
+
+    /** 该会话是否有可用的说话人事件轴。没有就如实呈现"未知"，不得默认 tag 0。 */
+    public boolean speakerAxis() {
+        return !spkEvents.isEmpty();
+    }
+
+    /** 实际开过口的发言人数（有正文的 FINAL 句里出现过的不同 tag）；与 UI 徽标同口径。 */
+    public int speakersDetected() {
+        TreeSet<Integer> set = new TreeSet<Integer>();
+        for (int i = 0; i < segments.size(); i++) {
+            Segment g = segments.get(i);
+            if (g.kind == Segment.FINAL && g.speaker >= 0 && g.text.length() > 0) set.add(Integer.valueOf(g.speaker));
+        }
+        return set.size();
+    }
+
+    /** tag → 首次出现的 gender，按 tag 升序。 */
+    public Map<Integer, Integer> tagGenders() {
+        TreeMap<Integer, Integer> m = new TreeMap<Integer, Integer>();
+        for (int i = 0; i < spkEvents.size(); i++) {
+            SpkEvent e = spkEvents.get(i);
+            if (!m.containsKey(Integer.valueOf(e.tag))) m.put(Integer.valueOf(e.tag), Integer.valueOf(e.gender));
+        }
+        return m;
+    }
 
     public static final String ST_OK = "ok";
     public static final String ST_EMPTY = "empty";

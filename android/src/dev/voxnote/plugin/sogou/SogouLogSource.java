@@ -100,7 +100,9 @@ public class SogouLogSource implements ContentSource {
         for (int i = 0; i < s.segments.size(); i++) {
             Segment g = s.segments.get(i);
             if (g.kind != Segment.FINAL || g.text == null || g.text.length() == 0) continue;
-            it.segs.add(new Item.Seg(g.startMs / 1000.0, g.endMs / 1000.0, g.text));
+            Item.Seg seg = new Item.Seg(g.startMs / 1000.0, g.endMs / 1000.0, g.text);
+            seg.spk = g.speaker;
+            it.segs.add(seg);
         }
         return it;
     }

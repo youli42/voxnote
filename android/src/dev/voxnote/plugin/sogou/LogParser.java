@@ -19,10 +19,13 @@ import java.util.regex.Pattern;
 /**
  * 把搜狗 S1 的 tmlog 解析成会话 + 逐句。
  *
- * 设计要点（均来自 2026-10-21 的实测结论）：
+ * 设计要点（均来自 2026-10-21 / 10-22 的实测结论）：
  *  - 会话主键用 10 位秒级 sid（Builder 的 date= 毫秒截断），sid<=0 一律丢弃（实测存在 sessionId:0 的脏行）。
  *  - Builder 不代表一场录音（同一次按键会反复创建引擎），因此音频存在与否单独判定，二者都对不上才丢。
  *  - 上报行（%22 / json:）里嵌着完整的统计 JSON，先挡掉，否则会重复计数。
+ *  - 说话人只信 AngleExtraProcessor 回调行的 SpeakerMsg{tag,gender,...}（时间是句子时间轴）；
+ *    OnSpeechSoundDetect 行的 speakerInfo_Begin 是流偏移（实测 477792 vs 29000），一律不用；
+ *    isvalid:false 的切换厂商自己会过滤（"过滤掉一个讲话人"），我们也不收。
  *  - 全量重扫：日志仅 ~3MB/天，重放比维护增量状态机更可靠（也避免轮转改名导致的整文件重放）。
  */
 public class LogParser {
@@ -36,6 +39,12 @@ public class LogParser {
     private static final Pattern P_LANG = Pattern.compile("fromLanguage='([^']*)'");
     private static final Pattern P_SPK = Pattern.compile("SpeakerCount=(\\d+)");
     private static final Pattern P_SPKDET = Pattern.compile("enableSpeakerDetection=(true|false)");
+    /**
+     * AngleExtraProcessor 说话人回调：只取归一化时间（句子时间轴），不取 OnSpeechSoundDetect 的流偏移。
+     * 实测同一次切换两类行数字不同（如 601792 流偏移 vs 37000 句子时间），detectSpeaker 里那个才是能跟逐句对齐的。
+     */
+    private static final Pattern P_SPKEVT = Pattern.compile(
+            "AngleExtraProcessor valid speaker 匹配成功.*?detectSpeaker:SpeakerMsg\\{tag=(\\d+), gender=(\\d+), speakerInfo_Begin=(\\d+)");
 
     private static final Pattern P_SENTENCE =
             Pattern.compile("识别结果：(true|false) (.+?) (\\d+) (\\d+)$");
@@ -102,6 +111,7 @@ public class LogParser {
                 r = new BufferedReader(new InputStreamReader(new FileInputStream(f), "UTF-8"), 1 << 15);
                 String line;
                 long cur = 0;
+                int liveTag = -1;   // 当前会话「此刻在说的」说话人；句子按日志时序继承它
                 while ((line = r.readLine()) != null) {
                     lines++;
                     // 上报行里嵌着整份统计 JSON，含 record_end_* 等锚点，必须先排除
@@ -113,6 +123,8 @@ public class LogParser {
                             long ms = parseLong(m.group(1), 0);
                             long sid = ms > 0 ? ms / 1000L : 0;
                             if (sid <= 0) { skipped++; continue; }
+                            // 只在进入不同会话时重置说话人游标；同 sid 反复出现的 Builder 不清空
+                            if (cur != sid) liveTag = -1;
                             cur = sid;
                             Session s = map.get(sid);
                             if (s == null) {
@@ -140,11 +152,33 @@ public class LogParser {
                         long st = parseLong(m.group(3), 0);
                         long en = parseLong(m.group(4), 0);
                         if (fin) {
-                            if (text.length() > 0) s.segments.add(new Segment(st, en, text, Segment.FINAL));
+                            if (text.length() > 0) {
+                                Segment seg = new Segment(st, en, text, Segment.FINAL);
+                                seg.speaker = liveTag;   // 日志此刻的当前说话人（首句可能 -1，稍后补）
+                                s.segments.add(seg);
+                            }
                         } else {
                             s.partialCount++;
                         }
                         if (en > s.endMs) s.endMs = en;
+                        continue;
+                    }
+
+                    // 说话人事件轴：AngleExtraProcessor 的"匹配成功"回调带归一化时间 + tag + gender。
+                    // "过滤掉一个讲话人"(isvalid:false) 与 OnSpeechSoundDetect(流偏移) 都不进这条轴。
+                    if (line.indexOf("AngleExtraProcessor valid speaker 匹配成功") >= 0) {
+                        Session s = map.get(cur);
+                        if (s == null) { skipped++; continue; }
+                        Matcher m = P_SPKEVT.matcher(line);
+                        if (m.find()) {
+                            int tag = (int) parseLong(m.group(1), -1);
+                            int gender = (int) parseLong(m.group(2), 0);
+                            long t = parseLong(m.group(3), 0);
+                            if (tag >= 0) {
+                                s.spkEvents.add(new Session.SpkEvent(t, tag, gender));
+                                liveTag = tag;
+                            }
+                        }
                         continue;
                     }
 
@@ -155,6 +189,8 @@ public class LogParser {
                         if (m.find()) {
                             Segment b = new Segment(parseLong(m.group(1), 0), 0, "", Segment.BREAK);
                             b.speakerAt = b.startMs;
+                            // 该切换指向的说话人：事件轴里时间精确命中（回调先于本行出现），否则取最近之前的
+                            b.speaker = speakerTagAt(s, b.startMs);
                             s.segments.add(b);
                         }
                         continue;
@@ -230,6 +266,7 @@ public class LogParser {
         List<Session> out = new ArrayList<Session>();
         for (Session s : map.values()) {
             s.segments = normalize(s.segments);
+            assignSpeakers(s);
             boolean meaningful = s.finalCount() > 0
                     || (s.summary != null && s.summary.length() > 0) || s.wavPath != null;
             if (!meaningful) continue;          // 纯引擎噪声：无字、无摘要、无音频（只剩报错）
@@ -270,6 +307,43 @@ public class LogParser {
             out.add(s);
         }
         return out;
+    }
+
+    /**
+     * 兜底：日志顺序缝隙里落成 speaker=-1 的句子（如首句先于第一个回调出现、轮转文件接缝重置过游标），
+     * 按事件轴取"句起点时刻最近的 tag"补齐；轴早于句子时取第一个 tag。
+     * 没有事件轴的会话原样保留 -1——"无说话人数据"必须区别于"发言人 0"。
+     */
+    private static void assignSpeakers(Session s) {
+        if (s.spkEvents.isEmpty()) return;
+        Collections.sort(s.spkEvents, new Comparator<Session.SpkEvent>() {
+            public int compare(Session.SpkEvent a, Session.SpkEvent b) {
+                if (a.t != b.t) return a.t < b.t ? -1 : 1;
+                return a.tag - b.tag;
+            }
+        });
+        int first = s.spkEvents.get(0).tag;
+        for (int i = 0; i < s.segments.size(); i++) {
+            Segment g = s.segments.get(i);
+            if (g.kind != Segment.FINAL || g.speaker >= 0) continue;
+            int tag = first;
+            for (int j = 0; j < s.spkEvents.size(); j++) {
+                Session.SpkEvent e = s.spkEvents.get(j);
+                if (e.t <= g.startMs) tag = e.tag; else break;
+            }
+            g.speaker = tag;
+        }
+    }
+
+    /** BREAK 时刻指向的说话人：事件轴里时间精确命中优先，否则取不超过它的最近事件。 */
+    private static int speakerTagAt(Session s, long t) {
+        int tag = -1;
+        for (int i = 0; i < s.spkEvents.size(); i++) {
+            Session.SpkEvent e = s.spkEvents.get(i);
+            if (e.t == t) return e.tag;
+            if (e.t < t) tag = e.tag;
+        }
+        return tag;
     }
 
     /** 扫描 /storage/emulated/0/<yyyy.MM>/*.wav，按文件名时间对齐 sid。 */

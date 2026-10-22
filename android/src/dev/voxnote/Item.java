@@ -39,6 +39,8 @@ public class Item {
         public double end;
         public double conf = 1.0;
         public String text = "";
+        /** 会话内说话人编号（0 起）；-1 = 该来源没有说话人数据，不得当成 0。 */
+        public int spk = -1;
 
         public Seg(double s, double e, String t) {
             start = s;
@@ -98,6 +100,7 @@ public class Item {
                 j.put("end", round2(s.end));
                 j.put("text", s.text);
                 j.put("confidence", s.conf);
+                if (s.spk >= 0) j.put("spk", s.spk);
                 sa.put(j);
             }
             o.put("segments", sa);

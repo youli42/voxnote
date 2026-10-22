@@ -75,6 +75,33 @@ public class DetailSheet implements Overlay {
     private final ArrayList<TextView> segTimes = new ArrayList<TextView>();
     private int activeSeg = -1;
 
+    /** 发言人数（不含 -1 未知）；0/1 人不显示徽标。 */
+    private int distinctSpeakers() {
+        if (vm == null) return 0;
+        int n = 0;
+        boolean[] seen = new boolean[16];
+        for (int i = 0; i < vm.segs.size(); i++) {
+            int spk = vm.segs.get(i).spk;
+            if (spk < 0) continue;
+            if (spk < seen.length && !seen[spk]) {
+                seen[spk] = true;
+                n++;
+            } else if (spk >= seen.length) {
+                n++;   // 极端情况不去重，只保证不崩
+            }
+        }
+        return n;
+    }
+
+    /** 发言人色片：柔和底色 + 深色字，按 tag 轮转。 */
+    private static final int[] SPK_BG = {
+            0xFFAECBFA, 0xFFFFD8A8, 0xFFB3E6C9, 0xFFFFB8C6, 0xFFD4BEFF, 0xFFA9E7F3,
+    };
+
+    private static int spkBg(int tag) {
+        return SPK_BG[Math.abs(tag) % SPK_BG.length];
+    }
+
     private final Runnable ticker = new Runnable() {
         public void run() {
             if (!open) return;
@@ -386,6 +413,8 @@ public class DetailSheet implements Overlay {
         binding = true;
         if (!keepTitle) titleInput.setText(vm.title);
         String m = vm.dateText() + " · " + vm.fmtDur() + " · " + vm.statusLabel();
+        int spkN = distinctSpeakers();
+        if (spkN > 1) m += " · " + spkN + " 位发言人";
         meta.setText(m);
         boolean hasCat = vm.cat != null && vm.cat.length() > 0;
         catChip.setText(hasCat ? settings.catName(vm.cat) + "  ›" : "未分类  ›");
@@ -583,6 +612,15 @@ public class DetailSheet implements Overlay {
             TextView time = Ui.text(act, RecordVm.fmtDur(s.start), 10.5f, Ui.FAINT);
             time.setSingleLine(true);
             row.addView(time, Ui.lp(Ui.dp(44), ViewGroup.LayoutParams.WRAP_CONTENT));
+            if (s.spk >= 0) {
+                TextView chip = Ui.text(act, String.valueOf(s.spk + 1), 10f, 0xFF1B1E23);
+                chip.setGravity(Gravity.CENTER);
+                chip.setTypeface(Typeface.DEFAULT_BOLD);
+                chip.setBackground(Ui.rounded(7, spkBg(s.spk)));
+                Ui.pad(chip, 6, 1, 6, 1);
+                row.addView(chip, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT, 2, 1, 4, 0));
+            }
             TextView text = Ui.text(act, s.text, 13.5f, Ui.TEXT);
             text.setLineSpacing(Ui.dp(2), 1f);
             LinearLayout.LayoutParams tp = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);

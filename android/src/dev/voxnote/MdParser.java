@@ -32,6 +32,8 @@ public class MdParser {
     private static final Pattern P_MODE = Pattern.compile("模式\\s*`?([A-Za-z_]+)`?");
     private static final Pattern P_TITLE = Pattern.compile("^#\\s+(.+?)\\s*$");
     private static final Pattern P_ERR = Pattern.compile("错误\\s*(\\d+)\\s*次");
+    /** 本 App 导出物的说话人分组头：**发言人 2**（1 基；回读成 0 基的 spk） */
+    private static final Pattern P_SPK_HDR = Pattern.compile("^\\*\\*发言人\\s*(\\d+)\\*\\*$");
 
     public static class Out {
         public String title = "";
@@ -57,6 +59,7 @@ public class MdParser {
         StringBuilder plain = new StringBuilder();
         boolean inFence = false;
         boolean inPlainSection = false;
+        int curSpk = -1;   // 当前说话人分组（**发言人 N** 头之后生效，0 基）
         BufferedReader r = null;
         try {
             r = new BufferedReader(new InputStreamReader(in, "UTF-8"), 1 << 14);
@@ -78,6 +81,11 @@ public class MdParser {
                 }
 
                 Matcher m;
+                if ((m = P_SPK_HDR.matcher(t)).find()) {
+                    curSpk = (int) num(m.group(1), 1) - 1;
+                    if (curSpk < 0) curSpk = -1;
+                    continue;
+                }
                 if (o.title.length() == 0 && (m = P_TITLE.matcher(t)).find()) {
                     o.title = m.group(1).trim();
                     continue;
@@ -86,7 +94,11 @@ public class MdParser {
                     double s = mmss(m.group(1), m.group(2));
                     double e = mmss(m.group(3), m.group(4));
                     String text = m.group(5).trim();
-                    if (text.length() > 0) o.segs.add(new Item.Seg(s, Math.max(s, e), text));
+                    if (text.length() > 0) {
+                        Item.Seg seg = new Item.Seg(s, Math.max(s, e), text);
+                        seg.spk = curSpk;
+                        o.segs.add(seg);
+                    }
                     continue;
                 }
                 if (o.summary.length() == 0 && (m = P_SUM.matcher(t)).find()) {

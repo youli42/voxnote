@@ -1,5 +1,6 @@
 package dev.voxnote.plugin.sogou;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedWriter;
@@ -10,6 +11,7 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * 把解析结果落成结构化数据，放在 /storage/emulated/0/s1rec/：
@@ -24,7 +26,8 @@ import java.util.Locale;
 public class Store {
 
     public static final File OUT = new File(LogParser.SDCARD, "s1rec");
-    public static final int SCHEMA = 1;
+    /** v2：segments 增加 spk（说话人 tag），record 增加 speaker_axis / speakers_detected / speakers。 */
+    public static final int SCHEMA = 2;
 
     private static final SimpleDateFormat DIR_FMT =
             new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US);
@@ -82,6 +85,20 @@ public class Store {
         o.put("lang", s.lang);
         o.put("speaker_count", s.spkCount);
         o.put("speaker_detect", s.spkDetect);
+        // v2：日志里真实识别出的说话人（tag 仅本会话内稳定；gender 原样透传，语义未证实）
+        o.put("speaker_axis", s.speakerAxis());
+        o.put("speakers_detected", s.speakersDetected());
+        JSONArray spks = new JSONArray();
+        Map<Integer, Integer> genders = s.tagGenders();
+        for (Map.Entry<Integer, Integer> en : genders.entrySet()) {
+            int tag = en.getKey().intValue();
+            JSONObject q = new JSONObject();
+            q.put("tag", tag);
+            q.put("gender", en.getValue().intValue());
+            q.put("sentences", sentencesOf(s, tag));
+            spks.put(q);
+        }
+        o.put("speakers", spks);
         o.put("status", s.status());
         o.put("final_count", s.finalCount());
         o.put("partial_count", s.partialCount);
@@ -99,12 +116,23 @@ public class Store {
                     : (g.kind == Segment.PARTIAL ? "partial" : "final"));
             j.put("t", g.startMs);
             j.put("e", g.endMs);
+            if (g.speaker >= 0) j.put("spk", g.speaker);
             if (g.kind != Segment.BREAK) j.put("text", g.text);
             sb.append(j.toString()).append('\n');
         }
         writeText(new File(d, "segments.jsonl"), sb.toString());
         writeText(new File(d, "transcript.md"), markdown(s));
         return dn;
+    }
+
+    /** 归属到某 tag 的句数（只数有正文的 FINAL）。 */
+    private static int sentencesOf(Session s, int tag) {
+        int n = 0;
+        for (int i = 0; i < s.segments.size(); i++) {
+            Segment g = s.segments.get(i);
+            if (g.kind == Segment.FINAL && g.speaker == tag && g.text.length() > 0) n++;
+        }
+        return n;
     }
 
     private static String indexLine(Session s, String dirName) {
@@ -133,7 +161,11 @@ public class Store {
                 .append(LogParser.fmtDuration(s.durationMs()))
                 .append(" ｜ 句数 ").append(s.finalCount());
         if (s.partialCount > 0) b.append("（另有 ").append(s.partialCount).append(" 条中间态）");
-        b.append(" ｜ 状态 ").append(s.statusLabel()).append('\n');
+        b.append(" ｜ 状态 ").append(s.statusLabel());
+        if (s.speakerAxis() && s.speakersDetected() > 1) {
+            b.append(" ｜ 发言人 ").append(s.speakersDetected());
+        }
+        b.append('\n');
         if (s.wavPath != null) b.append("- 录音 `").append(s.wavPath).append('`').append('\n');
         if (s.errorCount > 0) b.append("- ⚠️ 识别报错 ").append(s.errorCount).append(" 次\n");
         b.append('\n');
@@ -141,20 +173,60 @@ public class Store {
             b.append("> 摘要：").append(s.summary).append('\n').append('\n');
         }
         boolean any = false;
-        for (int i = 0; i < s.segments.size(); i++) {
-            Segment g = s.segments.get(i);
-            if (g.kind == Segment.BREAK) {
-                b.append("> —— 说话人切换 @ ").append(LogParser.fmtStamp(g.startMs))
-                        .append(" ——\n\n");
-            } else if (g.text.length() > 0) {
+        if (s.speakerAxis()) {
+            // 有说话人轴：按归属的 tag 分组（1 基展示），不再画厂商的"切换 @T"线——
+            // tag 是日志里 AngleExtraProcessor 给出的身份，比切换时刻更有信息量。
+            int cur = -2;
+            for (int i = 0; i < s.segments.size(); i++) {
+                Segment g = s.segments.get(i);
+                if (g.kind != Segment.FINAL || g.text.length() == 0) continue;
+                if (g.speaker != cur) {
+                    cur = g.speaker;
+                    b.append("**").append(speakerName(g.speaker)).append("**\n\n");
+                }
                 any = true;
                 b.append("`[").append(LogParser.fmtStamp(g.startMs)).append(" → ")
                         .append(LogParser.fmtStamp(g.endMs)).append("]` ")
                         .append(g.text).append("\n\n");
             }
+        } else {
+            for (int i = 0; i < s.segments.size(); i++) {
+                Segment g = s.segments.get(i);
+                if (g.kind == Segment.BREAK) {
+                    b.append("> —— 说话人切换 @ ").append(LogParser.fmtStamp(g.startMs))
+                            .append(" ——\n\n");
+                } else if (g.text.length() > 0) {
+                    any = true;
+                    b.append("`[").append(LogParser.fmtStamp(g.startMs)).append(" → ")
+                            .append(LogParser.fmtStamp(g.endMs)).append("]` ")
+                            .append(g.text).append("\n\n");
+                }
+            }
         }
         if (!any) b.append("（无识别文本）\n");
+        b.append('\n');
+        b.append("## 纯文本（喂 AI 用）\n\n```\n");
+        if (any) {
+            int cur = -2;
+            boolean axis = s.speakerAxis();
+            for (int i = 0; i < s.segments.size(); i++) {
+                Segment g = s.segments.get(i);
+                if (g.kind != Segment.FINAL || g.text.length() == 0) continue;
+                if (axis && g.speaker != cur) {
+                    cur = g.speaker;
+                    b.append('[').append(speakerName(g.speaker)).append("]\n");
+                }
+                b.append(axis ? "  " : "").append(g.text).append('\n');
+            }
+        } else {
+            b.append("（无）\n");
+        }
+        b.append("```\n");
         return b.toString();
+    }
+
+    private static String speakerName(int tag) {
+        return tag >= 0 ? "发言人 " + (tag + 1) : "说话人未知";
     }
 
     private static void writeText(File f, String content) throws Exception {
