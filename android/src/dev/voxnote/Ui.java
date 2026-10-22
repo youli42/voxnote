@@ -2,7 +2,10 @@ package dev.voxnote;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.DashPathEffect;
+import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -219,6 +222,34 @@ public final class Ui {
         v.setBackgroundColor(LINE);
         v.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1))));
         return v;
+    }
+
+    /**
+     * 底部 tab 栏：横向 LinearLayout，两半各放一个 TabItem（weight 1）。
+     * 自己只在正中间画一条竖向虚线做分界——只画线、不拦触摸，
+     * 点落在哪一半就由那一格的 TabItem 响应，整半区域都生效。
+     */
+    public static class TabBar extends LinearLayout {
+        private final Paint dash;
+
+        public TabBar(Context c, int lineColor) {
+            super(c);
+            setOrientation(HORIZONTAL);
+            setBackgroundColor(BG);
+            dash = new Paint(Paint.ANTI_ALIAS_FLAG);
+            dash.setColor(lineColor);
+            dash.setStyle(Paint.Style.STROKE);
+            dash.setStrokeWidth(Math.max(1, dp(1)));
+            dash.setPathEffect(new DashPathEffect(new float[]{dp(4), dp(4)}, 0));
+        }
+
+        @Override
+        protected void dispatchDraw(Canvas canvas) {
+            super.dispatchDraw(canvas);
+            float x = getWidth() / 2f;
+            float pad = dp(7);
+            canvas.drawLine(x, pad, x, getHeight() - pad, dash);
+        }
     }
 
     public static View spacer(Context c, int heightDp) {

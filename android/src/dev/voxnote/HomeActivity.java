@@ -195,14 +195,12 @@ public class HomeActivity extends Activity implements Picker.Host {
     }
 
     private View buildTabBar() {
-        LinearLayout bar = Ui.row(this);
-        bar.setBackgroundColor(Ui.BG);
-        bar.setGravity(Gravity.CENTER);
+        Ui.TabBar bar = new Ui.TabBar(this, Ui.LINE2);
         tabRecord = new TabItem(this, TabItem.ICON_RECORD, "录音");
         tabSettings = new TabItem(this, TabItem.ICON_SETTINGS, "设置");
-        // 两格固定宽度并居中：原来各占半屏，文字离得太开，看着像两条空栏。
-        bar.addView(tabRecord, Ui.lpm(Ui.dp(92), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, Ui.dp(8), 0));
-        bar.addView(tabSettings, Ui.lp(Ui.dp(92), ViewGroup.LayoutParams.WRAP_CONTENT));
+        // 左右各占一半、中间虚线分界：点这一半里的任意位置都由这格响应。
+        bar.addView(tabRecord, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        bar.addView(tabSettings, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         tabRecord.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 switchTab("record");

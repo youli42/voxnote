@@ -99,9 +99,11 @@
   .bb.ghost{flex:0 0 52px; color:var(--dim); display:flex; align-items:center; justify-content:center;}
   .bb[disabled]{opacity:.4; pointer-events:none;}
 
-  .tabbar{height:54px; flex:none; border-top:1px solid #1b1d24; display:flex; justify-content:center;}
-  .tab{flex:0 0 92px; display:flex; flex-direction:column; align-items:center; justify-content:center;
-       gap:3px; color:#6a7080; font-size:10.5px;}
+  .tabbar{height:54px; flex:none; border-top:1px solid #1b1d24; display:flex; position:relative;}
+  .tab{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+       gap:3px; color:#6a7080; font-size:10.5px; cursor:pointer;}
+  .tabbar::after{content:""; position:absolute; left:50%; top:8px; bottom:8px;
+       border-left:1px dashed #353941; transform:translateX(-.5px);}
   .tab .ico{width:20px; height:20px; border-radius:50%; border:2px solid currentColor;}
   .tab.on{color:#fff;}
 
