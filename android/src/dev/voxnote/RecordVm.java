@@ -104,12 +104,15 @@ public class RecordVm {
         return "待转写";
     }
 
-    /** 卡片右上角的“待处理原因”，与旧 H5 的 inboxReason 一致。 */
+    /**
+     * 卡片右上角的"待处理原因"红色徽标：只报转写链路的问题（失败/未转写/无正文）。
+     * 归类状态不在这里报——它由卡片元信息行的分类标签（未分类/分类名）单独表达，
+     * 这样"未转写"（要转文字）和"未分类"（要归类）两个待办才不会挤进同一个标签里。
+     */
     public String reason() {
         String s = status();
         if ("failed".equals(s)) return "转写失败";
         if ("raw".equals(s)) return "未转写";
-        if (cat == null || cat.length() == 0) return "未分类";
         if ("empty".equals(s)) return "无正文";
         return "";
     }

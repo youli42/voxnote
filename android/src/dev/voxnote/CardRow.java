@@ -29,7 +29,6 @@ public class CardRow extends LinearLayout {
     private final TextView[] kw = new TextView[4];
     private final TextView date;
     private final TextView dur;
-    private final TextView statusTag;
     private final TextView catTag;
     private final TextView marksTag;
     private final TextView modeTag;
@@ -107,14 +106,12 @@ public class CardRow extends LinearLayout {
         LinearLayout meta = Ui.row(c);
         date = metaText(c);
         dur = metaText(c);
-        statusTag = tagText(c);
         catTag = tagText(c);
         marksTag = tagText(c);
         modeTag = tagText(c);
         sourceTag = tagText(c);
         meta.addView(date);
         meta.addView(dur, metaLp());
-        meta.addView(statusTag, metaLp());
         meta.addView(catTag, metaLp());
         meta.addView(marksTag, metaLp());
         meta.addView(modeTag, metaLp());
@@ -210,18 +207,20 @@ public class CardRow extends LinearLayout {
         date.setText(vm.dateText());
         dur.setText(vm.fmtDur());
 
-        boolean showStatus = why.length() == 0;
-        statusTag.setVisibility(showStatus ? VISIBLE : GONE);
-        if (showStatus) {
-            statusTag.setText(vm.statusLabel());
-            styleTag(statusTag, "done".equals(vm.status()));
-        }
+        // "已转写"不占标签：默认状态没有信息量，只在没转写/失败时用红色
+        // "待处理原因"徽标点出问题；分类状态由下面的分类标签单独表达。
 
+        // 分类标签始终显示：有分类亮显分类名，没分类暗显"未分类"。
+        // 归类状态用它单独表达，与上方红色"待处理原因"（转写链路）分开，
+        // 一张卡上"未转写"和"未分类"就能同时看清、互不顶替。
         boolean hasCat = vm.cat != null && catName != null && catName.length() > 0;
-        catTag.setVisibility(hasCat ? VISIBLE : GONE);
+        catTag.setVisibility(VISIBLE);
         if (hasCat) {
             catTag.setText(catName);
             styleTag(catTag, true);
+        } else {
+            catTag.setText("未分类");
+            styleTag(catTag, false);
         }
 
         boolean hasMarks = vm.marks != null && vm.marks.size() > 0;

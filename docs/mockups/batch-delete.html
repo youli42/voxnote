@@ -41,6 +41,10 @@
 
   .statrow{display:flex; align-items:center; justify-content:flex-end; gap:6px; padding:4px 12px 8px;}
   .statrow .info{flex:1; color:var(--dim); font-size:11px;}
+  /* 时间↓/刷新/管理 与搜索框并排，省掉单独一行 */
+  .topbar{display:flex; align-items:center; gap:6px; margin:6px 12px 8px;}
+  .topbar .search{margin:0; flex:1; min-width:0;}
+  .topbar .statrow{padding:0; margin:0; flex:none;}
   .pill{border:1px solid var(--chip-line); color:#cfd3dc; font-size:11px; border-radius:999px;
         padding:4px 10px; white-space:nowrap;}
   .pill.accent{background:#232733; border-color:#3a4152; color:#fff; cursor:pointer;}
@@ -144,13 +148,13 @@
     <div class="phone" id="p1">
       <div class="sbar"><span>13:11</span><span>98% ▮</span></div>
       <div class="body">
-        <div class="search">搜索标题、摘要、转写全文</div>
-        <div class="statrow">
+        <div class="topbar">
+          <div class="search">搜索标题、摘要、转写全文</div>
           <span class="pill">时间↓</span><span class="pill">刷新</span>
           <span class="pill accent" data-act="enter-batch">管理</span>
         </div>
         <div class="chips">
-          <span class="chip on">全部 24</span><span class="chip">转写失败 2</span>
+          <span class="chip on">全部 24</span><span class="chip">未转写 3</span><span class="chip">转写失败 2</span>
           <span class="chip">未分类 22</span><span class="chip">工作 0</span><span class="chip">记录与灵感 2</span>
         </div>
 
@@ -167,9 +171,9 @@
           <div class="menu"><div data-act="noop">打开详情</div><div data-act="noop">改名</div><div data-act="noop">归入分类…</div><div class="red" data-act="del1">删除…</div></div>
         </div>
         <div class="card">
-          <div class="trow"><span class="title">录音 12:08</span><span class="st done">已转写</span><span class="more" data-act="menu">⋯</span></div>
+          <div class="trow"><span class="title">录音 12:08</span><span class="more" data-act="menu">⋯</span></div>
           <div class="sum">示例转写占位：支持一下，在哪个分类录音就自动存到哪个分类。</div>
-          <div class="meta">10-22 12:08 · 00:16 · <span class="tag">已转写</span><span class="tag">记录与灵感</span><span class="tag">厂商日志</span></div>
+          <div class="meta">10-22 12:08 · 00:16<span class="tag">记录与灵感</span><span class="tag">厂商日志</span></div>
           <div class="menu"><div data-act="noop">打开详情</div><div data-act="noop">改名</div><div data-act="noop">归入分类…</div><div class="red" data-act="del1">删除…</div></div>
         </div>
         <div class="card">
@@ -196,15 +200,17 @@
     <div class="phone">
       <div class="sbar"><span>13:11</span><span>98% ▮</span></div>
       <div class="body" style="filter:brightness(.55);">
-        <div class="search">搜索标题、摘要、转写全文</div>
-        <div class="statrow"><span class="pill">时间↓</span><span class="pill">刷新</span><span class="pill accent">管理</span></div>
-        <div class="chips"><span class="chip on">全部 24</span><span class="chip">转写失败 2</span><span class="chip">未分类 22</span><span class="chip">工作 0</span><span class="chip">记录与灵感 2</span></div>
+        <div class="topbar">
+          <div class="search">搜索标题、摘要、转写全文</div>
+          <div class="statrow"><span class="pill">时间↓</span><span class="pill">刷新</span><span class="pill accent">管理</span></div>
+        </div>
+        <div class="chips"><span class="chip on">全部 24</span><span class="chip">未转写 3</span><span class="chip">转写失败 2</span><span class="chip">未分类 22</span><span class="chip">工作 0</span><span class="chip">记录与灵感 2</span></div>
         <div class="card" style="border-color:#5c3a3e; background:#221719;">
           <div class="trow"><span class="title">录音 12:10</span><span class="st uncat">未分类</span><span class="more">⋯</span></div>
           <div class="sum">示例转写占位：这是一段用来预览卡片两行截断效果的示例文本，替代真实内容。</div>
           <div class="meta">10-22 12:10 · 00:31 · <span class="tag">采访</span><span class="tag">厂商日志</span></div>
         </div>
-        <div class="card"><div class="trow"><span class="title">录音 12:08</span><span class="st done">已转写</span><span class="more">⋯</span></div>
+        <div class="card"><div class="trow"><span class="title">录音 12:08</span><span class="more">⋯</span></div>
           <div class="sum">示例转写占位：支持一下，在哪个分类录音就自动存到哪个分类。</div>
           <div class="meta">10-22 12:08 · 00:16 · <span class="tag">记录与灵感</span><span class="tag">厂商日志</span></div></div>
       </div>
@@ -233,7 +239,7 @@
           <span class="txtbtn" data-act="exit-batch">完成</span>
         </div>
         <div class="statrow"><span class="info">筛选后批量操作更顺手</span></div>
-        <div class="chips"><span class="chip on">全部 24</span><span class="chip">转写失败 2</span><span class="chip">未分类 22</span><span class="chip">工作 0</span><span class="chip">记录与灵感 2</span></div>
+        <div class="chips"><span class="chip on">全部 24</span><span class="chip">未转写 3</span><span class="chip">转写失败 2</span><span class="chip">未分类 22</span><span class="chip">工作 0</span><span class="chip">记录与灵感 2</span></div>
 
         <div class="card sel" data-sel><div class="trow"><span class="check"></span><span class="title">录音 12:57</span><span class="st raw">待转写</span></div>
           <div class="sum">（自录示例）这条还没有文字，只有声音……</div>
@@ -241,7 +247,7 @@
         <div class="card" data-sel><div class="trow"><span class="check"></span><span class="title">录音 12:10</span><span class="st uncat">未分类</span></div>
           <div class="sum">示例转写占位：这是一段用来预览卡片两行截断效果的示例文本，替代真实内容。</div>
           <div class="meta">10-22 12:10 · 00:31 · <span class="tag">采访</span><span class="tag">厂商日志</span></div></div>
-        <div class="card sel" data-sel><div class="trow"><span class="check"></span><span class="title">录音 12:08</span><span class="st done">已转写</span></div>
+        <div class="card sel" data-sel><div class="trow"><span class="check"></span><span class="title">录音 12:08</span></div>
           <div class="sum">示例转写占位：支持一下，在哪个分类录音就自动存到哪个分类。</div>
           <div class="meta">10-22 12:08 · 00:16 · <span class="tag">记录与灵感</span><span class="tag">厂商日志</span></div></div>
         <div class="card" data-sel><div class="trow"><span class="check"></span><span class="title">录音 09:39</span><span class="st raw">仅文稿</span></div>
@@ -266,14 +272,14 @@
       <div class="sbar"><span>13:11</span><span>98% ▮</span></div>
       <div class="body" style="filter:brightness(.55);">
         <div class="selbar"><span class="txtbtn">全选</span><span class="cnt">已选 <b>3</b> / 24</span><span class="txtbtn">完成</span></div>
-        <div class="chips"><span class="chip on">全部 24</span><span class="chip">未分类 22</span><span class="chip">记录与灵感 2</span></div>
+        <div class="chips"><span class="chip on">全部 24</span><span class="chip">未转写 3</span><span class="chip">未分类 22</span><span class="chip">记录与灵感 2</span></div>
         <div class="card sel"><div class="trow"><span class="check"></span><span class="title">录音 12:57</span><span class="st raw">待转写</span></div>
           <div class="sum">（自录示例）这条还没有文字，只有声音……</div>
           <div class="meta">10-22 12:57 · <span class="tag">本地</span></div></div>
         <div class="card sel"><div class="trow"><span class="check"></span><span class="title">录音 12:10</span><span class="st uncat">未分类</span></div>
           <div class="sum">示例转写占位……</div>
           <div class="meta">10-22 12:10 · <span class="tag">厂商日志</span></div></div>
-        <div class="card sel"><div class="trow"><span class="check"></span><span class="title">录音 12:08</span><span class="st done">已转写</span></div>
+        <div class="card sel"><div class="trow"><span class="check"></span><span class="title">录音 12:08</span></div>
           <div class="sum">示例转写占位……</div>
           <div class="meta">10-22 12:08 · <span class="tag">厂商日志</span></div></div>
       </div>

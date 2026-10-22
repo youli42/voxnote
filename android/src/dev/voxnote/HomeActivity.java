@@ -39,7 +39,7 @@ import java.util.List;
  * 原生主页：录音 → 列表 → 详情（详情在 DetailSheet）。
  *
  * 与旧 WebView 版的行为对齐：
- *   - 列表按录音时间排（可切换方向），筛选行是 全部/转写失败/未分类/各分类；
+ *   - 列表按录音时间排（可切换方向），筛选行是 全部/未转写/转写失败/未分类/各分类；
  *   - 回前台自动重扫，但扫描在后台线程，UI 不冻结；
  *   - 左/右滑归类、卡片点击进详情、录音面板在列表头部随滚动收起；
  *   - 老版本设置由 {@link LegacySettingsImporter} 一次性迁过来。
@@ -74,7 +74,6 @@ public class HomeActivity extends Activity implements Picker.Host {
     private TextView refreshBtn;
     private TextView manageBtn;
     private LinearLayout searchRow;
-    private LinearLayout buttonsRow;
     private LinearLayout selectionRow;
     private TextView selCountText;
     private TextView selAllText;
@@ -243,6 +242,7 @@ public class HomeActivity extends Activity implements Picker.Host {
         Ui.pad(toolbar, 10, 8, 10, 4);
         toolbar.setBackgroundColor(Ui.BG);
 
+        // 搜索框与 时间↓ / 刷新 / 管理 同一行：720 宽的小屏上省掉一整行高度。
         searchRow = Ui.row(this);
         searchInput = Ui.input(this, "搜索标题、摘要、转写全文", 12.5f);
         Ui.pad(searchInput, 12, 7, 12, 7);
@@ -253,9 +253,25 @@ public class HomeActivity extends Activity implements Picker.Host {
         clearSearch.setVisibility(View.GONE);
         Ui.pad(clearSearch, 0, 4, 0, 4);
         searchRow.addView(clearSearch, Ui.lpm(Ui.dp(20), Ui.dp(20), 6, 0, 0, 0));
+        sortBtn = Ui.text(this, "时间↓", 11f, Ui.FAINT);
+        sortBtn.setBackground(Ui.pressable(Ui.rounded(14, 0x00000000, Ui.LINE, 1), 0x22FFFFFF));
+        sortBtn.setGravity(Gravity.CENTER);
+        Ui.pad(sortBtn, 8, 6, 8, 6);
+        searchRow.addView(sortBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
+        refreshBtn = Ui.text(this, "刷新", 11f, Ui.FAINT);
+        refreshBtn.setBackground(Ui.pressable(Ui.rounded(14, 0x00000000, Ui.LINE, 1), 0x22FFFFFF));
+        refreshBtn.setGravity(Gravity.CENTER);
+        Ui.pad(refreshBtn, 8, 6, 8, 6);
+        searchRow.addView(refreshBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
+        manageBtn = Ui.text(this, "管理", 11f, Ui.FAINT);
+        manageBtn.setBackground(Ui.pressable(Ui.rounded(14, 0x00000000, Ui.LINE, 1), 0x22FFFFFF));
+        manageBtn.setGravity(Gravity.CENTER);
+        Ui.pad(manageBtn, 8, 6, 8, 6);
+        searchRow.addView(manageBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
         toolbar.addView(searchRow);
 
-        // 批量模式的选择栏：替掉搜索行，保留筛选行，方便"先筛再全选"。
+        // 批量模式的选择栏：替掉搜索行（按钮随搜索行一起让位），保留筛选行，
+        // 方便"先筛再全选"。
         selectionRow = Ui.row(this);
         selectionRow.setVisibility(View.GONE);
         selAllText = Ui.text(this, "全选", 12f, Ui.TEXT);
@@ -271,34 +287,13 @@ public class HomeActivity extends Activity implements Picker.Host {
         selectionRow.addView(selDone);
         toolbar.addView(selectionRow);
 
-        buttonsRow = Ui.row(this);
-        buttonsRow.setPadding(0, Ui.dp(5), 0, 0);
-        TextView dummy = Ui.text(this, "", 1f, Ui.BG);
-        buttonsRow.addView(dummy, Ui.lp(0, 0, 1f));
-        sortBtn = Ui.text(this, "时间↓", 11f, Ui.FAINT);
-        sortBtn.setBackground(Ui.pressable(Ui.rounded(14, 0x00000000, Ui.LINE, 1), 0x22FFFFFF));
-        sortBtn.setGravity(Gravity.CENTER);
-        Ui.pad(sortBtn, 9, 3, 9, 3);
-        buttonsRow.addView(sortBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
-        refreshBtn = Ui.text(this, "刷新", 11f, Ui.FAINT);
-        refreshBtn.setBackground(Ui.pressable(Ui.rounded(14, 0x00000000, Ui.LINE, 1), 0x22FFFFFF));
-        refreshBtn.setGravity(Gravity.CENTER);
-        Ui.pad(refreshBtn, 9, 3, 9, 3);
-        buttonsRow.addView(refreshBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
-        manageBtn = Ui.text(this, "管理", 11f, Ui.FAINT);
-        manageBtn.setBackground(Ui.pressable(Ui.rounded(14, 0x00000000, Ui.LINE, 1), 0x22FFFFFF));
-        manageBtn.setGravity(Gravity.CENTER);
-        Ui.pad(manageBtn, 9, 3, 9, 3);
-        buttonsRow.addView(manageBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
-        toolbar.addView(buttonsRow);
-
-        // 筛选分类单独一行，和上面的排序/刷新拉开距离，不再挤在同一块里。
+        // 筛选分类单独一行，紧贴搜索行。
         HorizontalScrollView hs = new HorizontalScrollView(this);
         hs.setHorizontalScrollBarEnabled(false);
         filtersRow = Ui.row(this);
         hs.addView(filtersRow, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        hs.setPadding(0, Ui.dp(12), 0, Ui.dp(2));
+        hs.setPadding(0, Ui.dp(8), 0, Ui.dp(2));
         toolbar.addView(hs, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         screen.addView(toolbar, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -437,7 +432,6 @@ public class HomeActivity extends Activity implements Picker.Host {
             searchInput.clearFocus();
         } catch (Throwable ignore) { }
         searchRow.setVisibility(View.GONE);
-        buttonsRow.setVisibility(View.GONE);
         selectionRow.setVisibility(View.VISIBLE);
         batchBar.setVisibility(View.VISIBLE);
         adapter.notifyDataSetChanged();
@@ -449,7 +443,6 @@ public class HomeActivity extends Activity implements Picker.Host {
         batch = false;
         selected.clear();
         searchRow.setVisibility(View.VISIBLE);
-        buttonsRow.setVisibility(View.VISIBLE);
         selectionRow.setVisibility(View.GONE);
         batchBar.setVisibility(View.GONE);
         adapter.notifyDataSetChanged();
@@ -701,6 +694,18 @@ public class HomeActivity extends Activity implements Picker.Host {
         applyFilter(keepScroll, -1, 0);
     }
 
+    /**
+     * 分类变化后立即重放筛选：被归走（或取消归类）的卡片马上离开当前筛选视图，
+     * 空出的位置由下一张顶上——不用再手动点一下筛选或刷新。
+     * 以第一条可见行做滚动锚点，重筛前后列表不跳。
+     */
+    private void refilterKeepingScroll() {
+        final int keepPos = list.getFirstVisiblePosition();
+        final View keep = list.getChildAt(0);
+        final int keepTop = keep == null ? 0 : keep.getTop();
+        applyFilter(true, keepPos, keepTop);
+    }
+
     private void applyFilter(boolean keepScroll, int keepPos, int keepTop) {
         shown.clear();
         String q = searchQ == null ? "" : searchQ.toLowerCase(java.util.Locale.CHINA);
@@ -726,8 +731,17 @@ public class HomeActivity extends Activity implements Picker.Host {
         adapter.notifyDataSetChanged();
         if (batch) updateBatchUi();
         emptyText.setVisibility(shown.isEmpty() ? View.VISIBLE : View.GONE);
-        emptyText.setText(searchQ.length() > 0 ? "没有匹配的录音"
-                : ("@failed".equals(filterCat) ? "没有转写失败的录音" : "该分类下还没有录音"));
+        if (searchQ.length() > 0) {
+            emptyText.setText("没有匹配的录音");
+        } else if ("@raw".equals(filterCat)) {
+            emptyText.setText("没有待转写的录音");
+        } else if ("@failed".equals(filterCat)) {
+            emptyText.setText("没有转写失败的录音");
+        } else if ("none".equals(filterCat)) {
+            emptyText.setText("没有未分类的录音");
+        } else {
+            emptyText.setText("该分类下还没有录音");
+        }
         rebuildFilters();
         if (keepScroll && keepPos >= 0) {
             list.setSelectionFromTop(keepPos, keepTop);
@@ -738,6 +752,9 @@ public class HomeActivity extends Activity implements Picker.Host {
 
     private boolean matchesFilter(RecordVm vm) {
         if ("all".equals(filterCat)) return true;
+        // 未转写（有音频、还没出文稿）与未分类（还没归类）是两个正交的待办，
+        // 各自一个筛选入口，互不混算。
+        if ("@raw".equals(filterCat)) return "raw".equals(vm.status());
         if ("@failed".equals(filterCat)) return "failed".equals(vm.status());
         if ("none".equals(filterCat)) return vm.cat == null || vm.cat.length() == 0;
         return filterCat.equals(vm.cat);
@@ -757,12 +774,16 @@ public class HomeActivity extends Activity implements Picker.Host {
         filtersRow.removeAllViews();
         int noneCount = 0;
         int failCount = 0;
+        int rawCount = 0;
         for (int i = 0; i < all.size(); i++) {
             RecordVm vm = all.get(i);
             if (vm.cat == null || vm.cat.length() == 0) noneCount++;
-            if ("failed".equals(vm.status())) failCount++;
+            String st = vm.status();
+            if ("raw".equals(st)) rawCount++;
+            else if ("failed".equals(st)) failCount++;
         }
         addChip("all", "全部", all.size());
+        addChip("@raw", "未转写", rawCount);
         addChip("@failed", "转写失败", failCount);
         addChip("none", "未分类", noneCount);
         for (int i = 0; i < settings.categories.size(); i++) {
@@ -815,8 +836,9 @@ public class HomeActivity extends Activity implements Picker.Host {
                 p.put("cat", cancel ? JSONObject.NULL : targetCat);
                 data.patch(vm.id, p, null);
             } catch (Throwable ignore) { }
-            adapter.notifyDataSetChanged();
-            rebuildFilters();
+            // 关键：滑动归类后立即重放筛选。只 notifyDataSetChanged 的话 shown 不变，
+            // 卡片会一直挂在当前分类视图里，得手动刷新才走。
+            refilterKeepingScroll();
             toast(cancel ? "已取消分类" : "已归入「" + settings.catName(targetCat) + "」");
         }
 
@@ -967,8 +989,8 @@ public class HomeActivity extends Activity implements Picker.Host {
         }
 
         public void onMetaChanged(RecordVm vm) {
-            adapter.notifyDataSetChanged();
-            rebuildFilters();
+            // 详情里改分类走这里：同样立即重放筛选，关掉面板时列表已经是新分组。
+            refilterKeepingScroll();
         }
 
         public void onTranscribe(RecordVm vm) {
