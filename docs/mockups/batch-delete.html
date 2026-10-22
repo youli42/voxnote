@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>voxnote · 删除与批量管理 · 设计稿 v1</title>
+<style>
+  :root{
+    --bg:#0a0b0e; --screen:#0e0f13; --card:#16171d; --card-line:#23252d;
+    --chip-line:#2c2f3a; --text:#e9ecf2; --sub:#b9bfc9; --dim:#7f8593;
+    --accent:#5b8dff; --danger:#e5534b; --warn:#d9a03c; --ok:#69b47b;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; padding:22px 26px 40px;}
+  h1{font-size:20px; margin-bottom:4px;}
+  .lede{color:var(--dim); font-size:13px; margin-bottom:18px; line-height:1.6;}
+  .lede b{color:var(--sub);}
+
+  .frames{display:flex; gap:26px; overflow-x:auto; padding-bottom:14px; align-items:flex-start;}
+  .shot{flex:none;}
+  .cap{margin-top:10px; font-size:13px; color:var(--sub); text-align:center;}
+  .cap small{display:block; color:var(--dim); font-size:11.5px; margin-top:3px; line-height:1.5;}
+
+  /* ---------- 手机 ---------- */
+  .phone{width:360px; height:742px; background:var(--screen); border:1px solid #262933;
+         border-radius:26px; overflow:hidden; position:relative; display:flex; flex-direction:column;
+         box-shadow:0 10px 34px rgba(0,0,0,.5);}
+  .sbar{height:24px; display:flex; justify-content:space-between; align-items:center;
+        padding:0 14px; font-size:10.5px; color:var(--dim); flex:none;}
+  .body{flex:1; overflow-y:auto; overflow-x:hidden; position:relative; scrollbar-width:none;}
+  .body::-webkit-scrollbar{display:none;}
+
+  .search{margin:6px 12px 8px; background:#191b22; border-radius:12px; padding:9px 12px;
+          color:#6b7080; font-size:12.5px;}
+  .selbar{display:none; margin:6px 12px 8px; align-items:center; gap:10px;}
+  .phone.batch .search{display:none;}
+  .phone.batch .selbar{display:flex;}
+  .selbar .cnt{flex:1; text-align:center; font-size:13.5px; color:var(--text);}
+  .selbar .cnt b{font-size:15px;}
+  .txtbtn{color:var(--accent); font-size:13px; padding:6px 4px; cursor:pointer; border:none; background:none;}
+
+  .statrow{display:flex; align-items:center; gap:6px; padding:0 12px 8px;}
+  .statrow .info{flex:1; color:var(--dim); font-size:11px;}
+  .pill{border:1px solid var(--chip-line); color:#cfd3dc; font-size:11px; border-radius:999px;
+        padding:4px 10px; white-space:nowrap;}
+  .pill.accent{background:#232733; border-color:#3a4152; color:#fff; cursor:pointer;}
+  .pill.accent.on{background:var(--accent); border-color:var(--accent); color:#fff;}
+
+  .chips{display:flex; gap:6px; padding:0 12px 10px; overflow:hidden;}
+  .chip{border:1px solid var(--chip-line); color:#cfd3dc; font-size:11px; border-radius:999px;
+        padding:4.5px 11px; white-space:nowrap;}
+  .chip.on{background:#262a33; border-color:#3a4152; color:#fff;}
+
+  /* ---------- 卡片 ---------- */
+  .card{background:var(--card); border:1px solid var(--card-line); border-radius:14px;
+        padding:10px 12px 9px; margin:0 10px 8px; position:relative; cursor:pointer;}
+  .card.sel{border-color:var(--accent); background:#181c27;}
+  .trow{display:flex; align-items:center; gap:8px;}
+  .title{font-size:14.5px; font-weight:600; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .st{font-size:10px; border-radius:6px; padding:2px 7px; border:1px solid; flex:none;}
+  .st.uncat{color:#e57373; border-color:#5c3a3e;}
+  .st.done{color:#9fb8a6; border-color:#3a4a41;}
+  .st.raw{color:var(--warn); border-color:#574a2e;}
+  .more{color:#6a7080; font-size:16px; line-height:1; padding:2px 4px; flex:none; letter-spacing:1px;}
+  .sum{color:var(--sub); font-size:11.5px; line-height:1.55; margin-top:4px;
+       display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
+  .meta{display:flex; align-items:center; gap:5px; margin-top:6px; color:var(--dim); font-size:10px; flex-wrap:wrap;}
+  .tag{border:1px solid var(--chip-line); border-radius:5px; padding:1px 6px;}
+  .check{width:20px; height:20px; border-radius:50%; border:2px solid #3a3f4c; flex:none;
+         display:flex; align-items:center; justify-content:center; font-size:12px; color:#fff;}
+  .card.sel .check{background:var(--accent); border-color:var(--accent);}
+  .check::after{content:"✓"; opacity:0; font-size:11px;}
+  .card.sel .check::after{opacity:1;}
+  .phone.batch .check{display:flex;}
+  .check{display:none;}
+
+  /* ---------- 卡片菜单 ---------- */
+  .menu{position:absolute; right:10px; top:34px; background:#1d2027; border:1px solid #2c303a;
+        border-radius:10px; min-width:132px; padding:4px; z-index:30; display:none;
+        box-shadow:0 8px 24px rgba(0,0,0,.5);}
+  .menu.open{display:block;}
+  .menu div{padding:8px 12px; font-size:12.5px; color:var(--sub); border-radius:7px; cursor:pointer;}
+  .menu div:hover{background:#262a33; color:#fff;}
+  .menu div.red{color:#ef8079;}
+  .menu div.red:hover{background:#3a2626;}
+
+  /* ---------- 底部操作栏 / tabbar ---------- */
+  .batchbar{position:absolute; left:10px; right:10px; bottom:60px; background:#171a22;
+            border:1px solid #262a35; border-radius:14px; padding:9px; display:none;
+            gap:8px; z-index:20; box-shadow:0 10px 26px rgba(0,0,0,.55);}
+  .phone.batch .batchbar{display:flex;}
+  .bb{flex:1; text-align:center; font-size:12.5px; border-radius:10px; padding:9px 0; cursor:pointer;}
+  .bb.red{background:#3a2626; color:#ff8d86; border:1px solid #5c3a3e;}
+  .bb.gray{background:#20242e; color:#cfd3dc; border:1px solid #2c313d;}
+  .bb.ghost{flex:0 0 52px; color:var(--dim); display:flex; align-items:center; justify-content:center;}
+  .bb[disabled]{opacity:.4; pointer-events:none;}
+
+  .tabbar{height:54px; flex:none; border-top:1px solid #1b1d24; display:flex;}
+  .tab{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+       gap:3px; color:#6a7080; font-size:10.5px;}
+  .tab .ico{width:20px; height:20px; border-radius:50%; border:2px solid currentColor;}
+  .tab.on{color:#fff;}
+
+  /* ---------- 对话框 / toast ---------- */
+  .ov{position:absolute; inset:0; background:rgba(0,0,0,.58); z-index:40; display:none;
+      align-items:center; justify-content:center;}
+  .ov.open{display:flex;}
+  .dlg{width:82%; background:#1a1d25; border:1px solid #2c303a; border-radius:14px; padding:16px 15px 13px;}
+  .dlg h3{font-size:14.5px; margin-bottom:8px;}
+  .dlg p{font-size:12px; color:var(--sub); line-height:1.7;}
+  .dlg p b{color:#ff9d96; font-weight:600;}
+  .dlg p .mv{color:#8fa7ff;}
+  .dlg .row{display:flex; justify-content:flex-end; gap:10px; margin-top:14px;}
+  .dlg button{border:none; background:none; font-size:13px; padding:7px 10px; border-radius:8px; cursor:pointer; color:var(--accent);}
+  .dlg button.red{color:#ff8d86; background:#3a2626;}
+  .toast{position:absolute; left:50%; bottom:130px; transform:translateX(-50%); background:#262b36;
+         border:1px solid #333947; color:#e9ecf2; font-size:12px; border-radius:999px; padding:8px 16px;
+         z-index:50; display:none; white-space:nowrap;}
+  .toast.show{display:block;}
+  .toast u{color:var(--accent); text-decoration:none; margin-left:6px;}
+
+  /* ---------- 页面侧说明 ---------- */
+  .spec{max-width:880px; margin-top:26px; border-top:1px solid #1d2027; padding-top:18px;
+        display:grid; grid-template-columns:1fr 1fr; gap:0 34px;}
+  .spec h2{font-size:14.5px; margin:10px 0 8px; color:#dfe3ec;}
+  .spec ul{list-style:none;}
+  .spec li{font-size:12.5px; color:var(--sub); line-height:1.8; padding-left:14px; position:relative;}
+  .spec li::before{content:"·"; position:absolute; left:2px; color:var(--dim);}
+  .spec li b{color:var(--text); font-weight:600;}
+  .spec .q li::before{content:"?"; color:var(--warn); font-size:11px; top:1px;}
+</style>
+</head>
+<body>
+
+<h1>录音卡片「删除」+ 列表「批量管理」· 交互稿 v1</h1>
+<p class="lede">四个状态可以直接点：<b>① 普通列表</b>（点卡片右上 ⋯ 出菜单）→ <b>② 单条删除确认</b> →
+点顶栏 <b>「管理」</b>进 <b>③ 批量模式</b>（点卡片勾选、顶栏全选）→ 点底栏 <b>删除</b> 进 <b>④ 批量删除确认</b>。
+示例文案均为占位，不含真实转写。</p>
+
+<div class="frames">
+
+  <!-- ============ ① 普通列表 ============ -->
+  <div class="shot">
+    <div class="phone" id="p1">
+      <div class="sbar"><span>13:11</span><span>98% ▮</span></div>
+      <div class="body">
+        <div class="search">搜索标题、摘要、转写全文</div>
+        <div class="statrow">
+          <span class="info">24 场 · 18 已转写 · 44 句 · 13:11 扫描</span>
+          <span class="pill">时间↓</span><span class="pill">刷新</span>
+          <span class="pill accent" data-act="enter-batch">管理</span>
+        </div>
+        <div class="chips">
+          <span class="chip on">全部 24</span><span class="chip">转写失败 2</span>
+          <span class="chip">未分类 22</span><span class="chip">工作 0</span><span class="chip">记录与灵感 2</span>
+        </div>
+
+        <div class="card">
+          <div class="trow"><span class="title">录音 12:57</span><span class="st raw">待转写</span><span class="more" data-act="menu">⋯</span></div>
+          <div class="sum">（自录示例）这条还没有文字，只有声音……</div>
+          <div class="meta">10-22 12:57 · 00:09 · <span class="tag">备忘</span><span class="tag">本地</span></div>
+          <div class="menu"><div data-act="noop">打开详情</div><div data-act="noop">改名</div><div data-act="noop">归入分类…</div><div class="red" data-act="del1">删除…</div></div>
+        </div>
+        <div class="card">
+          <div class="trow"><span class="title">录音 12:10</span><span class="st uncat">未分类</span><span class="more" data-act="menu">⋯</span></div>
+          <div class="sum">示例转写占位：这是一段用来预览卡片两行截断效果的示例文本，替代真实内容。</div>
+          <div class="meta">10-22 12:10 · 00:31 · <span class="tag">采访</span><span class="tag">厂商日志</span></div>
+          <div class="menu"><div data-act="noop">打开详情</div><div data-act="noop">改名</div><div data-act="noop">归入分类…</div><div class="red" data-act="del1">删除…</div></div>
+        </div>
+        <div class="card">
+          <div class="trow"><span class="title">录音 12:08</span><span class="st done">已转写</span><span class="more" data-act="menu">⋯</span></div>
+          <div class="sum">示例转写占位：支持一下，在哪个分类录音就自动存到哪个分类。</div>
+          <div class="meta">10-22 12:08 · 00:16 · <span class="tag">已转写</span><span class="tag">记录与灵感</span><span class="tag">厂商日志</span></div>
+          <div class="menu"><div data-act="noop">打开详情</div><div data-act="noop">改名</div><div data-act="noop">归入分类…</div><div class="red" data-act="del1">删除…</div></div>
+        </div>
+        <div class="card">
+          <div class="trow"><span class="title">录音 09:39</span><span class="st raw">仅文稿</span><span class="more" data-act="menu">⋯</span></div>
+          <div class="sum">示例：这一场只有文稿、没有音频文件。</div>
+          <div class="meta">10-22 09:39 · 00:03 · <span class="tag">采访</span><span class="tag">厂商日志</span></div>
+          <div class="menu"><div data-act="noop">打开详情</div><div data-act="noop">改名</div><div data-act="noop">归入分类…</div><div class="red" data-act="del1">删除…</div></div>
+        </div>
+      </div>
+
+      <div class="batchbar">
+        <div class="bb ghost" data-act="exit-batch">✕</div>
+        <div class="bb red" data-n="0" data-act="batch-del">删除</div>
+        <div class="bb gray" data-act="noop">归入分类</div>
+      </div>
+      <div class="tabbar"><div class="tab on"><div class="ico"></div>录音</div><div class="tab"><div class="ico"></div>设置</div></div>
+      <div class="toast" data-toast></div>
+    </div>
+    <div class="cap">① 普通列表<small>卡片右上新增 ⋯（长按卡片 = 同菜单）；顶栏新增「管理」进批量模式。左右滑归类保持不变。</small></div>
+  </div>
+
+  <!-- ============ ② 单条删除确认 ============ -->
+  <div class="shot">
+    <div class="phone">
+      <div class="sbar"><span>13:11</span><span>98% ▮</span></div>
+      <div class="body" style="filter:brightness(.55);">
+        <div class="search">搜索标题、摘要、转写全文</div>
+        <div class="statrow"><span class="info">24 场 · 18 已转写 · 44 句 · 13:11 扫描</span><span class="pill">时间↓</span><span class="pill">刷新</span><span class="pill accent">管理</span></div>
+        <div class="chips"><span class="chip on">全部 24</span><span class="chip">转写失败 2</span><span class="chip">未分类 22</span><span class="chip">工作 0</span><span class="chip">记录与灵感 2</span></div>
+        <div class="card" style="border-color:#5c3a3e; background:#221719;">
+          <div class="trow"><span class="title">录音 12:10</span><span class="st uncat">未分类</span><span class="more">⋯</span></div>
+          <div class="sum">示例转写占位：这是一段用来预览卡片两行截断效果的示例文本，替代真实内容。</div>
+          <div class="meta">10-22 12:10 · 00:31 · <span class="tag">采访</span><span class="tag">厂商日志</span></div>
+        </div>
+        <div class="card"><div class="trow"><span class="title">录音 12:08</span><span class="st done">已转写</span><span class="more">⋯</span></div>
+          <div class="sum">示例转写占位：支持一下，在哪个分类录音就自动存到哪个分类。</div>
+          <div class="meta">10-22 12:08 · 00:16 · <span class="tag">记录与灵感</span><span class="tag">厂商日志</span></div></div>
+      </div>
+      <div class="tabbar"><div class="tab on"><div class="ico"></div>录音</div><div class="tab"><div class="ico"></div>设置</div></div>
+      <div class="ov open">
+        <div class="dlg">
+          <h3>删除这场录音？</h3>
+          <p>这是<b>厂商导入</b>的场次：只在列表里<b>删除并屏蔽</b>（可撤销）。<br>
+             厂商原始录音 <span class="mv">/sdcard/2026.10/*.wav</span> 与日志<b>不会被动</b>。</p>
+          <div class="row"><button data-act="noop">取消</button><button class="red" data-act="del1-ok">删除</button></div>
+        </div>
+      </div>
+      <div class="toast" data-toast></div>
+    </div>
+    <div class="cap">② 单条删除确认（厂商导入）<small>按来源区分文案：自录 = 真删文件（不可恢复）；厂商导入 = 屏蔽 sid（可撤销）。</small></div>
+  </div>
+
+  <!-- ============ ③ 批量模式 ============ -->
+  <div class="shot">
+    <div class="phone batch" id="p3">
+      <div class="sbar"><span>13:11</span><span>98% ▮</span></div>
+      <div class="body">
+        <div class="selbar">
+          <span class="txtbtn" data-act="sel-all">全选</span>
+          <span class="cnt">已选 <b id="cnt">2</b> / 24</span>
+          <span class="txtbtn" data-act="exit-batch">完成</span>
+        </div>
+        <div class="statrow"><span class="info">筛选后批量操作更顺手</span></div>
+        <div class="chips"><span class="chip on">全部 24</span><span class="chip">转写失败 2</span><span class="chip">未分类 22</span><span class="chip">工作 0</span><span class="chip">记录与灵感 2</span></div>
+
+        <div class="card sel" data-sel><div class="trow"><span class="check"></span><span class="title">录音 12:57</span><span class="st raw">待转写</span></div>
+          <div class="sum">（自录示例）这条还没有文字，只有声音……</div>
+          <div class="meta">10-22 12:57 · 00:09 · <span class="tag">备忘</span><span class="tag">本地</span></div></div>
+        <div class="card" data-sel><div class="trow"><span class="check"></span><span class="title">录音 12:10</span><span class="st uncat">未分类</span></div>
+          <div class="sum">示例转写占位：这是一段用来预览卡片两行截断效果的示例文本，替代真实内容。</div>
+          <div class="meta">10-22 12:10 · 00:31 · <span class="tag">采访</span><span class="tag">厂商日志</span></div></div>
+        <div class="card sel" data-sel><div class="trow"><span class="check"></span><span class="title">录音 12:08</span><span class="st done">已转写</span></div>
+          <div class="sum">示例转写占位：支持一下，在哪个分类录音就自动存到哪个分类。</div>
+          <div class="meta">10-22 12:08 · 00:16 · <span class="tag">记录与灵感</span><span class="tag">厂商日志</span></div></div>
+        <div class="card" data-sel><div class="trow"><span class="check"></span><span class="title">录音 09:39</span><span class="st raw">仅文稿</span></div>
+          <div class="sum">示例：这一场只有文稿、没有音频文件。</div>
+          <div class="meta">10-22 09:39 · 00:03 · <span class="tag">采访</span><span class="tag">厂商日志</span></div></div>
+      </div>
+
+      <div class="batchbar">
+        <div class="bb ghost" data-act="exit-batch">✕</div>
+        <div class="bb red" data-n="2" data-act="batch-del">删除 2</div>
+        <div class="bb gray" data-act="noop">归入分类</div>
+      </div>
+      <div class="tabbar"><div class="tab on"><div class="ico"></div>录音</div><div class="tab"><div class="ico"></div>设置</div></div>
+      <div class="toast" data-toast></div>
+    </div>
+    <div class="cap">③ 批量管理模式<small>搜索栏让位给「全选 · 已选 n / N · 完成」；筛选行保留（先筛「未分类」再全选是很常用流）。底栏按钮在选中数为 0 时置灰。</small></div>
+  </div>
+
+  <!-- ============ ④ 批量删除确认 ============ -->
+  <div class="shot">
+    <div class="phone batch">
+      <div class="sbar"><span>13:11</span><span>98% ▮</span></div>
+      <div class="body" style="filter:brightness(.55);">
+        <div class="selbar"><span class="txtbtn">全选</span><span class="cnt">已选 <b>3</b> / 24</span><span class="txtbtn">完成</span></div>
+        <div class="chips"><span class="chip on">全部 24</span><span class="chip">未分类 22</span><span class="chip">记录与灵感 2</span></div>
+        <div class="card sel"><div class="trow"><span class="check"></span><span class="title">录音 12:57</span><span class="st raw">待转写</span></div>
+          <div class="sum">（自录示例）这条还没有文字，只有声音……</div>
+          <div class="meta">10-22 12:57 · <span class="tag">本地</span></div></div>
+        <div class="card sel"><div class="trow"><span class="check"></span><span class="title">录音 12:10</span><span class="st uncat">未分类</span></div>
+          <div class="sum">示例转写占位……</div>
+          <div class="meta">10-22 12:10 · <span class="tag">厂商日志</span></div></div>
+        <div class="card sel"><div class="trow"><span class="check"></span><span class="title">录音 12:08</span><span class="st done">已转写</span></div>
+          <div class="sum">示例转写占位……</div>
+          <div class="meta">10-22 12:08 · <span class="tag">厂商日志</span></div></div>
+      </div>
+      <div class="batchbar"><div class="bb ghost">✕</div><div class="bb red">删除 3</div><div class="bb gray">归入分类</div></div>
+      <div class="tabbar"><div class="tab on"><div class="ico"></div>录音</div><div class="tab"><div class="ico"></div>设置</div></div>
+      <div class="ov open">
+        <div class="dlg">
+          <h3>删除 3 场？</h3>
+          <p>· <b>1 场自录</b>：删除录音文件（<b>不可恢复</b>）<br>
+             · <span class="mv">2 场厂商导入</span>：仅从列表删除并屏蔽（<b>可撤销</b>，原始录音与日志不动）</p>
+          <div class="row"><button data-act="noop">取消</button><button class="red" data-act="del3-ok">删除 3 场</button></div>
+        </div>
+      </div>
+      <div class="toast" data-toast></div>
+    </div>
+    <div class="cap">④ 批量删除确认（混合来源）<small>按来源分组计数、分别说明后果；执行后 toast「已删除 3 场 · 撤销」（撤销只对厂商屏蔽部分生效）。</small></div>
+  </div>
+</div>
+
+<!-- ============ 设计说明 ============ -->
+<div class="spec">
+  <div>
+    <h2>交互方案（本稿采用）</h2>
+    <ul>
+      <li><b>单条删除入口</b>：卡片右上 ⋯ 菜单（删除置红）；<b>长按卡片</b> = 同一菜单，也是进批量模式的快捷方式（长按直接带选中进入 ③）。</li>
+      <li><b>左右滑不动</b>：两个方向已被「归类」占用，删除不再抢手势。</li>
+      <li><b>批量入口</b>：顶栏「管理」；进入后搜索栏替换为「全选 · 已选 n/N · 完成」，筛选行保留——"筛未分类 → 全选 → 删除/归类"是主用例。</li>
+      <li><b>底部操作栏</b>：删除(红) / 归入分类 / ✕；选中 0 时置灰。归入分类复用现有 Picker。</li>
+      <li><b>详情页</b>同步加一个「删除」（同一确认逻辑，本稿只画列表侧）。</li>
+    </ul>
+  </div>
+  <div>
+    <h2>删除语义（按来源区分，关键）</h2>
+    <ul>
+      <li><b>自录场次</b>：真删——音频文件（Music/voxnote 或私有目录）+ app-state 记录。<b>不可恢复</b>，确认框明说。</li>
+      <li><b>厂商导入场次</b>：删除 = <b>屏蔽该 sid</b>（意图层 ignored 列表，落 app-state.json）。因为场次是从日志重放出来的，只删镜像会被下次扫描复活；厂商的 wav / 日志 / md <b>一律不碰</b>。</li>
+      <li>被屏蔽的场次不再进列表、不进筛选计数；设置页提供「已屏蔽 n 场 → 恢复」入口（对应"意图层可撤销"）。</li>
+      <li>正在录音 / 正在播放中的场次：禁止删除（按钮禁用 + 提示）。</li>
+      <li>删除会把 s1rec/sessions 镜像一并清掉；transcript.md 属导出物，随卡片消失、可重建。</li>
+    </ul>
+  </div>
+  <div>
+    <h2>实现落点（预估）</h2>
+    <ul>
+      <li>State.java：新增 <b>ignored</b>（sid 黑名单）与删除时清理 title/cat/marks。</li>
+      <li>CardRow/SwipeRow：⋯ 按钮 + 长按回调；批量模式改 bind()（显示 checkbox、禁用滑动手势与点击进详情）。</li>
+      <li>HomeActivity：顶栏「管理」、选择栏、底栏、确认框（复用 Picker/Dialog 风格）、toast。</li>
+      <li>Storage：新增 deleteOwn(blob)（m4a + 同目录无其他文件时清理）；插件侧 scan() 过滤 ignored。</li>
+    </ul>
+  </div>
+  <div>
+    <h2>待你拍板</h2>
+    <ul class="q">
+      <li>厂商场次删除用「屏蔽 sid」方案，还是也要顺手删掉 voxnote 的 sessions 镜像目录？（推荐屏蔽 + 清镜像）</li>
+      <li>要不要「回收站/30 天可恢复」？（自录真删的话，建议至少给 5 秒撤销 = 延迟落盘）</li>
+      <li>批量操作除了 删除 / 归入分类，要不要加「导出 md」「标记/取消标记」？</li>
+      <li>⋯ 菜单里除了删除，还放什么？（本稿放了 改名 / 归入分类，均为现有能力收口）</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+(function(){
+  function toast(phone, msg){
+    var t = phone.querySelector('[data-toast]');
+    t.innerHTML = msg; t.classList.add('show');
+    clearTimeout(t._h); t._h = setTimeout(function(){ t.classList.remove('show'); }, 2200);
+  }
+  function refreshBar(phone){
+    var n = phone.querySelectorAll('.card.sel').length;
+    var b = phone.querySelector('.bb.red');
+    if(b){ b.textContent = n ? ('删除 ' + n) : '删除'; b.setAttribute('data-n', n); b.disabled = !n; }
+    var c = phone.querySelector('#cnt'); if(c) c.textContent = n;
+  }
+  document.addEventListener('click', function(ev){
+    var el = ev.target.closest('[data-act],[data-sel]');
+    if(!el) return;
+    var phone = el.closest('.phone');
+    var act = el.getAttribute('data-act');
+    if(act === 'menu'){
+      var m = el.closest('.card').querySelector('.menu');
+      var was = m.classList.contains('open');
+      phone.querySelectorAll('.menu.open').forEach(function(x){ x.classList.remove('open'); });
+      if(!was) m.classList.add('open');
+      ev.stopPropagation();
+    }
+    else if(act === 'del1'){ el.closest('.menu').classList.remove('open');
+      var ov = phone.querySelector('.ov'); if(ov) ov.classList.add('open'); }
+    else if(act === 'del1-ok'){ phone.querySelector('.ov').classList.remove('open');
+      toast(phone, '已从列表删除 · 撤销'); }
+    else if(act === 'del3-ok'){ phone.querySelector('.ov').classList.remove('open');
+      toast(phone, '已删除 3 场（1 真删 · 2 屏蔽） · 撤销'); }
+    else if(act === 'enter-batch'){ phone.classList.add('batch');
+      phone.querySelectorAll('.card').forEach(function(c){ c.classList.remove('sel'); }); refreshBar(phone); }
+    else if(act === 'exit-batch'){ phone.classList.remove('batch');
+      phone.querySelectorAll('.card').forEach(function(c){ c.classList.remove('sel'); }); refreshBar(phone); }
+    else if(act === 'sel-all'){
+      var cards = phone.querySelectorAll('.card[data-sel]');
+      var all = Array.prototype.every.call(cards, function(c){ return c.classList.contains('sel'); });
+      cards.forEach(function(c){ c.classList.toggle('sel', !all); }); refreshBar(phone);
+    }
+    else if(el.hasAttribute('data-sel') && phone.classList.contains('batch')){
+      el.classList.toggle('sel'); refreshBar(phone);
+    }
+    else if(act === 'noop'){ toast(phone, '（示例）此处为占位交互'); }
+  });
+  document.addEventListener('click', function(ev){ // 点空白收菜单
+    if(!ev.target.closest('.menu') && !ev.target.closest('[data-act="menu"]'))
+      document.querySelectorAll('.menu.open').forEach(function(m){ m.classList.remove('open'); });
+  });
+})();
+</script>
+</body>
+</html>
