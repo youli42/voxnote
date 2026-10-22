@@ -35,6 +35,8 @@ public class CardRow extends LinearLayout {
     private final TextView modeTag;
     private final TextView sourceTag;
     private final TextView transcribe;
+    private final TextView check;
+    private boolean wantTranscribe;
 
     public CardRow(Context c) {
         super(c);
@@ -42,6 +44,15 @@ public class CardRow extends LinearLayout {
         setGravity(Gravity.TOP);
         setBackground(Ui.rounded(12, Ui.SURFACE, Ui.LINE, 1));
         Ui.pad(this, 10, 9, 10, 9);
+
+        // 批量模式的勾选圈：只在批量模式显示，平时不占位。
+        check = Ui.text(c, "✓", 10.5f, Ui.ON_WHITE);
+        check.setGravity(Gravity.CENTER);
+        check.setVisibility(GONE);
+        LinearLayout.LayoutParams cp = Ui.lp(Ui.dp(20), Ui.dp(20));
+        cp.rightMargin = Ui.dp(9);
+        cp.topMargin = Ui.dp(1);
+        addView(check, cp);
 
         LinearLayout main = Ui.col(c);
         main.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -236,6 +247,21 @@ public class CardRow extends LinearLayout {
             styleTag(sourceTag, true);
         }
 
-        transcribe.setVisibility(("raw".equals(vm.status()) && vm.hasAudio()) ? VISIBLE : GONE);
+        wantTranscribe = "raw".equals(vm.status()) && vm.hasAudio();
+        transcribe.setVisibility(wantTranscribe ? VISIBLE : GONE);
+    }
+
+    /**
+     * 批量模式：用左侧勾选圈替换 ⋯，并让"转写"按钮让位（整行点击＝勾选）。
+     * 选中态用白底黑勾，未选是描边空心圈。
+     */
+    public void setBatch(boolean on, boolean selected) {
+        check.setVisibility(on ? VISIBLE : GONE);
+        more.setVisibility(on ? GONE : VISIBLE);
+        check.setBackground(selected
+                ? Ui.rounded(10, Ui.WHITE)
+                : Ui.rounded(10, 0x00000000, Ui.LINE2, 1.5f));
+        check.setTextColor(selected ? Ui.ON_WHITE : 0x00000000);
+        transcribe.setVisibility(wantTranscribe && !on ? VISIBLE : GONE);
     }
 }

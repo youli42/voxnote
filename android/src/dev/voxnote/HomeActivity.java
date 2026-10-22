@@ -72,6 +72,15 @@ public class HomeActivity extends Activity implements Picker.Host {
     private TextView clearSearch;
     private TextView sortBtn;
     private TextView refreshBtn;
+    private TextView manageBtn;
+    private LinearLayout searchRow;
+    private LinearLayout buttonsRow;
+    private LinearLayout selectionRow;
+    private TextView selCountText;
+    private TextView selAllText;
+    private LinearLayout batchBar;
+    private TextView batchDelBtn;
+    private TextView batchCatBtn;
     private LinearLayout filtersRow;
     private TextView emptyText;
     private TabItem tabRecord;
@@ -96,6 +105,10 @@ public class HomeActivity extends Activity implements Picker.Host {
     private long loadedAt;
     private long lastBackAt;
     private String lastScanError = "";
+
+    /** 批量管理：进入后整行点击＝勾选，滑动归类关闭。 */
+    private boolean batch;
+    private final java.util.LinkedHashSet<String> selected = new java.util.LinkedHashSet<String>();
 
     private boolean recording;
     private long recStart;
@@ -173,6 +186,9 @@ public class HomeActivity extends Activity implements Picker.Host {
         content.addView(listScreen);
         content.addView(settingsScreen);
         settingsScreen.setVisibility(View.GONE);
+        // 批量操作栏在 buildListScreen 里建好后加进来的，这里把它提到最上层，
+        // 否则会被后加入的列表页整个盖住。
+        if (batchBar != null) content.bringChildToFront(batchBar);
 
         root.addView(Ui.divider(this));
         root.addView(buildTabBar(), Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -204,6 +220,7 @@ public class HomeActivity extends Activity implements Picker.Host {
 
     private void switchTab(String name) {
         tab = name;
+        if (!"record".equals(name)) exitBatch();
         listScreen.setVisibility("record".equals(name) ? View.VISIBLE : View.GONE);
         settingsScreen.setVisibility("settings".equals(name) ? View.VISIBLE : View.GONE);
         if ("settings".equals(name)) {
@@ -226,7 +243,7 @@ public class HomeActivity extends Activity implements Picker.Host {
         Ui.pad(toolbar, 10, 8, 10, 4);
         toolbar.setBackgroundColor(Ui.BG);
 
-        LinearLayout searchRow = Ui.row(this);
+        searchRow = Ui.row(this);
         searchInput = Ui.input(this, "搜索标题、摘要、转写全文", 12.5f);
         Ui.pad(searchInput, 12, 7, 12, 7);
         searchRow.addView(searchInput, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -238,7 +255,23 @@ public class HomeActivity extends Activity implements Picker.Host {
         searchRow.addView(clearSearch, Ui.lpm(Ui.dp(20), Ui.dp(20), 6, 0, 0, 0));
         toolbar.addView(searchRow);
 
-        LinearLayout buttonsRow = Ui.row(this);
+        // 批量模式的选择栏：替掉搜索行，保留筛选行，方便"先筛再全选"。
+        selectionRow = Ui.row(this);
+        selectionRow.setVisibility(View.GONE);
+        selAllText = Ui.text(this, "全选", 12f, Ui.TEXT);
+        selAllText.setClickable(true);
+        Ui.pad(selAllText, 2, 7, 2, 7);
+        selectionRow.addView(selAllText);
+        selCountText = Ui.text(this, "已选 0 / 0", 12f, Ui.DIM);
+        selCountText.setGravity(Gravity.CENTER);
+        selectionRow.addView(selCountText, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView selDone = Ui.text(this, "完成", 12f, Ui.TEXT);
+        selDone.setClickable(true);
+        Ui.pad(selDone, 2, 7, 2, 7);
+        selectionRow.addView(selDone);
+        toolbar.addView(selectionRow);
+
+        buttonsRow = Ui.row(this);
         buttonsRow.setPadding(0, Ui.dp(5), 0, 0);
         TextView dummy = Ui.text(this, "", 1f, Ui.BG);
         buttonsRow.addView(dummy, Ui.lp(0, 0, 1f));
@@ -252,6 +285,11 @@ public class HomeActivity extends Activity implements Picker.Host {
         refreshBtn.setGravity(Gravity.CENTER);
         Ui.pad(refreshBtn, 9, 3, 9, 3);
         buttonsRow.addView(refreshBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
+        manageBtn = Ui.text(this, "管理", 11f, Ui.FAINT);
+        manageBtn.setBackground(Ui.pressable(Ui.rounded(14, 0x00000000, Ui.LINE, 1), 0x22FFFFFF));
+        manageBtn.setGravity(Gravity.CENTER);
+        Ui.pad(manageBtn, 9, 3, 9, 3);
+        buttonsRow.addView(manageBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
         toolbar.addView(buttonsRow);
 
         // 筛选分类单独一行，和上面的排序/刷新拉开距离，不再挤在同一块里。
@@ -321,7 +359,147 @@ public class HomeActivity extends Activity implements Picker.Host {
                 load(false, null, true);
             }
         });
+        manageBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                enterBatch(null);
+            }
+        });
+        selAllText.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                toggleSelectAll();
+            }
+        });
+        selDone.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                exitBatch();
+            }
+        });
+
+        // 批量操作栏：浮在列表底部（tab 栏上方），选中数为 0 时按钮置灰。
+        batchBar = Ui.row(this);
+        batchBar.setBackground(Ui.rounded(14, Ui.SURFACE2, Ui.LINE2, 1));
+        Ui.pad(batchBar, 8, 8, 8, 8);
+        batchBar.setVisibility(View.GONE);
+        TextView barCancel = Ui.text(this, "✕", 12f, Ui.DIM);
+        barCancel.setGravity(Gravity.CENTER);
+        barCancel.setBackground(Ui.pressable(Ui.rounded(9, 0x00000000), 0x22FFFFFF));
+        barCancel.setClickable(true);
+        batchBar.addView(barCancel, Ui.lp(Ui.dp(38), ViewGroup.LayoutParams.WRAP_CONTENT));
+        batchDelBtn = Ui.text(this, "删除", 12.5f, Ui.DANGER);
+        batchDelBtn.setGravity(Gravity.CENTER);
+        batchDelBtn.setSingleLine(true);
+        batchDelBtn.setBackground(Ui.pressable(
+                Ui.rounded(9, 0x0FC98B8B, Ui.DANGER_LINE, 1), 0x22FFFFFF));
+        Ui.pad(batchDelBtn, 0, 9, 0, 9);
+        batchBar.addView(batchDelBtn, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        batchCatBtn = Ui.text(this, "归入分类", 12.5f, Ui.TEXT);
+        batchCatBtn.setGravity(Gravity.CENTER);
+        batchCatBtn.setSingleLine(true);
+        batchCatBtn.setBackground(Ui.pressable(Ui.rounded(9, Ui.SURFACE3, Ui.LINE2, 1), 0x22FFFFFF));
+        Ui.pad(batchCatBtn, 0, 9, 0, 9);
+        LinearLayout.LayoutParams catLp = Ui.lpm(0, ViewGroup.LayoutParams.WRAP_CONTENT, 8, 0, 0, 0);
+        catLp.weight = 1f;
+        batchBar.addView(batchCatBtn, catLp);
+        barCancel.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                exitBatch();
+            }
+        });
+        batchDelBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                confirmDelete(selectedVms());
+            }
+        });
+        batchCatBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                pickCategoryFor(selectedVms());
+            }
+        });
+        FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.gravity = Gravity.BOTTOM;
+        blp.setMargins(Ui.dp(10), 0, Ui.dp(10), Ui.dp(10));
+        content.addView(batchBar, blp);
         return screen;
+    }
+
+    // ------------------------------------------------------------ 批量管理
+
+    private void enterBatch(String preselectId) {
+        if (shown.isEmpty()) {
+            toast("没有可管理的录音");
+            return;
+        }
+        batch = true;
+        selected.clear();
+        if (preselectId != null) selected.add(preselectId);
+        try {
+            searchInput.clearFocus();
+        } catch (Throwable ignore) { }
+        searchRow.setVisibility(View.GONE);
+        buttonsRow.setVisibility(View.GONE);
+        selectionRow.setVisibility(View.VISIBLE);
+        batchBar.setVisibility(View.VISIBLE);
+        adapter.notifyDataSetChanged();
+        updateBatchUi();
+    }
+
+    private void exitBatch() {
+        if (!batch) return;
+        batch = false;
+        selected.clear();
+        searchRow.setVisibility(View.VISIBLE);
+        buttonsRow.setVisibility(View.VISIBLE);
+        selectionRow.setVisibility(View.GONE);
+        batchBar.setVisibility(View.GONE);
+        adapter.notifyDataSetChanged();
+    }
+
+    private void toggleSelect(RecordVm vm) {
+        if (vm == null) return;
+        if (!selected.remove(vm.id)) selected.add(vm.id);
+        adapter.notifyDataSetChanged();
+        updateBatchUi();
+    }
+
+    private void toggleSelectAll() {
+        if (shown.isEmpty()) return;
+        if (selected.size() == shown.size()) {
+            selected.clear();
+        } else {
+            selected.clear();
+            for (int i = 0; i < shown.size(); i++) selected.add(shown.get(i).id);
+        }
+        adapter.notifyDataSetChanged();
+        updateBatchUi();
+    }
+
+    private void updateBatchUi() {
+        int n = selected.size();
+        if (selCountText != null) {
+            selCountText.setText("已选 " + n + " / " + shown.size());
+        }
+        if (selAllText != null) {
+            selAllText.setText(shown.size() > 0 && n == shown.size() ? "取消全选" : "全选");
+        }
+        if (batchDelBtn != null) {
+            batchDelBtn.setText(n > 0 ? "删除 " + n : "删除");
+            batchDelBtn.setEnabled(n > 0);
+            batchDelBtn.setAlpha(n > 0 ? 1f : 0.4f);
+        }
+        if (batchCatBtn != null) {
+            batchCatBtn.setEnabled(n > 0);
+            batchCatBtn.setAlpha(n > 0 ? 1f : 0.4f);
+        }
+    }
+
+    private List<RecordVm> selectedVms() {
+        ArrayList<RecordVm> out = new ArrayList<RecordVm>();
+        for (int i = 0; i < shown.size(); i++) {
+            RecordVm vm = shown.get(i);
+            if (selected.contains(vm.id)) out.add(vm);
+        }
+        return out;
     }
 
     private final Runnable searchDebounce = new Runnable() {
@@ -539,7 +717,14 @@ public class HomeActivity extends Activity implements Picker.Host {
             shown.addAll(rev);
         }
         sortBtn.setText(settings.sortDesc ? "时间↓" : "时间↑");
+        // 筛选/搜索变化后，选中项里可能已经不显示了，顺手剔掉。
+        if (!selected.isEmpty()) {
+            java.util.HashSet<String> visible = new java.util.HashSet<String>();
+            for (int i = 0; i < shown.size(); i++) visible.add(shown.get(i).id);
+            selected.retainAll(visible);
+        }
         adapter.notifyDataSetChanged();
+        if (batch) updateBatchUi();
         emptyText.setVisibility(shown.isEmpty() ? View.VISIBLE : View.GONE);
         emptyText.setText(searchQ.length() > 0 ? "没有匹配的录音"
                 : ("@failed".equals(filterCat) ? "没有转写失败的录音" : "该分类下还没有录音"));
@@ -640,7 +825,12 @@ public class HomeActivity extends Activity implements Picker.Host {
         }
 
         public void onLongPress(RecordVm vm) {
-            showCardMenu(vm);
+            // 长按＝进批量管理并带上这一行；不回弹菜单，少一次点击。
+            enterBatch(vm.id);
+        }
+
+        public void onToggleSelect(RecordVm vm) {
+            toggleSelect(vm);
         }
     };
 
@@ -686,6 +876,7 @@ public class HomeActivity extends Activity implements Picker.Host {
                         adapter.notifyDataSetChanged();
                         rebuildFilters();
                         toast("已归入「" + settings.catName(cat) + "」");
+                        if (batch) exitBatch();
                     }
                 });
             }
@@ -725,6 +916,7 @@ public class HomeActivity extends Activity implements Picker.Host {
     private void doDelete(final List<RecordVm> vms) {
         data.delete(vms, new DataCenter.DeleteCallback() {
             public void onDeleted(int files, int hidden) {
+                exitBatch();
                 load(false, null, false);
                 StringBuilder s = new StringBuilder("已删除 ").append(vms.size()).append(" 场");
                 if (hidden > 0) {
@@ -759,6 +951,7 @@ public class HomeActivity extends Activity implements Picker.Host {
             RecordVm vm = shown.get(position);
             String src = vm.fromSource == null ? null : sourceLabels.get(vm.fromSource);
             row.bind(vm, settings, rowHost, src);
+            row.setBatch(batch, selected.contains(vm.id));
             return row;
         }
     }
@@ -1044,6 +1237,10 @@ public class HomeActivity extends Activity implements Picker.Host {
         if (capturingKey) {
             capturingKey = false;
             settingsPage.setCapturing(false);
+            return;
+        }
+        if (batch) {
+            exitBatch();
             return;
         }
         if (!overlays.isEmpty()) {

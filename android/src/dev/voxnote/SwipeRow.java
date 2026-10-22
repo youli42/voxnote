@@ -37,6 +37,9 @@ public class SwipeRow extends FrameLayout {
 
         /** 长按卡片：进批量管理（批量模式未开启时）。 */
         void onLongPress(RecordVm vm);
+
+        /** 批量模式下点整行＝勾选/取消勾选。 */
+        void onToggleSelect(RecordVm vm);
     }
 
     private final TextView leftEdgeLabel;   // 卡片右移时从左边露出：右滑目标
@@ -52,6 +55,7 @@ public class SwipeRow extends FrameLayout {
     private float downRawY;
     private float dx;
     private boolean dragging;
+    private boolean batch;
 
     public SwipeRow(Context c) {
         super(c);
@@ -86,12 +90,16 @@ public class SwipeRow extends FrameLayout {
 
         card.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                if (host != null && vm != null) host.onOpen(vm);
+                if (host == null || vm == null) return;
+                if (batch) host.onToggleSelect(vm);
+                else host.onOpen(vm);
             }
         });
         card.setOnLongClickListener(new View.OnLongClickListener() {
             public boolean onLongClick(View v) {
-                if (host != null && vm != null) host.onLongPress(vm);
+                if (host == null || vm == null) return true;
+                if (batch) host.onToggleSelect(vm);
+                else host.onLongPress(vm);
                 return true;
             }
         });
@@ -140,8 +148,24 @@ public class SwipeRow extends FrameLayout {
         card.bind(vm, settings, vm.cat == null ? "" : settings.catName(vm.cat), sourceLabel);
     }
 
+    /** 批量模式：整行点击变成勾选，滑动归类关掉，勾选圈代替 ⋯。 */
+    public void setBatch(boolean on, boolean selected) {
+        batch = on;
+        card.setBatch(on, selected);
+        if (on) {
+            card.animate().cancel();
+            card.setTranslationX(0);
+            card.setAlpha(1f);
+            leftEdgeLabel.setAlpha(0f);
+            rightEdgeLabel.setAlpha(0f);
+            dx = 0;
+            dragging = false;
+        }
+    }
+
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
+        if (batch) return false;
         switch (ev.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 downRawX = ev.getRawX();
@@ -168,6 +192,7 @@ public class SwipeRow extends FrameLayout {
 
     @Override
     public boolean onTouchEvent(MotionEvent ev) {
+        if (batch) return false;
         switch (ev.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 downRawX = ev.getRawX();
