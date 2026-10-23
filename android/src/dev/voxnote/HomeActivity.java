@@ -1346,6 +1346,6 @@ public class HomeActivity extends Activity implements Picker.Host {
     }
 
     private void toast(String msg) {
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+        Toast.makeText(getApplicationContext(), msg, Toast.LENGTH_SHORT).show();
     }
 }

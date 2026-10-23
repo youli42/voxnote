@@ -919,6 +919,6 @@ public class DetailSheet implements Overlay {
     }
 
     private void toast(String s) {
-        Toast.makeText(act, s, Toast.LENGTH_SHORT).show();
+        Toast.makeText(act.getApplicationContext(), s, Toast.LENGTH_SHORT).show();
     }
 }

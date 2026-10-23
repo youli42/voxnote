@@ -981,6 +981,6 @@ public class SettingsScreen {
     }
 
     private void toast(String s) {
-        android.widget.Toast.makeText(act, s, android.widget.Toast.LENGTH_SHORT).show();
+        android.widget.Toast.makeText(act.getApplicationContext(), s, android.widget.Toast.LENGTH_SHORT).show();
     }
 }
