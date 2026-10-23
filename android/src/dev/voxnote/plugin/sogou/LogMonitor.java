@@ -20,7 +20,7 @@ import java.util.Set;
  * 换成 App 里的一次全量重扫：日志 ~3 MB/天，全量重放比维护增量状态机可靠得多，
  * 也天然绕开轮转改名导致的整文件重放。
  *
- * 结果不做成第二套 UI，而是并进同一张卡片列表（见 Library.mergeLog）：
+ * 结果不做成第二套 UI，而是并进同一张卡片列表（见 Library.mergeImported）：
  * 有音频的场次补正文，只有日志没有音频的场次也能作为"仅文稿"卡片出现。
  */
 public class LogMonitor {

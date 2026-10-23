@@ -1,13 +1,7 @@
 package dev.voxnote;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
-
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * 列表里的一条记录 = 一次录音会话。
@@ -61,87 +55,4 @@ public class Item {
         if (audioPath != null || audioUri != null) return "raw";
         return "empty";
     }
-
-    public String fmtDate() {
-        long t = startMs > 0 ? startMs : System.currentTimeMillis();
-        synchronized (FMT) {
-            return FMT.format(new Date(t));
-        }
-    }
-
-    /** UI 卡片要的字段，一次序列化过去，避免 JS 再算一遍。 */
-    public JSONObject toJson(JSONObject patch) {
-        JSONObject o = new JSONObject();
-        try {
-            o.put("id", id);
-            o.put("sid", sid);
-            o.put("seq", startMs);
-            o.put("title", titleOf(patch));
-            o.put("date", fmtDate());
-            o.put("dur", durMs / 1000.0);
-            o.put("status", status());
-            o.put("source", source);
-            o.put("fromSource", fromSource == null ? JSONObject.NULL : fromSource);
-            o.put("mode", mode);
-            o.put("audioPath", audioPath == null ? JSONObject.NULL : audioPath);
-            o.put("audioUri", audioUri == null ? JSONObject.NULL : audioUri);
-            o.put("mdPath", mdPath == null ? JSONObject.NULL : mdPath);
-            o.put("mdUri", mdUri == null ? JSONObject.NULL : mdUri);
-            o.put("summary", summary);
-            o.put("errorCode", "failed".equals(status()) ? Integer.valueOf(14) : JSONObject.NULL);
-            o.put("quality", segs.size() > 0 ? 1.0 : 0.0);
-            o.put("needsReview", false);
-
-            JSONArray sa = new JSONArray();
-            for (int i = 0; i < segs.size(); i++) {
-                Seg s = segs.get(i);
-                JSONObject j = new JSONObject();
-                j.put("start", round2(s.start));
-                j.put("end", round2(s.end));
-                j.put("text", s.text);
-                j.put("confidence", s.conf);
-                if (s.spk >= 0) j.put("spk", s.spk);
-                sa.put(j);
-            }
-            o.put("segments", sa);
-
-            // 用户态（分类 / 标记 / 改名）
-            String cat = null;
-            JSONArray marks = new JSONArray();
-            if (patch != null) {
-                if (patch.has("cat") && !patch.isNull("cat")) {
-                    String c = patch.optString("cat", "");
-                    if (c.length() > 0) cat = c;
-                }
-                JSONArray pm = patch.optJSONArray("marks");
-                if (pm != null) {
-                    for (int i = 0; i < pm.length(); i++) {
-                        JSONObject m = new JSONObject();
-                        m.put("t", round2(pm.optDouble(i, 0)));
-                        marks.put(m);
-                    }
-                }
-            }
-            o.put("cat", cat == null ? JSONObject.NULL : cat);
-            o.put("marks", marks);
-        } catch (Throwable t) {
-            // 序列化异常也要返回对象，宁可少字段也不要空列表
-        }
-        return o;
-    }
-
-    private String titleOf(JSONObject patch) {
-        if (patch != null) {
-            String t = patch.optString("title", "");
-            if (t.length() > 0) return t;
-        }
-        return title;
-    }
-
-    private static double round2(double v) {
-        return Math.round(v * 100.0) / 100.0;
-    }
-
-    private static final SimpleDateFormat FMT =
-            new SimpleDateFormat("MM-dd HH:mm", Locale.CHINA);
 }

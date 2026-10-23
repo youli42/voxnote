@@ -62,22 +62,8 @@ public class LogParser {
     private static final SimpleDateFormat WAV_FMT =
             new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US);
 
-    /** 解析结果缓存，供详情页复用。 */
-    public static volatile List<Session> cache = new ArrayList<Session>();
-    public static volatile long lastScanAt;
+    /** 解析结果统计。 */
     public static volatile String lastError;
-
-    public static List<Session> load() {
-        return cache;
-    }
-
-    public static Session bySid(long sid) {
-        List<Session> list = cache;
-        for (int i = 0; i < list.size(); i++) {
-            if (list.get(i).sid == sid) return list.get(i);
-        }
-        return null;
-    }
 
     /** 全量扫描：读日志 + 挂接音频。耗时操作，必须在后台线程调用。 */
     public static List<Session> scan() {
@@ -87,8 +73,7 @@ public class LogParser {
         File[] files = LOG_DIR.listFiles();
         if (files == null) {
             lastError = "读不到日志目录：" + LOG_DIR;
-            cache = new ArrayList<Session>();
-            return cache;
+            return new ArrayList<Session>();
         }
         List<File> logs = new ArrayList<File>();
         for (int i = 0; i < files.length; i++) {
@@ -270,9 +255,6 @@ public class LogParser {
             boolean meaningful = s.finalCount() > 0
                     || (s.summary != null && s.summary.length() > 0) || s.wavPath != null;
             if (!meaningful) continue;          // 纯引擎噪声：无字、无摘要、无音频（只剩报错）
-            if (s.startMs <= 0 && s.wavPath != null) {
-                // 仅从音频建立：startMs 已在 attachAudio 里按文件名补齐
-            }
             out.add(s);
         }
 
@@ -283,10 +265,9 @@ public class LogParser {
             }
         });
 
-        cache = out;
-        lastScanAt = System.currentTimeMillis();
         return out;
     }
+
 
     /** 逐句按起始时间排序，并把相邻说话人切换标记去重。 */
     private static List<Segment> normalize(List<Segment> in) {

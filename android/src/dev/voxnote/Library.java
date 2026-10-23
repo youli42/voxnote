@@ -4,9 +4,6 @@ import android.content.Context;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.text.SimpleDateFormat;
@@ -56,45 +53,6 @@ public class Library {
     }
 
     // ---------------------------------------------------------------- 对外
-
-    public JSONObject refresh(List<Item> imported) {
-        List<Item> items = scan(imported);
-        JSONObject out = new JSONObject();
-        JSONArray arr = new JSONArray();
-        int done = 0, raw = 0, failed = 0, empty = 0, withAudio = 0, sentences = 0;
-        for (int i = 0; i < items.size(); i++) {
-            Item it = items.get(i);
-            arr.put(it.toJson(state.of(it.id)));
-            String st = it.status();
-            if ("done".equals(st)) done++;
-            else if ("raw".equals(st)) raw++;
-            else if ("failed".equals(st)) failed++;
-            else empty++;
-            if (it.audioPath != null || it.audioUri != null) withAudio++;
-            sentences += it.segs.size();
-        }
-        try {
-            JSONObject stats = new JSONObject();
-            stats.put("total", items.size());
-            stats.put("done", done);
-            stats.put("raw", raw);
-            stats.put("failed", failed);
-            stats.put("empty", empty);
-            stats.put("withAudio", withAudio);
-            stats.put("sentences", sentences);
-            stats.put("files", fileCount);
-            stats.put("scannedAt", System.currentTimeMillis());
-            stats.put("error", lastError);
-            JSONArray rs = new JSONArray();
-            rs.put(storage.describe());
-            stats.put("roots", rs);
-            out.put("stats", stats);
-            out.put("items", arr);
-        } catch (Throwable t) {
-            // 保底返回空结构，JS 端会显示"没有记录"
-        }
-        return out;
-    }
 
     public List<Item> scan(List<Item> imported) {
         Map<String, Item> map = new LinkedHashMap<String, Item>();
