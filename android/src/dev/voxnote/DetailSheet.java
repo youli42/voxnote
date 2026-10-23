@@ -130,16 +130,18 @@ public class DetailSheet implements Overlay {
             if (playerOpened) {
                 int d = player.duration();
                 if (d > 0) totalMs = d;
-                int p = player.position();
-                if (p >= 0) playPos = p;
-                boolean playing = player.playing();
-                playBtn.setText(playing ? "❚❚" : "▶");
-                markAddBtn.setEnabled(playing);
-                markAddBtn.setAlpha(playing ? 1f : 0.35f);
-                if (playing && totalMs > 0 && playPos >= totalMs - 120) {
-                    player.pause();
-                    player.seek(0);   // 播放器归零，否则下次 start() 从结尾接着走，播完无法重播
-                    playPos = 0;
+                if (!seekBar.isDragging()) {   // 拖动预览期间不回写位置，别跟手势打架
+                    int p = player.position();
+                    if (p >= 0) playPos = p;
+                    boolean playing = player.playing();
+                    playBtn.setText(playing ? "❚❚" : "▶");
+                    markAddBtn.setEnabled(playing);
+                    markAddBtn.setAlpha(playing ? 1f : 0.35f);
+                    if (playing && totalMs > 0 && playPos >= totalMs - 120) {
+                        player.pause();
+                        player.seek(0);   // 播放器归零，否则下次 start() 从结尾接着走，播完无法重播
+                        playPos = 0;
+                    }
                 }
             }
             updateProgress();
@@ -253,7 +255,8 @@ public class DetailSheet implements Overlay {
         seekBar.setListener(new SeekBarView.Listener() {
             public void onSeek(float fraction) {
                 playPos = (int) (fraction * totalMs);
-                if (playerOpened) player.seek(playPos);
+                // 拖动中只更新预览，松手的那次才落到播放器，避免一秒几十次 seekTo
+                if (playerOpened && !seekBar.isDragging()) player.seek(playPos);
                 updateProgress();
             }
         });

@@ -111,8 +111,10 @@ public class SeekBarView extends View {
                 return true;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
-                if (dragging) seek(e.getX());
-                dragging = false;
+                if (dragging) {
+                    dragging = false;   // 先落状态再回调最后一次：让宿主这次真正 seek
+                    seek(e.getX());
+                }
                 getParent().requestDisallowInterceptTouchEvent(false);
                 return true;
         }
