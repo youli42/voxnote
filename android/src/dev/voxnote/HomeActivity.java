@@ -170,6 +170,20 @@ public class HomeActivity extends Activity implements Picker.Host {
 
         askPerms();
         load(false, null, false);
+        cleanTmpOrphans();
+    }
+
+    /** 启动时清掉上次进程被杀 / 中断残留的临时录音（此刻不可能有正在发布的文件）。 */
+    private void cleanTmpOrphans() {
+        data.post(new Runnable() {
+            public void run() {
+                File[] fs = storage.privateTmp().listFiles();
+                if (fs == null) return;
+                for (int i = 0; i < fs.length; i++) {
+                    try { fs[i].delete(); } catch (Throwable ignore) { }
+                }
+            }
+        });
     }
 
     // ------------------------------------------------------------ 界面
@@ -1312,7 +1326,11 @@ public class HomeActivity extends Activity implements Picker.Host {
     @Override
     protected void onDestroy() {
         try {
-            if (recording) recorder.stop();
+            if (recording) {
+                // 重建/被回收时的中断录音：保存不了，也别把临时文件留成孤儿
+                File abandoned = recorder.stop();
+                if (abandoned != null) abandoned.delete();
+            }
         } catch (Throwable ignore) { }
         try {
             if (detail != null) detail.destroy();
