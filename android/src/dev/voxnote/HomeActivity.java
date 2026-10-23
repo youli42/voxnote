@@ -1291,6 +1291,9 @@ public class HomeActivity extends Activity implements Picker.Host {
             if (recording) recorder.stop();
         } catch (Throwable ignore) { }
         try {
+            if (detail != null) detail.destroy();
+        } catch (Throwable ignore) { }
+        try {
             player.release();
         } catch (Throwable ignore) { }
         try {

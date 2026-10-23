@@ -126,7 +126,7 @@ public class DetailSheet implements Overlay {
 
     private final Runnable ticker = new Runnable() {
         public void run() {
-            if (!open) return;
+            if (!open || act.isFinishing() || act.isDestroyed()) return;
             if (playerOpened) {
                 int d = player.duration();
                 if (d > 0) totalMs = d;
@@ -878,6 +878,18 @@ public class DetailSheet implements Overlay {
         }
         paths.setText(p);
         paths.setVisibility(p.length() > 0 ? View.VISIBLE : View.GONE);
+    }
+
+    /** Activity 销毁时调用：立刻停回调、释放播放器，不走退场动画（View 树已无效）。 */
+    public void destroy() {
+        open = false;
+        ui.removeCallbacks(ticker);
+        ui.removeCallbacks(patchTitle);
+        ui.removeCallbacks(snapRunnable);
+        try {
+            player.release();
+        } catch (Throwable ignore) { }
+        playerOpened = false;
     }
 
     @Override
