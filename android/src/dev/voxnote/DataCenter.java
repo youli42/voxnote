@@ -80,6 +80,19 @@ public class DataCenter {
         ui.removeCallbacksAndMessages(null);
     }
 
+    /** 把一次性 IO 重活（如录音发布）排进同一个后台线程，避免占住主线程。 */
+    public void post(final Runnable r) {
+        io.execute(new Runnable() {
+            public void run() {
+                try {
+                    r.run();
+                } catch (Throwable ignore) {
+                    // 后台重活失败不该带崩进程
+                }
+            }
+        });
+    }
+
     /** forceAll=true 时让插件忽略缓存重扫；onlySourceId 限定只强刷某个来源。 */
     public void load(final boolean forceAll, final String onlySourceId, final LoadCallback cb) {
         io.execute(new Runnable() {

@@ -113,6 +113,8 @@ public class HomeActivity extends Activity implements Picker.Host {
     private long recStart;
     private String pendingStamp;
     private String pendingTitle = "";
+    /** 设置了"录完自动转写"时，保存后等扫描结果出现该场次再触发（替代固定 400ms 延时）。 */
+    private String pendingTranscribe;
     private final Runnable recTimerTick = new Runnable() {
         public void run() {
             if (!recording) return;
@@ -685,6 +687,14 @@ public class HomeActivity extends Activity implements Picker.Host {
             RecordVm cur = findVm(detail.id());
             if (cur != null) detail.refresh(cur);
         }
+        // 保存后等待自动转写的场次：扫描到了就触发，扫描慢也不静默跳过
+        if (pendingTranscribe != null) {
+            RecordVm vm = findVm(pendingTranscribe);
+            if (vm != null) {
+                pendingTranscribe = null;
+                transcribe(vm);
+            }
+        }
         if (toastResult) toast("已扫描 " + r.total + " 场");
     }
 
@@ -1051,6 +1061,7 @@ public class HomeActivity extends Activity implements Picker.Host {
         }
         pendingStamp = Recorder.stamp();
         pendingTitle = recTitle.getText().toString().trim();
+        pendingTranscribe = null;
         File tmp = new File(storage.privateTmp(), pendingStamp + "_memo.m4a");
         if (!recorder.start(tmp)) {
             toast("无法开始录音：检查麦克风权限");
@@ -1078,32 +1089,45 @@ public class HomeActivity extends Activity implements Picker.Host {
 
         File f = recorder.stop();
         if (f == null) {
+            pendingStamp = null;
+            pendingTitle = "";
+            recTitle.setText("");
             toast("录音失败：没有写进文件");
             return;
         }
-        String loc = storage.publish(f, f.getName(), "audio/mp4");
-        if (pendingTitle != null && pendingTitle.length() > 0 && pendingStamp != null) {
-            try {
-                JSONObject p = new JSONObject();
-                p.put("title", pendingTitle);
-                data.patch(pendingStamp, p, null);
-            } catch (Throwable ignore) { }
-        }
+        // 发布（SAF/MediaStore 是全量拷贝，1 小时录音 ~14MB）放后台，主线程只收尾。
+        final File tmp = f;
         final String stamp = pendingStamp;
+        final String title = pendingTitle;
+        final long durSecF = durSec;
         pendingStamp = null;
         pendingTitle = "";
         recTitle.setText("");
-        toast("已保存 " + RecordVm.fmtDur(durSec));
-        load(false, null, false);
-        list.setSelection(0);
-        if (settings.autoTranscribe && stamp != null) {
-            ui.postDelayed(new Runnable() {
-                public void run() {
-                    RecordVm vm = findVm(stamp);
-                    if (vm != null) transcribe(vm);
+        toast("正在保存…");
+        data.post(new Runnable() {
+            public void run() {
+                storage.publish(tmp, tmp.getName(), "audio/mp4");
+                if (title.length() > 0 && stamp != null) {
+                    try {
+                        JSONObject p = new JSONObject();
+                        p.put("title", title);
+                        data.patch(stamp, p, null);
+                    } catch (Throwable ignore) { }
                 }
-            }, 400);
-        }
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (isDestroyed()) return;
+                        toast("已保存 " + RecordVm.fmtDur(durSecF));
+                        load(false, null, false);
+                        list.setSelection(0);
+                        if (settings.autoTranscribe && stamp != null) {
+                            // 不再用固定延时等扫描：存下待转写场次，applyResult 里触发
+                            pendingTranscribe = stamp;
+                        }
+                    }
+                });
+            }
+        });
     }
 
     // ------------------------------------------------------------ 权限 / 存储
