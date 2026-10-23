@@ -56,6 +56,8 @@ public class SwipeRow extends FrameLayout {
     private float dx;
     private boolean dragging;
     private boolean batch;
+    /** 每次 bind/setBatch 自增：动画回调只在代数没变（行没被复用改绑）时才生效。 */
+    private int gen;
 
     public SwipeRow(Context c) {
         super(c);
@@ -131,6 +133,7 @@ public class SwipeRow extends FrameLayout {
         this.vm = vm;
         this.settings = settings;
         this.host = host;
+        gen++;
         card.animate().cancel();
         card.setTranslationX(0);
         card.setAlpha(1f);
@@ -153,6 +156,7 @@ public class SwipeRow extends FrameLayout {
         batch = on;
         card.setBatch(on, selected);
         if (on) {
+            gen++;
             card.animate().cancel();
             card.setTranslationX(0);
             card.setAlpha(1f);
@@ -248,6 +252,10 @@ public class SwipeRow extends FrameLayout {
             return;
         }
         final String cat = targetCat;
+        // 动画 180ms 后才回调，期间行可能被 ListView 复用改绑：
+        // 捕获此刻的 vm 和代数，回调时对不上就丢弃。
+        final RecordVm swiped = vm;
+        final int g = gen;
         float to = dir > 0 ? getWidth() : -getWidth();
         card.animate().translationX(to).alpha(0.2f).setDuration(180)
                 .setInterpolator(new DecelerateInterpolator())
@@ -258,7 +266,7 @@ public class SwipeRow extends FrameLayout {
                         leftEdgeLabel.setAlpha(0f);
                         rightEdgeLabel.setAlpha(0f);
                         dx = 0;
-                        if (host != null && vm != null) host.onSwipe(vm, cat);
+                        if (host != null && swiped != null && g == gen) host.onSwipe(swiped, cat);
                     }
                 }).start();
     }
