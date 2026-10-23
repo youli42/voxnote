@@ -17,10 +17,8 @@ from . import db, config
 
 def create_app() -> FastAPI:
     app = FastAPI(title="voxnote server", version="0.1.0",
-                  docs_url="/api/docs", openapi_url="/api/openapi.json")
-
-    config.ensure_dirs()
-    db.init()
+                  docs_url="/api/docs", openapi_url="/api/openapi.json",
+                  lifespan=_lifespan)
     _wire_routers(app)
 
     @app.get("/api/v1/health")
@@ -33,6 +31,22 @@ def create_app() -> FastAPI:
     if os.path.isdir(web):
         app.mount("/", StaticFiles(directory=web, html=True), name="web")
     return app
+
+
+async def _lifespan(app: FastAPI):
+    config.ensure_dirs()
+    db.init()
+    try:
+        from . import jobs
+        jobs.start_worker()
+    except Exception:
+        pass
+    yield
+    try:
+        from . import jobs
+        jobs.stop_worker()
+    except Exception:
+        pass
 
 
 def _wire_routers(app: FastAPI):
