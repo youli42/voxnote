@@ -1205,7 +1205,8 @@ public class HomeActivity extends Activity implements Picker.Host {
             return true;
         }
         if (!isTextFocused() && matchesRecordKey(keyCode)) {
-            toggleRecording();
+            // 长按的自动 repeat 事件不算第二次按键，否则开始录音后立刻被停掉
+            if (event.getRepeatCount() == 0) toggleRecording();
             return true;
         }
         return super.onKeyDown(keyCode, event);
