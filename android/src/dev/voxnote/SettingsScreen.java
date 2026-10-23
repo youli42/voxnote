@@ -10,6 +10,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -60,8 +61,16 @@ public class SettingsScreen {
     private final Storage storage;
     private final Host host;
 
+    private final LinearLayout page;
+    private final FrameLayout scrollHost;
     private final ScrollView root;
     private final LinearLayout content;
+    private final LinearLayout tocPanel;
+    private final View tocBlocker;
+    private final TextView tocBtn;
+    private final ArrayList<View> tocViews = new ArrayList<View>();
+    private final ArrayList<String> tocTitles = new ArrayList<String>();
+    private boolean tocOpen;
     private final LinearLayout catGroup;
     private final LinearLayout keyGroup;
     private final LinearLayout storageGroup;
@@ -89,6 +98,26 @@ public class SettingsScreen {
         this.storage = storage;
         this.host = host;
 
+        // ---------------- 页面骨架：固定顶栏（标题 + 右上角目录入口）+ 滚动区 + 目录浮层
+        page = Ui.col(act);
+        page.setBackgroundColor(Ui.BG);
+        LinearLayout head = Ui.row(act);
+        Ui.pad(head, 14, 10, 12, 8);
+        head.setBackgroundColor(Ui.BG);
+        head.addView(Ui.text(act, "设置", 15f, Ui.TEXT, true),
+                Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        tocBtn = Ui.smallButton(act, "☰ 目录");
+        tocBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                toggleToc();
+            }
+        });
+        head.addView(tocBtn);
+        page.addView(head, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        page.addView(Ui.divider(act));
+
+        scrollHost = new FrameLayout(act);
         root = new ScrollView(act);
         root.setBackgroundColor(Ui.BG);
         root.setVerticalScrollBarEnabled(false);
@@ -97,6 +126,32 @@ public class SettingsScreen {
         Ui.pad(content, 10, 10, 10, 24);
         root.addView(content, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        scrollHost.addView(root, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        tocBlocker = new View(act);
+        tocBlocker.setBackgroundColor(0x00000000);
+        tocBlocker.setVisibility(View.GONE);
+        tocBlocker.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                closeToc();
+            }
+        });
+        scrollHost.addView(tocBlocker, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        tocPanel = Ui.col(act);
+        tocPanel.setBackground(Ui.rounded(12, Ui.SURFACE, Ui.LINE2, 1));
+        Ui.pad(tocPanel, 5, 7, 5, 7);
+        tocPanel.setVisibility(View.GONE);
+        FrameLayout.LayoutParams tocp = new FrameLayout.LayoutParams(
+                Ui.dp(200), ViewGroup.LayoutParams.WRAP_CONTENT);
+        tocp.gravity = Gravity.END | Gravity.TOP;
+        tocp.topMargin = Ui.dp(4);
+        tocp.rightMargin = Ui.dp(10);
+        scrollHost.addView(tocPanel, tocp);
+
+        page.addView(scrollHost, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         // ---------------- 分类
         catGroup = Ui.group(act, "分类");
@@ -358,6 +413,16 @@ public class SettingsScreen {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 10));
         content.addView(about, groupLp());
 
+        // ---------------- 目录注册表：顺序 = 页面顺序；打开目录时按可见性过滤
+        registerSection("分类", catGroup);
+        registerSection("按键", keyGroup);
+        registerSection("转写 API", apiGroup);
+        registerSection("存储位置", storageGroup);
+        registerSection("录音", recGroup);
+        registerSection("数据", dataGroup);
+        registerSection("外部来源", sourcesGroup);
+        registerSection("关于", about);
+
         refresh();
     }
 
@@ -368,7 +433,7 @@ public class SettingsScreen {
     private TextView storageModeValue;
 
     public View view() {
-        return root;
+        return page;
     }
 
     // ------------------------------------------------------------ 刷新
@@ -733,6 +798,77 @@ public class SettingsScreen {
         s.save();
         host.onStorageChanged();
         refresh();
+    }
+
+    // ------------------------------------------------------------ 目录导航
+
+    private void registerSection(String title, View group) {
+        tocTitles.add(title);
+        tocViews.add(group);
+    }
+
+    private void toggleToc() {
+        if (tocOpen) closeToc();
+        else openToc();
+    }
+
+    /** 目录项在每次打开时按当前可见分组重建（如「外部来源」无可用来源时整组隐藏）。 */
+    private void openToc() {
+        tocPanel.removeAllViews();
+        TextView cap = Ui.text(act, "跳转到", 10.5f, Ui.FAINT);
+        Ui.pad(cap, 6, 2, 6, 4);
+        tocPanel.addView(cap, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        int added = 0;
+        for (int i = 0; i < tocViews.size(); i++) {
+            final View group = tocViews.get(i);
+            if (group.getVisibility() != View.VISIBLE) continue;
+            added++;
+            final int idx = i;
+            TextView item = Ui.text(act, tocTitles.get(i), 12.5f, Ui.TEXT);
+            item.setSingleLine(true);
+            item.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            item.setBackground(Ui.pressable(Ui.rounded(9, Ui.SURFACE2, Ui.LINE, 1), 0x22FFFFFF));
+            Ui.pad(item, 12, 11, 12, 11);
+            LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            ip.bottomMargin = Ui.dp(5);
+            item.setLayoutParams(ip);
+            item.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    closeToc();
+                    int top = Math.max(0, group.getTop() - Ui.dp(6));
+                    root.smoothScrollTo(0, top);
+                }
+            });
+            tocPanel.addView(item);
+        }
+        if (added == 0) {
+            TextView none = Ui.text(act, "没有可跳转的分组", 11.5f, Ui.FAINT);
+            Ui.pad(none, 6, 2, 6, 6);
+            tocPanel.addView(none);
+        }
+        tocBlocker.setVisibility(View.VISIBLE);
+        tocPanel.setVisibility(View.VISIBLE);
+        tocPanel.setAlpha(0f);
+        tocPanel.setTranslationY(-Ui.dp(8));
+        tocPanel.animate().alpha(1f).translationY(0f).setDuration(150)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        tocOpen = true;
+    }
+
+    private void closeToc() {
+        if (!tocOpen) return;
+        tocOpen = false;
+        tocBlocker.setVisibility(View.GONE);
+        tocPanel.animate().alpha(0f).translationY(-Ui.dp(8)).setDuration(120)
+                .withEndAction(new Runnable() {
+                    public void run() {
+                        tocPanel.setVisibility(View.GONE);
+                        tocPanel.setAlpha(1f);
+                        tocPanel.setTranslationY(0f);
+                    }
+                }).start();
     }
 
     // ------------------------------------------------------------ 小工具

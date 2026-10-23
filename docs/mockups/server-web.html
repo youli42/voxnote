@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>voxnote</title>
+<style>
+  :root{
+    --bg:#0a0b0e; --pane:#16171d; --pane2:#1a1c22; --line:#23252d; --chip:#2c2f3a;
+    --text:#e9ecf2; --sub:#b9bfc9; --dim:#7f8593;
+    --accent:#5b8dff; --warn:#d9a03c; --ok:#69b47b; --danger:#e57373;
+    --spk1:#7aa2ff; --spk2:#e0a458; --spk3:#63c08a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{background:var(--bg);color:var(--text);overflow:hidden;font-size:13px;
+       font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}
+  .mono{font-family:ui-monospace,Consolas,monospace;}
+
+  .app{display:grid;grid-template-columns:66px 1fr;height:100vh;}
+  .rail{background:#0e0f13;border-right:1px solid var(--line);padding:12px 0;
+        display:flex;flex-direction:column;align-items:center;}
+  .logo{width:32px;height:32px;border-radius:10px;background:var(--accent);color:#fff;font-weight:700;
+        display:flex;align-items:center;justify-content:center;margin-bottom:16px;}
+  .navi{width:100%;display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 0;cursor:pointer;
+        color:var(--dim);font-size:10px;border-left:2px solid transparent;position:relative;}
+  .navi:hover{color:#cfd3dc;} .navi.on{color:#fff;background:#141822;border-left-color:var(--accent);}
+  .navi .g{font-size:15px;}
+  .navi .n{position:absolute;top:6px;right:14px;background:var(--warn);color:#241d12;font-size:9px;
+           font-weight:700;border-radius:999px;padding:1px 5px;}
+
+  .main{display:flex;flex-direction:column;min-width:0;}
+  .top{height:46px;flex:none;border-bottom:1px solid var(--line);background:#0e0f13;
+       display:flex;align-items:center;gap:10px;padding:0 16px;}
+  .top .crumb{font-size:13px;font-weight:600;}
+  .search{flex:1;max-width:420px;background:#14161c;border:1px solid var(--line);border-radius:9px;
+          padding:7px 11px;font-size:12px;color:#dfe3ea;outline:none;font-family:inherit;}
+  .search::placeholder{color:var(--dim);}
+  .search:focus{border-color:#3f4c68;}
+  .top .grow{flex:1;}
+  .snap{font-size:11px;color:#e8bd75;background:#241d12;border:1px solid #574a2e;border-radius:999px;
+        padding:4px 11px;white-space:nowrap;}
+  .btn{background:#20242e;border:1px solid #2c313d;color:#cfd3dc;font-size:12px;border-radius:9px;
+       padding:7px 13px;cursor:pointer;white-space:nowrap;}
+  .btn.accent{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn[disabled]{opacity:.45;cursor:not-allowed;}
+  .page{display:none;flex:1;min-height:0;} .page.on{display:flex;}
+  .pad{padding:14px 16px 26px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2b2f39 transparent;}
+
+  /* 通用 */
+  .st{font-size:10px;border-radius:6px;padding:2px 7px;border:1px solid;white-space:nowrap;}
+  .st.done{color:#9fb8a6;border-color:#3a4a41;} .st.raw{color:var(--warn);border-color:#574a2e;}
+  .st.failed{color:var(--danger);border-color:#5c3a3e;} .st.ai{color:#9db6ff;border-color:#3a4460;}
+  .tag{border:1px solid var(--chip);border-radius:5px;padding:1px 6px;font-size:10px;color:#c3c9d4;}
+  .chip{border:1px solid var(--chip);color:#cfd3dc;font-size:10.5px;border-radius:999px;padding:4px 10px;
+        cursor:pointer;background:#14161c;}
+  .chip.on{background:#2a3141;border-color:#3f4c68;color:#fff;}
+  .card{background:var(--pane2);border:1px solid var(--line);border-radius:12px;padding:10px 11px 9px;
+        margin-bottom:8px;cursor:pointer;position:relative;}
+  .card.on{border-color:var(--accent);background:#181c27;}
+  .card .t{font-size:13px;font-weight:600;}
+  .card .x{color:var(--sub);font-size:11px;line-height:1.6;margin-top:4px;
+           display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .card .m{display:flex;gap:5px;align-items:center;margin-top:7px;color:var(--dim);font-size:9.5px;flex-wrap:wrap;}
+  .nb{position:absolute;right:9px;top:9px;background:#2b3350;border:1px solid #3a4460;color:#9db6ff;
+      font-size:9.5px;border-radius:6px;padding:2px 6px;}
+  .pane{background:var(--pane);border:1px solid var(--line);border-radius:14px;padding:12px 14px;}
+  .dim{color:var(--dim);}
+  .empty{color:var(--dim);font-size:11.5px;padding:12px 2px;}
+  .noline{color:var(--dim);font-size:12px;padding:10px 5px;line-height:1.7;}
+
+  /* 记录 */
+  .list{width:300px;flex:none;border-right:1px solid var(--line);padding:12px;overflow-y:auto;}
+  .chips{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px;}
+  .detail{flex:1;min-width:0;overflow-y:auto;padding:16px 20px 30px;}
+  .dt{font-size:17px;font-weight:600;display:flex;gap:9px;align-items:center;}
+  .dt .btn{margin-left:auto;}
+  .dm{color:var(--dim);font-size:10.5px;margin:6px 0 12px;}
+  .dm .mini{margin-left:6px;vertical-align:baseline;}
+  .player{background:#12141a;border:1px solid var(--line);border-radius:11px;padding:9px 11px;margin-bottom:12px;}
+  .player .r{display:flex;align-items:center;gap:9px;}
+  .player .ico{width:24px;height:24px;border-radius:50%;border:1px solid var(--chip);color:#4a4f5c;
+               display:flex;align-items:center;justify-content:center;font-size:10px;flex:none;cursor:pointer;}
+  .player .ico.dis{opacity:.45;cursor:not-allowed;}
+  .wave{flex:1;display:flex;align-items:center;gap:3px;height:22px;}
+  .wave.dis{opacity:.45;}
+  .wave i{width:3px;background:#282c36;border-radius:2px;}
+  .wave.play i{animation:wv .8s ease-in-out infinite alternate;}
+  @keyframes wv{from{background:#282c36;}to{background:#43506b;}}
+  .player .off{color:var(--dim);font-size:10.5px;margin-top:7px;border-top:1px dashed #22242c;padding-top:7px;}
+  .lnk{color:#8fa7ff;cursor:pointer;border-bottom:1px dashed #3a4460;}
+  .ai{background:var(--pane2);border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:10px;}
+  .ai h4{font-size:10.5px;color:#9db6ff;letter-spacing:.4px;margin-bottom:6px;}
+  .ai p{font-size:12px;color:var(--sub);line-height:1.75;}
+  .ln{display:flex;gap:9px;padding:7px 5px;border-radius:8px;font-size:13px;line-height:1.6;}
+  .ln:hover{background:#1b1e26;}
+  .ln .ts{color:var(--dim);font-size:9.5px;flex:none;padding-top:4px;font-family:ui-monospace,Consolas,monospace;}
+  .ln .spk{font-size:9.5px;border-radius:5px;padding:1px 6px;flex:none;height:17px;border:1px solid;line-height:15px;}
+  .spk.a{color:var(--spk1);border-color:#33406a;} .spk.b{color:var(--spk2);border-color:#5b472c;}
+  .spk.c{color:var(--spk3);border-color:#2f4c3a;} .spk.n{color:var(--dim);border-color:#30333c;}
+  .ln.p{opacity:.45;} .ln.p .tx::after{content:" 中间态";color:var(--dim);font-size:9px;}
+  .ln.e .tx::after{content:" 你的编辑 rev 39";color:#9db6ff;font-size:9px;}
+  .mk{border-top:1px solid #20232a;padding:8px 5px;font-size:12px;color:var(--sub);}
+  .mk .mt{color:var(--warn);font-size:10px;font-family:ui-monospace,Consolas,monospace;}
+  .mk .mx{color:var(--dim);font-size:10px;margin-top:3px;}
+  .hide{display:none;}
+
+  /* 待确认 */
+  .ipq{background:var(--pane);border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:9px;
+       display:flex;gap:12px;align-items:center;}
+  .ipq.conf{border-color:#574a2e;background:#1e1a12;}
+  .ipq .op{font-size:10px;color:#9db6ff;border:1px solid #3a4460;border-radius:6px;padding:2px 7px;flex:none;}
+  .ipq .bd{flex:1;min-width:0;font-size:12px;color:var(--sub);line-height:1.6;}
+  .ipq .bd .who{display:block;color:var(--dim);font-size:10px;font-family:ui-monospace,Consolas,monospace;margin-top:4px;}
+  .ba.del{color:#e58b86;text-decoration:line-through;} .ba.add{color:#9fb8a6;}
+  .mini{background:#20242e;border:1px solid #2c313d;color:#cfd3dc;font-size:11px;border-radius:7px;
+        padding:5px 11px;cursor:pointer;}
+  .mini.ok{border-color:#3a4a41;color:#9fb8a6;} .mini.no{border-color:#5c3a3e;color:#e58b86;}
+  .mini[disabled]{opacity:.5;cursor:not-allowed;}
+
+  /* 接入 */
+  .row{display:flex;gap:10px;align-items:center;}
+  .url{flex:1;background:#101218;border:1px solid var(--line);border-radius:10px;padding:9px 11px;
+       font-size:11.5px;color:#9db6ff;font-family:ui-monospace,Consolas,monospace;}
+  table{width:100%;border-collapse:collapse;font-size:11.5px;}
+  th{text-align:left;color:var(--dim);font-size:10px;font-weight:600;padding:7px 8px;
+     border-bottom:1px solid #262933;letter-spacing:.3px;}
+  td{padding:9px 8px;border-bottom:1px solid #1b1e25;color:var(--sub);line-height:1.6;}
+  pre{background:#101218;border:1px solid var(--line);border-radius:10px;padding:11px 12px;font-size:11px;
+      line-height:1.7;color:#c9d2df;overflow-x:auto;font-family:ui-monospace,Consolas,monospace;}
+  pre .k{color:#9db6ff} pre .s{color:#9fb8a6}
+  .sw{width:38px;height:22px;border-radius:999px;background:#241d12;border:1px solid #574a2e;
+      position:relative;cursor:pointer;flex:none;}
+  .sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#e8bd75;}
+  .sw.on{background:var(--accent);border-color:var(--accent);}
+  .sw.on::after{left:18px;background:#fff;}
+  .setr{display:flex;gap:12px;align-items:center;padding:11px 13px;border-top:1px solid #1b1e25;}
+  .setr:first-child{border-top:none;}
+  .setr .l{flex:1;} .setr .l b{font-size:12px;} .setr .l span{display:block;color:var(--dim);font-size:10.5px;margin-top:3px;}
+  .setbox{background:var(--pane);border:1px solid var(--line);border-radius:14px;overflow:hidden;}
+
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px;}
+  [role="button"],[role="switch"]{cursor:pointer;}
+  .navi:focus-visible,.card:focus-visible,.chip:focus-visible{outline-offset:-2px;}
+
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(12px);background:#1d2430;
+         border:1px solid #35415a;color:#dfe6f2;font-size:11.5px;padding:10px 14px;border-radius:11px;
+         opacity:0;transition:.16s;z-index:50;max-width:460px;line-height:1.6;}
+  .toast.show{opacity:1;transform:translateX(-50%);}
+
+  @media (max-width:900px){
+    .list{width:220px;}
+    .search{max-width:220px;}
+  }
+  @media (max-width:640px){
+    .top{padding:0 10px;gap:8px;}
+    .snap{display:none;}
+    .page.on{flex-direction:column;}
+    .list{width:auto;flex:none;max-height:38vh;border-right:none;border-bottom:1px solid var(--line);}
+    .detail{padding:12px 12px 24px;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="rail">
+    <div class="logo">v</div>
+    <div class="navi on" role="button" tabindex="0" aria-current="page" data-p="read"><span class="g">▤</span>记录</div>
+    <div class="navi" role="button" tabindex="0" data-p="pend"><span class="g">◐</span>待确认<span class="n" id="railN"></span></div>
+    <div class="navi" role="button" tabindex="0" data-p="conn"><span class="g">⌗</span>接入</div>
+  </aside>
+
+  <div class="main">
+    <div class="top">
+      <span class="crumb" id="crumb">记录</span>
+      <input class="search" id="q" type="search" placeholder="⌕ 搜索标题 / 摘要 / 正文" autocomplete="off">
+      <span class="grow"></span>
+      <span class="snap">S1-0799 · 快照 3 天前 · 离线</span>
+      <button class="btn" id="syncBtn" disabled>同步</button>
+    </div>
+
+    <!-- ============ 记录 ============ -->
+    <div class="page on" id="p-read">
+      <div class="list">
+        <div class="chips" id="fchips">
+          <span class="chip on" role="button" tabindex="0" aria-pressed="true" data-f="all">全部 5</span><span class="chip" role="button" tabindex="0" aria-pressed="false" data-f="raw">未转写 1</span>
+          <span class="chip" role="button" tabindex="0" aria-pressed="false" data-f="uncat">未分类 1</span>
+        </div>
+        <div class="card on" role="button" tabindex="0" aria-pressed="true" data-i="0"><div class="t">采样率与门禁的评审结论</div>
+          <div class="x">结论是回到 16 kHz 单声道，代价由旁路采集承担；门禁下周确认。</div>
+          <div class="m"><span class="st done">已转写</span><span class="tag">重要</span><span>10-20 · 08:12</span></div></div>
+        <div class="card" role="button" tabindex="0" aria-pressed="false" data-i="1"><div class="t">周一晨会 · 纪要</div>
+          <div class="x">三句结论由模型从逐句里整理：旁路继续跑，报备走老李，回归放凌晨。</div>
+          <div class="m"><span class="st done">已转写</span><span class="tag">工作</span><span>10-19 · 06:41</span></div></div>
+        <div class="card" role="button" tabindex="0" aria-pressed="false" data-i="2"><div class="t">跟老李的通话</div>
+          <div class="x">只有声音，没有字。</div>
+          <div class="m"><span class="st raw">未转写</span><span class="tag">未分类</span><span>10-19 · 03:26</span>
+            <span><button class="mini" data-act="asr">转文字</button></span></div></div>
+        <div class="card" role="button" tabindex="0" aria-pressed="false" data-i="3"><div class="t">机房回归的口头约定</div>
+          <div class="x">回归窗口挪到凌晨，门禁要提前报备。</div>
+          <div class="m"><span class="st done">已转写</span><span class="tag">工作</span><span>10-18 · 02:03</span></div></div>
+        <div class="card" role="button" tabindex="0" aria-pressed="false" data-i="4"><div class="t">4 分钟的录音</div>
+          <div class="x">服务端内存不足，音频还在设备上。</div>
+          <div class="m"><span class="st failed">转写失败</span><span>10-18 · 04:02</span>
+            <span><button class="mini" data-act="retry">重试</button></span></div></div>
+        <div class="empty hide" id="listEmpty">没有匹配的场次</div>
+      </div>
+
+      <div class="detail">
+        <div class="dt"><span id="dtitle"></span>
+          <button class="btn" data-propose="title">改名</button></div>
+        <div class="dm mono" id="dm"></div>
+
+        <div class="player">
+          <div class="r"><div class="ico dis" id="playIco" role="button" tabindex="0" aria-label="播放">▶</div>
+            <span class="mono dim" id="curT" style="font-size:10px;">00:00</span>
+            <div class="wave" id="wave">
+              <i style="height:9px"></i><i style="height:18px"></i><i style="height:24px"></i><i style="height:13px"></i>
+              <i style="height:7px"></i><i style="height:20px"></i><i style="height:26px"></i><i style="height:15px"></i>
+              <i style="height:11px"></i><i style="height:22px"></i><i style="height:8px"></i>
+            </div>
+            <span class="mono dim" id="durT" style="font-size:10px;">08:12</span></div>
+          <div class="off" id="offLine"></div>
+        </div>
+
+        <div class="ai" id="sumCard"><h4>摘要</h4>
+          <p id="sumTxt"></p></div>
+
+        <div class="chips" id="tchips" style="margin:14px 0 6px;">
+          <span class="chip on" role="button" tabindex="0" aria-pressed="true" data-t="seg" id="chipSeg">逐句 0</span><span class="chip" role="button" tabindex="0" aria-pressed="false" data-t="mark" id="chipMark">标记 0</span>
+        </div>
+
+        <div id="t-seg" role="region" aria-label="逐句"></div>
+        <div id="t-mark" class="hide" role="region" aria-label="标记"></div>
+      </div>
+    </div>
+
+    <!-- ============ 待确认 ============ -->
+    <div class="page" id="p-pend"><div class="pad" style="flex:1;max-width:760px;">
+      <div class="row" style="margin-bottom:12px;">
+        <b style="font-size:14px;">待确认</b>
+        <span class="st raw" id="stPend">待落地 <b id="nPend"></b></span>
+        <span class="grow" style="flex:1;"></span>
+        <span class="dim" style="font-size:10.5px;">设备上线后写入 edits.jsonl</span>
+      </div>
+
+      <div class="ipq" data-sid="1730000120"><span class="op">打点</span>
+        <span class="bd">@00:24.700 新增标记「旁路成本核算」
+          <span class="who">MCP propose_mark · Claude · sid 1730000120 · i-7c1 · 剩 6 天</span></span>
+        <span class="st raw stt">待落地</span>
+        <button class="mini ok">接受</button><button class="mini no">拒绝</button></div>
+
+      <div class="ipq" data-sid="1730000120"><span class="op">改名</span>
+        <span class="bd"><span class="ba del">采样率与门禁的评审结论</span> → <span class="ba add">10-20 评审：16k 定稿 + 门禁待确认</span>
+          <span class="who">Web 本会话 · sid 1730000120 · i-7c3 · 剩 7 天</span></span>
+        <span class="st raw stt">待落地</span>
+        <button class="mini ok">接受</button><button class="mini no">拒绝</button></div>
+
+      <div class="ipq" data-sid="1730000155"><span class="op">分类</span>
+        <span class="bd"><span class="ba del">未分类</span> → <span class="ba add">工作</span> · sid 1730000155
+          <span class="who">MCP propose_category · Codex · 用户已选 · i-7c4</span></span>
+        <span class="st raw stt">待落地</span>
+        <button class="mini ok">接受</button><button class="mini no">拒绝</button></div>
+
+      <div class="ipq conf"><span class="op" style="color:#e8bd75;border-color:#574a2e;">冲突</span>
+        <span class="bd"><span class="ba del">这个我认</span> → <span class="ba add">这个成本我认</span>
+          <span class="who">你已在本机改过这句（rev 39）：设备胜出，提案作废 · i-7c2</span></span>
+        <span class="st failed">已作废</span></div>
+
+      <div class="ipq" style="opacity:.6;"><span class="op" style="color:#9fb8a6;border-color:#3a4a41;">打点</span>
+        <span class="bd">已落地 @00:13.900 标记「门禁报备 → 老李」· sid 1730000120 · editRev 40 · 回执 sha ✓
+          <span class="who">10-20 09:02 · MCP propose_mark · Claude · i-7c0</span></span>
+        <span class="st done">完成</span></div>
+
+      <div class="empty hide" id="pendEmpty">没有待确认的提案</div>
+    </div></div>
+
+    <!-- ============ 接入 ============ -->
+    <div class="page" id="p-conn"><div class="pad" style="flex:1;max-width:760px;">
+      <b style="font-size:14px;">服务端点</b>
+      <div class="row" style="margin:10px 0 20px;">
+        <div class="url">https://vox.lan:8443/mcp</div>
+        <button class="btn" data-copy="https://vox.lan:8443/mcp">复制</button>
+      </div>
+
+      <b style="font-size:13px;">令牌</b>
+      <table style="margin:8px 0 20px;">
+        <tr><th>令牌</th><th>能做什么</th><th>今日</th><th></th></tr>
+        <tr><td class="mono" style="color:#8b93a3;">vx_read_…9f2</td><td><span class="st done">只读</span> 检索 · 会话 · 标记</td>
+          <td>38 / 200</td><td><button class="mini no" data-revoke>吊销</button></td></tr>
+        <tr><td class="mono" style="color:#8b93a3;">vx_prop_…3b7</td><td><span class="st raw">提案</span> 改名 · 分类 · 打点</td>
+          <td>11 / 30</td><td><button class="mini no" data-revoke>吊销</button></td></tr>
+      </table>
+
+      <div class="row" style="margin-bottom:8px;"><b style="font-size:13px;">客户端配置</b>
+        <span class="grow" style="flex:1;"></span>
+        <button class="btn" data-copy="cfg">复制</button></div>
+<pre id="cfgPre">{ <span class="k">"mcpServers"</span>: { <span class="k">"voxnote"</span>: {
+    <span class="k">"url"</span>: <span class="s">"https://vox.lan:8443/mcp"</span>,
+    <span class="k">"headers"</span>: { <span class="k">"Authorization"</span>: <span class="s">"Bearer vx_read_…9f2"</span> } } } }</pre>
+
+      <b style="font-size:13px;display:block;margin:20px 0 8px;">投影范围</b>
+      <div class="setbox">
+        <div class="setr"><div class="l"><b>上行音频</b>
+          <span>开启后详情页可跳播，服务端保存副本 24 小时。</span></div>
+          <div class="sw" role="switch" tabindex="0" aria-checked="false" aria-label="上行音频" data-sw="audio"></div></div>
+        <div class="setr"><div class="l"><b>上行正文与摘要</b><span>检索与 agent 读取的基础。</span></div>
+          <div class="sw on" role="switch" tabindex="0" aria-checked="true" aria-label="上行正文与摘要" data-sw="body"></div></div>
+        <div class="setr"><div class="l"><b>上行 API Key</b><span>不离开设备。</span></div>
+          <div class="sw" role="switch" tabindex="0" aria-checked="false" aria-disabled="true"
+               aria-label="上行 API Key（不可开启）" data-lock="API Key 永不进投影。" style="opacity:.5;"></div></div>
+      </div>
+
+      <div class="dim" style="font-size:10.5px;margin-top:14px;">
+        丢弃投影不影响设备上的 <span class="mono">/sdcard/s1rec/</span> ·
+        <span class="lnk" id="dropAll" role="button" tabindex="0">整库丢弃重建</span>
+      </div>
+    </div></div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+  var T={read:'记录',pend:'待确认',conn:'接入'};
+  var SPK={a:'发言人 1',b:'发言人 2',c:'发言人 3',n:'—'};
+  var DATA=[
+    {title:'采样率与门禁的评审结论', st:'done', tag:'重要', dur:492,
+     sid:'1730000120', eng:'paraformer-zh@2026.10', nSent:146, nSpk:3,
+     sum:'采样率定为 16 kHz / 单声道 / 32 k 位率，旁路采集承担代价；门禁报备待老李确认。',
+     segs:[
+       {ts:'00:00.120',spk:'a',tx:'我们先进一下采样率的结论，昨天那版是 44.1 起的。'},
+       {ts:'00:03.540',spk:'b',tx:'44.1 对模型没好处，ASR 侧本来就按 16 k 训练的。'},
+       {ts:'00:07.010',spk:'a',tx:'那就定 16 k 单声道，位率压到 32 k。'},
+       {ts:'00:09.860',spk:'c',tx:'这个我认。',e:1},
+       {ts:'00:12.200',spk:'n',tx:'然后就是门禁那个事情要确认下',p:1},
+       {ts:'00:13.900',spk:'b',tx:'门禁下周找老李确认，他那边有报备流程。'},
+       {ts:'00:20.010',spk:'c',tx:'我再确认一下回归的时间窗，别撞机房那边。'}
+     ],
+     marks:[
+       {ts:'00:07.010',tx:'定稿：16 kHz / 单声道 / 32 k',src:'你手动打点 · rev 33'},
+       {ts:'00:13.900',tx:'门禁报备 → 老李',src:'AI 提案 i-7c0 · 已落地 · rev 40'},
+       {ts:'00:20.010',tx:'回归窗口撞机房',src:'你手动打点 · rev 37'}
+     ]},
+    {title:'周一晨会 · 纪要', st:'done', tag:'工作', dur:401,
+     sid:'1730000141', eng:'paraformer-zh@2026.10', nSent:88, nSpk:2,
+     sum:'三句结论由模型从逐句里整理：旁路继续跑，报备走老李，回归放凌晨。',
+     segs:[
+       {ts:'00:00.300',spk:'a',tx:'今天过一下上周的三块进展。'},
+       {ts:'00:04.120',spk:'b',tx:'旁路采集那路还在跑，日志里没见丢帧。'},
+       {ts:'00:11.400',spk:'a',tx:'报备走老李的流程，回归放凌晨两点以后。'}
+     ],
+     marks:[{ts:'00:11.400',tx:'晨会结论已口头确认',src:'你手动打点 · rev 44'}]},
+    {title:'跟老李的通话', st:'raw', tag:'未分类', dur:206,
+     sid:'1730000155', eng:'', nSent:0, nSpk:0, sum:'', segs:[], marks:[]},
+    {title:'机房回归的口头约定', st:'done', tag:'工作', dur:123,
+     sid:'1730000088', eng:'sensevoice-small@2026.08', nSent:26, nSpk:1,
+     sum:'回归窗口改到凌晨两点，门禁需提前半小时报备，负责人不变。',
+     segs:[
+       {ts:'00:00.480',spk:'a',tx:'回归挪到凌晨，两点以后开始。'},
+       {ts:'00:06.900',spk:'a',tx:'门禁提前半小时报备，省得卡在外面。'}
+     ], marks:[]},
+    {title:'4 分钟的录音', st:'failed', tag:'', dur:242,
+     sid:'1730000162', eng:'', nSent:0, nSpk:0, sum:'', segs:[], marks:[]}
+  ];
+  var S={i:0,audio:false,playing:false,t:0,tab:'seg',timer:null};
+  function $(id){return document.getElementById(id);}
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function fmt(s){var m=Math.floor(s/60),x=Math.floor(s%60);
+    return (m<10?'0':'')+m+':'+(x<10?'0':'')+x;}
+
+  function go(p){
+    document.querySelectorAll('.navi').forEach(function(n){
+      var on=n.dataset.p===p; n.classList.toggle('on',on);
+      if(on)n.setAttribute('aria-current','page'); else n.removeAttribute('aria-current');});
+    document.querySelectorAll('.page').forEach(function(v){v.classList.toggle('on',v.id==='p-'+p);});
+    $('crumb').textContent=T[p];
+  }
+  document.querySelectorAll('.navi').forEach(function(n){n.onclick=function(){go(n.dataset.p);};});
+  document.addEventListener('click',function(e){
+    var j=e.target.closest?e.target.closest('[data-jump]'):null; if(j)go(j.dataset.jump);});
+
+  /* 键盘：Enter / 空格 触发任何自研控件 */
+  document.addEventListener('keydown',function(e){
+    if(e.key!=='Enter'&&e.key!==' ')return;
+    var t=e.target.closest?e.target.closest('[role="button"],[role="switch"]'):null;
+    if(!t||t.tagName==='BUTTON'||t.tagName==='INPUT')return;
+    e.preventDefault(); t.click();
+  });
+
+  function toast(m){var t=$('toast');t.innerHTML=m;t.classList.add('show');
+    clearTimeout(t._h);t._h=setTimeout(function(){t.classList.remove('show');},3000);}
+
+  var ico=$('playIco'), wave=$('wave'), off=$('offLine');
+  function stopPlay(){if(S.timer){clearInterval(S.timer);S.timer=null;}
+    S.playing=false;ico.textContent='▶';ico.setAttribute('aria-label','播放');wave.classList.remove('play');}
+  function syncAudio(){
+    ico.classList.toggle('dis',!S.audio);
+    wave.classList.toggle('dis',!S.audio);
+    off.innerHTML=S.audio
+      ?'🔊 上行音频已开启 · 服务端副本保留 24 小时 · 可跳播'
+      :'🔇 音频在设备上 · <span class="lnk" role="button" tabindex="0" data-jump="conn">改为上行</span>';
+  }
+  function showTab(k){S.tab=k;
+    $('t-seg').classList.toggle('hide',k!=='seg');
+    $('t-mark').classList.toggle('hide',k!=='mark');
+    document.querySelectorAll('#tchips .chip').forEach(function(x){
+      var on=x.dataset.t===k; x.classList.toggle('on',on); x.setAttribute('aria-pressed',on?'true':'false');});
+  }
+  function lineH(g){var c='ln'+(g.e?' e':'')+(g.p?' p':'');
+    return '<div class="'+c+'"><span class="ts">'+g.ts+'</span>'+
+           '<span class="spk '+g.spk+'">'+SPK[g.spk]+'</span>'+
+           '<span class="tx">'+esc(g.tx)+'</span></div>';}
+  function markH(k){return '<div class="mk"><span class="mt">◆ '+k.ts+'</span> '+esc(k.tx)+
+    '<div class="mx">'+esc(k.src)+'</div></div>';}
+
+  function render(i){
+    S.i=i; stopPlay(); S.t=0;
+    var d=DATA[i];
+    $('dtitle').textContent=d.title;
+    var act=d.st==='done'?'重转':(d.st==='raw'?'转文字':'重试');
+    var meta=d.st==='done'
+      ?'sid '+d.sid+' · '+d.eng+' · '+d.nSent+' 句 · '+d.nSpk+' 发言人'
+      :'sid '+d.sid+' · '+(d.st==='raw'?'未转写':'转写失败')+' · 时长 '+fmt(d.dur);
+    $('dm').innerHTML=meta+' <button class="mini" id="actBtn">'+act+'</button>';
+    $('actBtn').onclick=function(){var b=$('actBtn');b.disabled=true;b.textContent='已提交';
+      toast(d.st==='done'?'重算请求已提交 · 新文本完成后覆盖旧文本'
+        :(d.st==='raw'?'转写任务已提交 · 完成后自动回填正文':'已重新提交转写 · 服务端空闲后自动排队'));};
+    $('sumCard').classList.toggle('hide',d.st!=='done');
+    if(d.st==='done')$('sumTxt').textContent=d.sum;
+    $('chipSeg').textContent='逐句 '+d.nSent;
+    $('chipMark').textContent='标记 '+d.marks.length;
+    $('t-seg').innerHTML=d.st==='raw'?'<div class="noline">还没有正文 · 转文字后自动出现</div>'
+      :d.st==='failed'?'<div class="noline">转写未完成 · 服务端内存不足，音频仍在设备上</div>'
+      :d.segs.map(lineH).join('');
+    $('t-mark').innerHTML=d.marks.length?d.marks.map(markH).join('')
+      :'<div class="noline">'+(d.st==='done'?'这场还没有标记':'标记会在转写完成后开放')+'</div>';
+    showTab(S.tab);
+    $('durT').textContent=fmt(d.dur); $('curT').textContent='00:00';
+    syncAudio();
+  }
+
+  var cards=[].slice.call(document.querySelectorAll('.card'));
+  function applyList(){
+    var c0=document.querySelector('#fchips .chip.on'), f=c0?c0.dataset.f:'all';
+    var w=$('q').value.trim().toLowerCase(), vis=0;
+    cards.forEach(function(c){
+      var d=DATA[+c.dataset.i];
+      var ok=(f==='all')||(f==='raw'&&d.st==='raw')||(f==='uncat'&&d.tag==='未分类');
+      if(ok&&w){var hay=(d.title+' '+d.sum+' '+d.segs.map(function(g){return g.tx;}).join(' ')).toLowerCase();
+        ok=hay.indexOf(w)>=0;}
+      c.classList.toggle('hide',!ok); if(ok)vis++;
+    });
+    $('listEmpty').classList.toggle('hide',vis>0);
+  }
+  function pickCard(c){
+    cards.forEach(function(x){x.classList.remove('on');x.setAttribute('aria-pressed','false');});
+    c.classList.add('on');c.setAttribute('aria-pressed','true');
+    if(c.focus)c.focus({preventScroll:true});
+    render(+c.dataset.i);
+  }
+  cards.forEach(function(c){c.onclick=function(){pickCard(c);};});
+  document.querySelector('.list').addEventListener('keydown',function(e){
+    if(e.key!=='ArrowDown'&&e.key!=='ArrowUp')return;
+    var c=e.target.closest?e.target.closest('.card'):null; if(!c)return;
+    e.preventDefault();
+    var vis=cards.filter(function(x){return !x.classList.contains('hide');});
+    var k=vis.indexOf(c)+(e.key==='ArrowDown'?1:-1);
+    if(k<0||k>=vis.length)return;
+    vis[k].focus(); pickCard(vis[k]);
+  });
+  document.querySelectorAll('.card .mini').forEach(function(b){b.onclick=function(ev){ev.stopPropagation();
+    var d=DATA[+b.closest('.card').dataset.i];
+    b.disabled=true;b.textContent='已提交';
+    toast(d.st==='raw'?'转写任务已提交 · 完成后自动回填正文':'已重新提交转写 · 服务端空闲后自动排队');};});
+
+  document.querySelectorAll('.chips').forEach(function(g){
+    g.querySelectorAll('.chip').forEach(function(c){c.onclick=function(){
+      g.querySelectorAll('.chip').forEach(function(x){
+        x.classList.remove('on');x.setAttribute('aria-pressed','false');});
+      c.classList.add('on');c.setAttribute('aria-pressed','true');
+      if(c.dataset.f)applyList();
+      if(c.dataset.t)showTab(c.dataset.t);
+    };});});
+  $('q').addEventListener('input',applyList);
+
+  function pendRows(){return [].slice.call(document.querySelectorAll('.ipq')).filter(function(r){
+    return !!r.querySelector('.mini.ok');});}
+  function syncBadges(){
+    cards.forEach(function(c){
+      var sid=DATA[+c.dataset.i].sid;
+      var n=pendRows().filter(function(r){return r.dataset.sid===sid;}).length;
+      var b=c.querySelector('.nb');
+      if(!n){if(b)b.remove();return;}
+      if(!b){b=document.createElement('div');b.className='nb';c.insertBefore(b,c.firstChild);}
+      b.textContent='待确认 '+n;
+    });
+  }
+  function syncCount(){
+    var n=pendRows().length;
+    if(n>0){$('stPend').className='st raw';$('stPend').innerHTML='待落地 <b id="nPend">'+n+'</b>';}
+    else{$('stPend').className='st done';$('stPend').textContent='无待落地';}
+    var b=$('railN'); b.textContent=n; b.classList.toggle('hide',n===0);
+    $('pendEmpty').classList.toggle('hide',n>0);
+    syncBadges();
+  }
+  document.querySelectorAll('.ipq .mini').forEach(function(bt){bt.onclick=function(){
+    var row=bt.closest('.ipq'),ok=bt.classList.contains('ok');
+    var st=row.querySelector('.stt');
+    if(st)st.outerHTML='<span class="st '+(ok?'done':'failed')+'">'+(ok?'已接受 · 待设备落地':'已拒绝 · 提案作废')+'</span>';
+    row.querySelectorAll('.mini').forEach(function(x){x.remove();});
+    row.style.opacity='.6'; syncCount();
+    toast(ok?'已接受 · 设备上线后写入 edits.jsonl，不即时生效':'已拒绝 · 提案作废，记录保留。');};});
+
+  document.querySelectorAll('[data-propose]').forEach(function(b){b.onclick=function(){
+    toast('已生成提案 · 加入待确认，设备上线后落地，不即时生效');};});
+
+  document.querySelectorAll('[data-revoke]').forEach(function(b){b.onclick=function(){
+    var st=b.closest('tr').querySelector('.st');
+    st.className='st failed'; st.textContent='已吊销';
+    b.closest('td').textContent='—';
+    toast('令牌已吊销 · 用它建立的会话立即失效，客户端需换令牌重新配置');};});
+
+  document.querySelectorAll('[data-copy]').forEach(function(b){b.onclick=function(){
+    var s=b.dataset.copy==='cfg'?$('cfgPre').textContent:b.dataset.copy;
+    function fb(){try{var ta=document.createElement('textarea');ta.value=s;
+        ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);
+        ta.select();document.execCommand('copy');ta.remove();toast('已复制');}
+      catch(e){toast('复制不可用 · 请手动选择文本');}}
+    if(navigator.clipboard&&navigator.clipboard.writeText)
+      navigator.clipboard.writeText(s).then(function(){toast('已复制');},fb);
+    else fb();};});
+
+  document.querySelectorAll('.sw').forEach(function(s){s.onclick=function(){
+    if(s.dataset.lock){toast(s.dataset.lock);return;}
+    var on=!s.classList.contains('on');s.classList.toggle('on',on);
+    s.setAttribute('aria-checked',on?'true':'false');
+    if(s.dataset.sw==='audio'){S.audio=on;stopPlay();syncAudio();
+      toast(on?'已开启上行音频 · 详情页可跳播 · 副本保留 24 小时'
+              :'已关闭上行音频 · 详情页不可跳播');}
+    else toast(on?'已开启上行正文与摘要 · 检索与 agent 读取可用'
+                 :'已关闭上行正文与摘要 · 检索暂不可用');};});
+
+  ico.onclick=function(){
+    if(!S.audio){toast('上行音频未开启 · 到「接入」页开启后可跳播');return;}
+    if(S.playing){stopPlay();return;}
+    var dur=DATA[S.i].dur;
+    S.playing=true;ico.textContent='⏸';ico.setAttribute('aria-label','暂停');wave.classList.add('play');
+    S.timer=setInterval(function(){S.t++;
+      if(S.t>=dur){stopPlay();S.t=0;$('curT').textContent='00:00';return;}
+      $('curT').textContent=fmt(S.t);},1000);};
+
+  var dz=$('dropAll'),dzTimer=null;
+  dz.onclick=function(){
+    if(dz.dataset.armed==='1'){clearTimeout(dzTimer);dz.removeAttribute('data-armed');
+      dz.textContent='整库丢弃重建';toast('投影已丢弃 · 等待设备上线后重新同步');return;}
+    dz.dataset.armed='1';dz.textContent='确认丢弃？再点一次';
+    dzTimer=setTimeout(function(){dz.removeAttribute('data-armed');dz.textContent='整库丢弃重建';},4000);};
+
+  render(0); applyList(); syncCount();
+})();
+</script>
+</body>
+</html>

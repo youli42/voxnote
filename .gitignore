@@ -38,3 +38,10 @@ __pycache__/
 Thumbs.db
 *.tmp
 *.part
+
+# 会话临时产物（校验脚本 / 中间文件），一律不进仓库
+$tmp/
+
+# ZCode 会话产物（.zcode/ 等 .z 开头文件）
+.zcode/
+.zcode*
