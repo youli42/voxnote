@@ -138,6 +138,7 @@ public class DetailSheet implements Overlay {
                 markAddBtn.setAlpha(playing ? 1f : 0.35f);
                 if (playing && totalMs > 0 && playPos >= totalMs - 120) {
                     player.pause();
+                    player.seek(0);   // 播放器归零，否则下次 start() 从结尾接着走，播完无法重播
                     playPos = 0;
                 }
             }
