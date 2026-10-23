@@ -1,0 +1,54 @@
+# voxnote server
+
+录音同步、转写、整理与 AI 对接的自托管服务端。单进程（FastAPI + SQLite），
+控制台是内置的 Web 页面（`web/`），无外部数据库依赖。
+
+## 运行
+
+### Windows / 开发机（Python 3.12+）
+
+```powershell
+cd server
+python -m venv venv
+venv\Scripts\pip install -r requirements.txt
+venv\Scripts\python run.py            # http://127.0.0.1:8787
+```
+
+可选依赖：`pip install faster-whisper` 启用本地转写（GPU 优先，自动回退 CPU；
+不装则本地引擎显示"不可用"，可用云端引擎或先只做同步）。
+
+### Debian / Docker
+
+```bash
+cd server
+docker compose up -d            # CPU
+docker compose --profile gpu up -d   # NVIDIA GPU（需 nvidia-container-toolkit）
+```
+
+数据落在 `./data`（容器内 `/data/voxnote`）：`voxnote.db` + `audio/<yyyy.MM>/` +
+`transcripts/<id>/`（可再生的导出镜像）。
+
+## 与 App / S1 配对
+
+1. 控制台 → 设置 → 设备与访问，复制**配对令牌**；
+2. App 端「设置 → 服务器」填入服务器地址与令牌；
+3. 同步协议（`/api/v1/sync`）：
+   - `POST /upload`：multipart 音频 + `meta`（JSON：stamp/title/cat/mode/sid/recorded_at/dur_ms）
+   - `GET /records?since=<ms>`：增量枚举（游标 = updated_at）
+   - `GET /records/{id}/audio`、`GET /records/{id}/transcript`：下载音频 / 生效转写稿（JSONL）
+
+## 数据契约（与 App 端一致）
+
+- **机器层 / 人工层分离**：转写结果整层替换；逐句修订（文字、说话人）只写人工层，
+  重转写永不覆盖。生效内容 = 人工层优先。
+- 音频文件是真源；SQLite 是索引与队列，`transcripts/` 镜像可随时重建。
+- 删除记录 = 删音频 + 删全部数据，不可恢复（控制台有确认）。
+
+## 安全注意
+
+默认只监听 `127.0.0.1`；设备 API 需要令牌，控制台 API 本机免鉴权。
+用 `--host 0.0.0.0` 暴露到局域网前，请自行加反代鉴权（如 caddy/nginx basic auth + TLS）。
+
+## API 文档
+
+启动后访问 `http://127.0.0.1:8787/api/docs`（OpenAPI 自动生成）。

@@ -1,0 +1,36 @@
+# CPU 常规部署：docker compose up -d
+# GPU（NVIDIA，需要驱动 + nvidia-container-toolkit）：docker compose --profile gpu up -d
+services:
+  voxnote:
+    build: .
+    image: voxnote-server
+    container_name: voxnote-server
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/data/voxnote
+    environment:
+      - VOXNOTE_DATA=/data/voxnote
+
+  # GPU 变体：同一镜像，透传显卡（faster-whisper 走 CUDA）。
+  # cuDNN 库由 ctranslate2 轮子自带精简版；若报缺库，改用 nvidia/cuda 基础镜像。
+  voxnote-gpu:
+    build: .
+    image: voxnote-server
+    container_name: voxnote-server-gpu
+    profiles: ["gpu"]
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/data/voxnote
+    environment:
+      - VOXNOTE_DATA=/data/voxnote
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
