@@ -45,3 +45,8 @@ $tmp/
 # ZCode 会话产物（.zcode/ 等 .z 开头文件）
 .zcode/
 .zcode*
+
+# 服务端：虚拟环境与运行数据（音频/索引库不入库，隐私红线同样适用）
+server/venv/
+server/.venv/
+server/data/

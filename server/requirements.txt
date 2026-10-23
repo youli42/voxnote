@@ -1,0 +1,10 @@
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+httpx>=0.27
+
+# 本地转写引擎（可选：不装则该引擎显示不可用，队列任务不会分给它）
+faster-whisper>=1.0
+
+# Windows 桌面壳（可选）：python -m voxnote_server.desktop
+# pywebview>=5.0
