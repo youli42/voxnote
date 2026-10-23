@@ -46,8 +46,13 @@ public final class Ui {
 
     private Ui() { }
 
+    // 每次现取而非静态缓存：分屏 / 改显示大小 / 密度变更后旧值会过期
+    private static android.util.DisplayMetrics sysMetrics() {
+        return android.content.res.Resources.getSystem().getDisplayMetrics();
+    }
+
     public static float density() {
-        return ResourcesHolder.density;
+        return sysMetrics().density;
     }
 
     public static int dp(float v) {
@@ -55,17 +60,11 @@ public final class Ui {
     }
 
     public static float screenWidth() {
-        return ResourcesHolder.width;
+        return sysMetrics().widthPixels;
     }
 
     public static float screenHeight() {
-        return ResourcesHolder.height;
-    }
-
-    private static final class ResourcesHolder {
-        static final float density = android.content.res.Resources.getSystem().getDisplayMetrics().density;
-        static final float width = android.content.res.Resources.getSystem().getDisplayMetrics().widthPixels;
-        static final float height = android.content.res.Resources.getSystem().getDisplayMetrics().heightPixels;
+        return sysMetrics().heightPixels;
     }
 
     // ------------------------------------------------------------ 背景

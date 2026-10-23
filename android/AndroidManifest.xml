@@ -28,7 +28,7 @@
             android:name=".HomeActivity"
             android:label="voxnote"
             android:launchMode="singleTask"
-            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|locale|layoutDirection|density|fontScale"
             android:windowSoftInputMode="adjustResize|stateHidden"
             android:exported="true">
             <intent-filter>
