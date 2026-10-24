@@ -161,6 +161,8 @@
   .ritem .t{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px}
   .ritem .t .st{margin-left:auto;transform:scale(.9)}
   .ritem .m{font-size:10.5px;color:var(--dim);margin-top:5px;display:flex;gap:8px;align-items:center}
+  /* 上传设备标签：这条音频是从哪台设备同步上来的 */
+  .dev{font-size:9.5px;border-radius:6px;padding:1px 6px;border:1px solid #35507a;color:#9db4d8;white-space:nowrap}
   .ritem .pv{font-size:10.5px;color:var(--sub);margin-top:4px;line-height:1.55;
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
   /* 批量归类 */
@@ -982,7 +984,8 @@ function renderList(){
     el.innerHTML='<div class="t">'+(S.batch?'<span class="pickbox">'+(S.picks[r.id]?'☑':'☐')+'</span>':'')+
       (defT?esc(fmtDT(r.created_at))+relChip(r.created_at):esc(r.title||r.id))+st+'</div>'+
       '<div class="m"><span>'+fmtTime(r.created_at)+'</span><span>'+fmtDur(r.dur_ms)+'</span>'+
-      (r.cat?'<span>'+esc(r.cat)+'</span>':'<span style="opacity:.55">未分类</span>')+(r.has_audio?'':'<span>无音频</span>')+'</div>'+
+      (r.cat?'<span>'+esc(r.cat)+'</span>':'<span style="opacity:.55">未分类</span>')+
+      (r.device?'<span class="dev">'+esc(r.device)+'</span>':'')+(r.has_audio?'':'<span>无音频</span>')+'</div>'+
       (r.preview?'<div class="pv">'+esc(r.preview)+'</div>':'');
     el.onclick=function(){
       if(S.batch){ if(S.picks[r.id])delete S.picks[r.id];else S.picks[r.id]=1; renderList();renderBatchBar(); return; }
@@ -1024,7 +1027,7 @@ function renderDetail(){
     '<button class="btn sm danger" id="btnDel">删除</button></div></div>'+
     '<div class="dm"><span>'+fmtTime(r.created_at)+'</span><span>'+fmtDur(r.dur_ms)+'</span>'+
     '<span class="chip" id="catChip" style="cursor:pointer">'+esc(r.cat||'未分类')+' ▾</span>'+
-    '<span>来源 '+esc(r.src)+'</span>'+(r.engine?'<span>'+esc(r.engine)+'</span>':'')+
+    '<span>来源 '+esc(r.src)+'</span>'+(r.device?'<span class="dev">'+esc(r.device)+'</span>':'')+(r.engine?'<span>'+esc(r.engine)+'</span>':'')+
     (r.error?'<span style="color:var(--err)" title="'+esc(r.error_detail||r.error)+'">'+esc(r.error)+'</span>':'')+'</div>'+
     (r.audio_path?'<div class="fpath" title="点击复制完整路径" data-copy="'+esc(r.audio_path)+'">文件 '+esc(fpathShort(r.audio_path))+'</div>':'');
 
@@ -1248,6 +1251,7 @@ function showMetaModal(m){
     metaRow('标签',esc(m.cat||'未分类'))+
     (m.mode?metaRow('模式',esc(m.mode)):'')+
     metaRow('来源',esc(m.src))+
+    (m.device?metaRow('设备',esc(m.device)):'')+
     metaRow('状态',esc(st))+
     (m.engine?metaRow('转写引擎',esc(m.engine)):'')+
     metaRow('录音时间',fmtFull(m.created_at))+
@@ -1629,6 +1633,7 @@ function renderStream(){
       '<span class="tt" title="到记录库打开">'+(defT?esc(fmtDT(r.created_at)):esc(r.title||r.id))+'</span>'+
       (defT?relChip(r.created_at):'')+
       '<span class="mt2">'+st+'<span>'+fmtTime(r.created_at)+'</span><span>'+fmtDur(r.dur_ms)+'</span>'+
+      (r.device?'<span class="dev">'+esc(r.device)+'</span>':'')+
       '<span class="catchip" data-cat style="cursor:pointer">'+esc(r.cat||'未分类')+' ▾</span></span>'+
       '<span class="grow"></span>'+
       '<span class="acts">'+
