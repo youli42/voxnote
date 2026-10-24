@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>voxnote · server</title>
+<style>
+  :root{
+    --bg:#0b0c0f; --side:#0e0f13; --card:#14161b; --raise:#191c23; --line:#23262e; --line2:#2c303a;
+    --text:#e7e9ee; --sub:#a7adba; --dim:#767c8a;
+    --accent:#7b6cf6; --accent-h:#8d80ff; --accent-dim:#262243;
+    --ok:#5cb98c; --warn:#d9a03c; --err:#e06c75; --info:#6ea8ff;
+    --s1:#6ea8ff; --s2:#e0a458; --s3:#67c293; --s4:#c78fe0;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--text);font-size:13px;overflow:hidden;
+       font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  button{font-family:inherit}
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-thumb{background:#262a33;border-radius:8px}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  .app{display:grid;grid-template-columns:208px 1fr;height:100vh}
+
+  /* ---------- 侧栏 ---------- */
+  .side{background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:14px 10px 12px}
+  .brand{display:flex;gap:10px;align-items:center;padding:2px 8px 14px}
+  .logo{width:34px;height:34px;border-radius:10px;background:var(--accent);color:#fff;font-size:17px;font-weight:800;
+        display:flex;align-items:center;justify-content:center;flex:none}
+  .bn{font-size:14.5px;font-weight:700;letter-spacing:.2px}
+  .bs{font-size:9.5px;color:var(--dim);letter-spacing:2.5px;margin-top:2px}
+  .navi{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:9px;border:0;background:none;
+        color:var(--sub);font-size:12.5px;cursor:pointer;text-align:left;margin-bottom:2px}
+  .navi svg{flex:none;opacity:.75}
+  .navi:hover{background:#161922;color:var(--text)}
+  .navi.on{background:var(--accent-dim);color:#cfc9ff}
+  .navi.on svg{opacity:1}
+  .navi .cnt{margin-left:auto;background:#2a2f3c;color:var(--sub);font-size:10px;border-radius:999px;padding:1px 7px}
+  .navi.on .cnt{background:#3a3565;color:#c4bcff}
+  .side .gap{flex:1}
+  .syncbox{border:1px solid var(--line);background:var(--card);border-radius:11px;padding:10px 11px;margin:0 2px}
+  .syncbox .row{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--sub)}
+  .dot{width:7px;height:7px;border-radius:99px;background:var(--ok);flex:none}
+  .dot.live{box-shadow:0 0 0 3px rgba(92,185,140,.15)}
+  .syncbox .t{color:var(--dim);font-size:10.5px;margin-top:5px}
+  .syncbox .btn-s{margin-top:8px;width:100%;background:var(--raise);border:1px solid var(--line2);color:var(--sub);
+        border-radius:8px;padding:6px 0;font-size:11.5px;cursor:pointer}
+  .syncbox .btn-s:hover{color:var(--text);border-color:#3a4050}
+
+  /* ---------- 顶栏 ---------- */
+  .main{display:flex;flex-direction:column;min-width:0}
+  .top{height:52px;flex:none;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;padding:0 18px}
+  .search{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:9px;
+          padding:7px 12px;width:340px;color:var(--dim)}
+  .search input{background:none;border:0;outline:0;color:var(--text);font-size:12.5px;width:100%;font-family:inherit}
+  .search input::placeholder{color:var(--dim)}
+  .top .grow{flex:1}
+  .btn{background:var(--raise);border:1px solid var(--line2);color:var(--sub);font-size:12px;border-radius:9px;
+       padding:7px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+  .btn:hover{color:var(--text);border-color:#3a4050}
+  .btn.accent{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.accent:hover{background:var(--accent-h)}
+  .btn.sm{padding:5px 10px;font-size:11.5px;border-radius:8px}
+  .btn.ghost{background:none;border-color:transparent}
+  .btn.ghost:hover{background:var(--card)}
+  .btn.danger{color:var(--err)}
+  .avatar{width:30px;height:30px;border-radius:99px;background:#2a2f3c;color:var(--sub);font-size:12px;font-weight:700;
+          display:flex;align-items:center;justify-content:center;cursor:pointer}
+
+  .pages{flex:1;min-height:0;position:relative}
+  .page{display:none;position:absolute;inset:0;overflow-y:auto;padding:20px 22px 40px}
+  .page.on{display:block}
+  .ph{display:flex;align-items:baseline;gap:12px;margin-bottom:16px}
+  .ph h1{font-size:17px;font-weight:650}
+  .ph .sub{font-size:11.5px;color:var(--dim)}
+
+  /* ---------- 通用 ---------- */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:14px 15px}
+  .card h3{font-size:12.5px;font-weight:650;margin-bottom:11px;display:flex;align-items:center;gap:8px}
+  .card h3 .more{margin-left:auto;font-size:11px;color:var(--dim);cursor:pointer;font-weight:400}
+  .card h3 .more:hover{color:var(--text)}
+  .st{font-size:10px;border-radius:6px;padding:2px 7px;border:1px solid;white-space:nowrap}
+  .st.done{color:#9fc6ae;border-color:#33473c}
+  .st.asr{color:#e0c684;border-color:#574a2b}
+  .st.fail{color:#e8949b;border-color:#58383e}
+  .st.raw{color:#a8b4c8;border-color:#39414f}
+  .st.ed{color:#b9aef5;border-color:#413b66}
+
+  .toggle{width:34px;height:19px;border-radius:99px;background:#2a2e39;border:1px solid var(--line2);position:relative;
+          cursor:pointer;flex:none;transition:.15s}
+  .toggle::after{content:'';position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:99px;background:#8a90a0;transition:.15s}
+  .toggle.on{background:var(--accent);border-color:var(--accent)}
+  .toggle.on::after{left:16px;background:#fff}
+
+  select,input[type=text],input[type=password]{background:var(--card);border:1px solid var(--line2);color:var(--text);
+       border-radius:8px;padding:7px 10px;font-size:12px;outline:0;font-family:inherit}
+  select:focus,input:focus{border-color:#4a4368}
+
+  /* ---------- 工作台 ---------- */
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:14px 16px;cursor:pointer;
+        transition:border-color .12s}
+  .tile:hover{border-color:#333a48}
+  .tile .k{font-size:11px;color:var(--dim)}
+  .tile .v{font-size:23px;font-weight:700;margin:7px 0 3px;letter-spacing:.3px}
+  .tile .v small{font-size:11px;color:var(--dim);font-weight:400;margin-left:4px}
+  .tile .d{font-size:10.5px;color:var(--dim)}
+  .tile .d.up{color:var(--ok)} .tile .d.warn{color:var(--warn)}
+  .cols2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .mini{display:grid;grid-template-columns:1fr;gap:10px}
+
+  .qrow{display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid #1b1e25}
+  .qrow:last-child{border-bottom:0}
+  .qrow .nm{font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .qrow .mt{font-size:10.5px;color:var(--dim);white-space:nowrap}
+  .pbar{height:4px;background:#22252e;border-radius:99px;overflow:hidden;width:110px;flex:none}
+  .pbar i{display:block;height:100%;background:var(--accent);border-radius:99px}
+  .pnum{font-size:10.5px;color:var(--sub);width:34px;text-align:right;flex:none}
+
+  .act{display:flex;gap:9px;align-items:flex-start;padding:7px 2px;border-bottom:1px solid #1b1e25;font-size:11.5px}
+  .act:last-child{border-bottom:0}
+  .act .tm{color:var(--dim);font-size:10.5px;white-space:nowrap;padding-top:1px}
+  .act .bd{color:var(--sub);min-width:0}
+  .act .bd b{color:var(--text);font-weight:600}
+
+  .dev{display:flex;align-items:center;gap:11px;padding:9px 2px}
+  .dev .ic{width:34px;height:34px;border-radius:9px;background:var(--raise);border:1px solid var(--line2);
+           display:flex;align-items:center;justify-content:center;color:var(--sub)}
+  .dev .nm{font-size:12.5px;font-weight:600}
+  .dev .st2{font-size:10.5px;color:var(--dim);margin-top:2px}
+  .dev .rt{margin-left:auto}
+
+  .usage{display:flex;align-items:flex-end;gap:6px;height:74px;margin:4px 0 8px}
+  .usage i{flex:1;background:#2a2f3c;border-radius:4px 4px 0 0;min-height:4px}
+  .usage i.hot{background:var(--accent)}
+  .uleg{display:flex;justify-content:space-between;font-size:10px;color:var(--dim)}
+
+  /* ---------- 记录库 ---------- */
+  .lib{display:grid;grid-template-columns:318px 1fr;gap:0;height:100%;margin:-20px -22px -40px}
+  .liblist{border-right:1px solid var(--line);padding:16px 14px 30px;overflow-y:auto}
+  .liblist .search{width:100%;margin-bottom:10px}
+  .chips{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:7px}
+  .chip{border:1px solid var(--line2);color:var(--sub);font-size:11px;border-radius:999px;padding:4px 11px;
+        cursor:pointer;background:var(--card)}
+  .chip:hover{color:var(--text)}
+  .chip.on{background:var(--accent-dim);border-color:#4a4376;color:#cfc9ff}
+  .catrow{display:flex;gap:4px;margin:2px 0 10px;flex-wrap:wrap}
+  .catrow a{font-size:11px;color:var(--dim);text-decoration:none;padding:3px 8px;border-radius:7px;cursor:pointer}
+  .catrow a:hover{color:var(--text)}
+  .catrow a.on{color:#cfc9ff;background:var(--accent-dim)}
+
+  .ritem{border:1px solid transparent;border-radius:11px;padding:10px 11px;cursor:pointer;margin-bottom:4px}
+  .ritem:hover{background:var(--card)}
+  .ritem.on{background:var(--card);border-color:#413b66}
+  .ritem .t{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px}
+  .ritem .t .st{margin-left:auto;transform:scale(.9)}
+  .ritem .m{font-size:10.5px;color:var(--dim);margin-top:5px;display:flex;gap:8px;align-items:center}
+
+  .libdetail{overflow-y:auto;padding:20px 26px 46px;min-width:0}
+  .dt{display:flex;align-items:flex-start;gap:12px}
+  .dt h2{font-size:18px;font-weight:650;outline:0;border-radius:6px;padding:2px 5px;margin:-2px -5px}
+  .dt h2:hover{background:var(--card)}
+  .dt h2:focus{background:var(--raise);box-shadow:0 0 0 1px #413b66}
+  .dt .acts{margin-left:auto;display:flex;gap:7px;flex:none}
+  .dm{color:var(--dim);font-size:11px;margin:8px 0 14px;display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+
+  .player{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:12px 14px;
+          display:flex;align-items:center;gap:13px;margin-bottom:14px}
+  .pbtn{width:38px;height:38px;border-radius:99px;background:var(--accent);border:0;color:#fff;cursor:pointer;
+        display:flex;align-items:center;justify-content:center;flex:none}
+  .pbtn:hover{background:var(--accent-h)}
+  .wave{flex:1;display:flex;align-items:center;gap:2px;height:40px;cursor:pointer}
+  .wave i{flex:1;min-width:2px;background:#2b303b;border-radius:2px}
+  .wave i.past{background:var(--accent)}
+  .ptime{font-size:11px;color:var(--sub);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .pside{display:flex;gap:6px;flex:none}
+
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:13px}
+  .tab{background:none;border:0;color:var(--dim);font-size:12.5px;padding:8px 13px;cursor:pointer;
+       border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab:hover{color:var(--text)}
+  .tab.on{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
+
+  .segbar{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+  .segbar .auto{font-size:10.5px;color:var(--ok);display:flex;align-items:center;gap:5px}
+  .segbar .grow{flex:1}
+
+  .seg{display:flex;gap:10px;padding:7px 9px;border-radius:9px;align-items:flex-start}
+  .seg:hover{background:var(--card)}
+  .seg.ed{background:#16142366}
+  .seg .ts{font-size:10px;color:var(--dim);padding-top:5px;width:44px;flex:none;cursor:pointer;
+           font-variant-numeric:tabular-nums}
+  .seg .ts:hover{color:var(--accent)}
+  .seg .spk{flex:none;font-size:10.5px;border-radius:6px;padding:3px 8px;cursor:pointer;margin-top:1px;
+            border:1px solid transparent;white-space:nowrap}
+  .seg .tx{font-size:13px;line-height:1.75;color:#d7dae2;outline:0;border-radius:5px;padding:1px 4px;margin:-1px -4px;min-width:0}
+  .seg .tx:hover{background:#1d2029}
+  .seg .tx:focus{background:var(--raise);box-shadow:0 0 0 1px #4a4368;color:var(--text)}
+  .seg .ops{margin-left:auto;display:none;gap:3px;flex:none;padding-top:2px}
+  .seg:hover .ops{display:flex}
+  .op{background:var(--raise);border:1px solid var(--line2);color:var(--dim);font-size:10px;border-radius:6px;
+      padding:3px 7px;cursor:pointer;white-space:nowrap}
+  .op:hover{color:var(--text);border-color:#3a4050}
+  .op.z{border-color:transparent;background:none}
+  .op.z:hover{color:var(--text)}
+  .edmark{font-size:9.5px;color:#b9aef5;border:1px solid #413b66;border-radius:5px;padding:1px 6px;margin-top:4px;flex:none}
+
+  .plain{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:18px 20px;
+         font-size:13px;line-height:1.9;color:#ccd1da;white-space:pre-wrap}
+
+  /* ---------- 转写 ---------- */
+  .drop{border:1.5px dashed #333a48;border-radius:13px;padding:22px;text-align:center;color:var(--dim);
+        font-size:12px;margin-bottom:14px;cursor:pointer}
+  .drop:hover{border-color:#4a4368;color:var(--sub)}
+  .drop b{color:var(--sub);font-weight:600}
+  .engs{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+  .eng{border:1px solid var(--line);border-radius:13px;padding:13px 14px;cursor:pointer;background:var(--card)}
+  .eng:hover{border-color:#333a48}
+  .eng.on{border-color:var(--accent);background:#16142366}
+  .eng .r1{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:650}
+  .eng .rdo{width:15px;height:15px;border-radius:99px;border:1.5px solid #3c4250;flex:none;position:relative}
+  .eng.on .rdo{border-color:var(--accent)}
+  .eng.on .rdo::after{content:'';position:absolute;inset:2.5px;border-radius:99px;background:var(--accent)}
+  .eng .r2{font-size:11px;color:var(--sub);margin-top:7px;line-height:1.65}
+  .eng .r3{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}
+
+  table.qt{width:100%;border-collapse:collapse}
+  table.qt th{font-size:10.5px;color:var(--dim);text-align:left;font-weight:500;padding:0 10px 9px}
+  table.qt td{padding:10px;border-top:1px solid #1b1e25;font-size:12px;color:var(--sub);vertical-align:middle}
+  table.qt td.nmw{color:var(--text);font-weight:600;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  table.qt tr:hover td{background:#14161bcc}
+  .errtxt{color:var(--err);font-size:11px}
+
+  /* ---------- AI ---------- */
+  .ai{display:grid;grid-template-columns:280px 1fr;gap:12px;height:100%;margin:-20px -22px -40px}
+  .ctx{padding:16px 14px 30px;overflow-y:auto;border-right:1px solid var(--line)}
+  .ctx h3{font-size:11px;color:var(--dim);font-weight:500;margin:14px 4px 8px;letter-spacing:.5px}
+  .ctx .sel{border:1px solid var(--line);background:var(--card);border-radius:11px;padding:11px 12px;margin-bottom:2px}
+  .ctx .sel .r1{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600}
+  .ctx .sel .r2{font-size:10.5px;color:var(--dim);margin-top:4px}
+  .ck{width:15px;height:15px;border-radius:5px;border:1.5px solid #3c4250;flex:none;cursor:pointer;position:relative}
+  .ck.on{background:var(--accent);border-color:var(--accent)}
+  .ck.on::after{content:'';position:absolute;left:4px;top:1px;width:4px;height:8px;border:solid #fff;
+                border-width:0 1.5px 1.5px 0;transform:rotate(42deg)}
+  .ctx .lim{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;cursor:pointer;font-size:12px;color:var(--sub)}
+  .ctx .lim:hover{background:var(--card)}
+  .ctx .lim.on{background:var(--card);color:var(--text)}
+  .ctx .lim .n{margin-left:auto;color:var(--dim);font-size:10.5px}
+
+  .chat{display:flex;flex-direction:column;min-width:0}
+  .msgs{flex:1;overflow-y:auto;padding:22px 26px;display:flex;flex-direction:column;gap:16px}
+  .msg{max-width:76%;font-size:13px;line-height:1.75}
+  .msg.u{align-self:flex-end;background:var(--accent);color:#fff;border-radius:14px 14px 4px 14px;padding:10px 14px}
+  .msg.a{align-self:flex-start}
+  .msg.a .who{font-size:10.5px;color:var(--dim);margin-bottom:6px;display:flex;gap:7px;align-items:center}
+  .msg.a .bd{background:var(--card);border:1px solid var(--line);border-radius:4px 14px 14px 14px;padding:13px 16px;color:#ccd1da}
+  .msg.a .bd h4{font-size:13px;color:var(--text);margin-bottom:8px}
+  .msg.a .bd ol{padding-left:18px;display:flex;flex-direction:column;gap:7px}
+  .msg.a .bd .todo{display:flex;gap:8px;align-items:baseline;padding:7px 10px;background:#171a21;border-radius:8px;margin-top:6px}
+  .msg.a .bd .todo .who2{color:var(--dim);font-size:11px;white-space:nowrap}
+  .cite{display:inline-flex;align-items:center;gap:4px;background:#221f38;border:1px solid #3d3766;color:#b6adf5;
+        border-radius:6px;padding:1px 7px;font-size:10.5px;cursor:pointer;margin:0 2px;vertical-align:1px}
+  .cite:hover{background:#2b2750;color:#d6d0ff}
+  .composer{flex:none;border-top:1px solid var(--line);padding:13px 18px 15px;background:var(--side)}
+  .qact{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .composer .row{display:flex;gap:9px;align-items:flex-end}
+  .composer textarea{flex:1;background:var(--card);border:1px solid var(--line2);border-radius:12px;color:var(--text);
+        padding:11px 14px;font-size:13px;outline:0;resize:none;height:46px;font-family:inherit;line-height:1.5}
+  .composer textarea:focus{border-color:#4a4368}
+  .send{width:46px;height:46px;border-radius:12px;background:var(--accent);border:0;color:#fff;cursor:pointer;
+        display:flex;align-items:center;justify-content:center;flex:none}
+  .send:hover{background:var(--accent-h)}
+  .mdl{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dim);white-space:nowrap;cursor:pointer}
+  .mdl:hover{color:var(--text)}
+
+  /* ---------- 设置 ---------- */
+  .setgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:980px}
+  .srow{display:flex;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid #1b1e25}
+  .srow:last-child{border-bottom:0}
+  .srow .lb{font-size:12.5px;color:var(--text)}
+  .srow .hint{font-size:10.5px;color:var(--dim);margin-top:3px}
+  .srow .rt{margin-left:auto;display:flex;align-items:center;gap:9px}
+  .meter{height:6px;background:#22252e;border-radius:99px;overflow:hidden;margin:10px 0 6px}
+  .meter i{display:block;height:100%;background:var(--accent);border-radius:99px}
+  .kv{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim)}
+  .tok{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--sub);background:var(--raise);
+       border:1px solid var(--line2);border-radius:7px;padding:4px 9px}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ═══════════ 侧栏 ═══════════ -->
+  <aside class="side">
+    <div class="brand">
+      <div class="logo">v</div>
+      <div><div class="bn">voxnote</div><div class="bs">SERVER</div></div>
+    </div>
+    <button class="navi on" data-p="home">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+      工作台</button>
+    <button class="navi" data-p="lib">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      记录库<span class="cnt">86</span></button>
+    <button class="navi" data-p="asr">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2l2-7 3 14 3-10 2 5 2-2h4"/></svg>
+      转写任务<span class="cnt">3</span></button>
+    <button class="navi" data-p="ai">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>
+      AI 助手</button>
+    <div class="gap"></div>
+    <button class="navi" data-p="set">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12a7 7 0 0 0 .1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6A7 7 0 0 0 19 12z"/></svg>
+      设置</button>
+    <div style="height:12px"></div>
+    <div class="syncbox">
+      <div class="row"><span class="dot live"></span>S1 录音笔 · 已连接</div>
+      <div class="t">上次同步 2 分钟前 · 待同步 0</div>
+      <button class="btn-s" id="syncNow">立即同步</button>
+    </div>
+  </aside>
+
+  <!-- ═══════════ 主区 ═══════════ -->
+  <div class="main">
+    <header class="top">
+      <div class="search">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input placeholder="搜索录音、转写内容、说话人…">
+      </div>
+      <div class="grow"></div>
+      <button class="btn" id="goUpload">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        导入音频</button>
+      <button class="btn accent">转写全部待处理</button>
+      <div class="avatar">Y</div>
+    </header>
+
+    <div class="pages">
+
+      <!-- ═══ 工作台 ═══ -->
+      <section class="page on" id="p-home">
+        <div class="ph"><h1>工作台</h1><span class="sub">2026年10月24日 周六 · 服务运行 26 天</span></div>
+        <div class="tiles">
+          <div class="tile" data-go="lib"><div class="k">今日新同步</div><div class="v">12<small>场</small></div><div class="d up">↑ 较昨日 +3</div></div>
+          <div class="tile" data-go="asr"><div class="k">转写队列</div><div class="v">3</div><div class="d">1 场进行中 · 预计 4 分钟</div></div>
+          <div class="tile" data-go="lib"><div class="k">待整理修订</div><div class="v">5</div><div class="d warn">2 场含未确认改动</div></div>
+          <div class="tile" data-go="lib"><div class="k">音频库</div><div class="v">2.4<small>GB</small></div><div class="d">86 场 · 41.2 小时</div></div>
+        </div>
+        <div class="cols2" style="max-width:1080px">
+          <div class="mini">
+            <div class="card">
+              <h3>转写队列 <span class="more" data-go="asr">全部 ›</span></h3>
+              <div class="qrow"><span class="nm">Q4 预算讨论</span><span class="mt">58:40</span><div class="pbar"><i style="width:63%"></i></div><span class="pnum">63%</span></div>
+              <div class="qrow"><span class="nm">供应商电话</span><span class="mt">21:37</span><span class="st fail">失败</span><button class="btn sm">重试</button></div>
+              <div class="qrow"><span class="nm">灵感 · 交互草稿</span><span class="mt">01:48</span><span class="st raw">排队</span></div>
+            </div>
+            <div class="card">
+              <h3>最近同步 <span class="more" data-go="lib">记录库 ›</span></h3>
+              <div class="act"><span class="tm">14:02</span><div class="bd"><b>周会 · 产品路线</b> 已同步，自动转写完成</div></div>
+              <div class="act"><span class="tm">13:58</span><div class="bd"><b>客户访谈 · 采购流程</b> 已同步，正在转写</div></div>
+              <div class="act"><span class="tm">11:20</span><div class="bd"><b>供应商电话</b> 转写失败 · 音频损坏</div></div>
+              <div class="act"><span class="tm">昨天</span><div class="bd"><b>Q4 预算讨论</b> 已同步</div></div>
+            </div>
+          </div>
+          <div class="mini">
+            <div class="card">
+              <h3>设备</h3>
+              <div class="dev">
+                <div class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M9 18h6"/></svg></div>
+                <div><div class="nm">S1 录音笔</div><div class="st2">已连接 · 电量 76% · 3 待取</div></div>
+                <span class="rt st done">在线</span>
+              </div>
+            </div>
+            <div class="card">
+              <h3>本周 AI 用量 <span class="more" data-go="set">额度 ›</span></h3>
+              <div class="usage">
+                <i style="height:26%"></i><i style="height:38%"></i><i style="height:31%"></i><i style="height:52%"></i>
+                <i style="height:44%"></i><i style="height:61%"></i><i class="hot" style="height:83%"></i>
+              </div>
+              <div class="uleg"><span>周一</span><span>周日</span></div>
+              <div class="uleg" style="margin-top:8px"><span>对话 47 次 · 纪要 12 份</span><span style="color:var(--sub)">32.6k / 100k tokens</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══ 记录库 ═══ -->
+      <section class="page" id="p-lib">
+        <div class="lib">
+          <div class="liblist">
+            <div class="search">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+              <input placeholder="在 86 场记录中搜索…">
+            </div>
+            <div class="chips" id="fchips">
+              <span class="chip on" data-f="all">全部 86</span>
+              <span class="chip" data-f="done">已转写 75</span>
+              <span class="chip" data-f="asr">转写中 1</span>
+              <span class="chip" data-f="raw">仅音频 7</span>
+              <span class="chip" data-f="fail">失败 1</span>
+              <span class="chip" data-f="ed">已修订 5</span>
+            </div>
+            <div class="catrow" id="cats">
+              <a class="on" data-c="all">全部</a><a data-c="会议">会议 34</a><a data-c="备忘">备忘 29</a>
+              <a data-c="采访">采访 15</a><a data-c="速记">速记 8</a>
+            </div>
+            <div id="rlist"></div>
+          </div>
+          <div class="libdetail" id="rdetail"></div>
+        </div>
+      </section>
+
+      <!-- ═══ 转写 ═══ -->
+      <section class="page" id="p-asr">
+        <div class="ph"><h1>转写任务</h1><span class="sub">默认引擎 Whisper large-v3 · 本地 GPU</span></div>
+        <div class="drop">拖入音频文件，或 <b>点击选择</b>　·　支持 m4a / wav / mp3 / amr，单文件 ≤ 500 MB</div>
+        <div class="engs" id="engs">
+          <div class="eng on">
+            <div class="r1"><span class="rdo"></span>Whisper large-v3</div>
+            <div class="r2">本地 GPU · 中文标点优化 · 支持说话人分离，速度约 6× 实时</div>
+            <div class="r3"><span class="st done">默认</span><span class="st raw">GPU 12 GB</span></div>
+          </div>
+          <div class="eng">
+            <div class="r1"><span class="rdo"></span>SenseVoice-Small</div>
+            <div class="r2">本地 CPU · 极速批处理，短备忘首选，无说话人分离</div>
+            <div class="r3"><span class="st raw">CPU</span></div>
+          </div>
+          <div class="eng">
+            <div class="r1"><span class="rdo"></span>云端 API</div>
+            <div class="r2">GLM-ASR · 按时长计费，无本地算力时使用</div>
+            <div class="r3"><span class="st ed">API Key</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>队列
+            <span class="more" style="margin-left:18px;font-weight:400">参数：语言 自动 · 标点 · 说话人分离 开 · 热词 12 个</span>
+            <span class="more">编辑默认参数 ›</span></h3>
+          <table class="qt">
+            <thead><tr><th style="width:32%">文件</th><th>时长</th><th>引擎</th><th>状态</th><th>提交时间</th><th style="text-align:right">操作</th></tr></thead>
+            <tbody>
+              <tr><td class="nmw">20261023_160000_meeting.wav</td><td>58:40</td><td>Whisper v3</td>
+                <td><div style="display:flex;gap:8px;align-items:center"><div class="pbar" style="width:80px"><i style="width:63%"></i></div><span class="pnum">63%</span></div></td>
+                <td>今天 16:02</td><td style="text-align:right"><button class="btn sm ghost">暂停</button></td></tr>
+              <tr><td class="nmw">20261021_232500_memo.m4a</td><td>01:48</td><td>SenseVoice</td>
+                <td><span class="st raw">排队</span></td><td>今天 15:47</td>
+                <td style="text-align:right"><button class="btn sm ghost">置顶</button><button class="btn sm ghost">取消</button></td></tr>
+              <tr><td class="nmw">20261021_112000_shorthand.amr</td><td>21:37</td><td>Whisper v3</td>
+                <td><span class="st fail">失败</span> <span class="errtxt">音频流损坏 00:11</span></td><td>今天 11:22</td>
+                <td style="text-align:right"><button class="btn sm">重试</button><button class="btn sm ghost">跳过损坏段</button></td></tr>
+              <tr><td class="nmw">20261023_101500_interview.wav</td><td>47:02</td><td>Whisper v3</td>
+                <td><span class="st done">完成</span> <span class="edmark">含说话人</span></td><td>13:58</td>
+                <td style="text-align:right"><button class="btn sm ghost">查看</button><button class="btn sm ghost">重新转写</button></td></tr>
+              <tr><td class="nmw">20261023_140200_meeting.wav</td><td>32:18</td><td>Whisper v3</td>
+                <td><span class="st done">完成</span></td><td>14:03</td>
+                <td style="text-align:right"><button class="btn sm ghost">查看</button><button class="btn sm ghost">重新转写</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ═══ AI ═══ -->
+      <section class="page" id="p-ai">
+        <div class="ai">
+          <div class="ctx">
+            <h3>对话范围</h3>
+            <div class="sel">
+              <div class="r1"><span class="ck on"></span>全部记录</div>
+              <div class="r2">86 场 · 41.2 小时 · 建立索引</div>
+            </div>
+            <div class="sel">
+              <div class="r1"><span class="ck"></span>本周记录</div>
+              <div class="r2">12 场 · 10-18 至今</div>
+            </div>
+            <h3>指定记录</h3>
+            <div class="lim on"><span class="ck on"></span>周会 · 产品路线<span class="n">32:18</span></div>
+            <div class="lim"><span class="ck"></span>客户访谈 · 采购流程<span class="n">47:02</span></div>
+            <div class="lim"><span class="ck"></span>Q4 预算讨论<span class="n">58:40</span></div>
+            <h3>按分类</h3>
+            <div class="chips"><span class="chip">会议 34</span><span class="chip">备忘 29</span><span class="chip">采访 15</span><span class="chip">速记 8</span></div>
+          </div>
+          <div class="chat">
+            <div class="msgs">
+              <div class="msg u">把昨天的周会整理成纪要</div>
+              <div class="msg a">
+                <div class="who">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7b6cf6" stroke-width="2"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg>
+                  GLM-4 · 引用 3 处
+                </div>
+                <div class="bd">
+                  <h4>周会纪要 · 产品路线（10-23 14:02 · 32:18 · 3 位发言人）</h4>
+                  <ol>
+                    <li><b>转写服务</b>：上线一周处理 60+ 场，无积压<span class="cite" data-r="r1" data-t="5">00:05</span></li>
+                    <li><b>同步链路</b>：录音到场平均 40 秒内完成转写<span class="cite" data-r="r1" data-t="12">00:12</span></li>
+                    <li><b>服务端整理</b>：逐句修订体验良好；长录音滚动性能待优化，排入下迭代<span class="cite" data-r="r1" data-t="41">00:41</span></li>
+                  </ol>
+                  <div class="todo"><span>☑</span><span>虚拟列表改造 · 说话人 2<span class="who2">　下周三前</span></span></div>
+                  <div class="todo"><span>☐</span><span>AI 快捷入口上工作台首页 · 说话人 1<span class="who2">　下迭代</span></span></div>
+                </div>
+              </div>
+              <div class="msg u">"虚拟列表"是谁提的？原话怎么说的</div>
+              <div class="msg a">
+                <div class="who">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7b6cf6" stroke-width="2"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg>
+                  GLM-4
+                </div>
+                <div class="bd">由<b>发言人 3</b> 在 00:30 提出「逐句稿里改说话人还挺方便的，就是长录音滚动有点卡」<span class="cite" data-r="r1" data-t="30">00:30</span>，随后<b>发言人 2</b> 给出方案<span class="cite" data-r="r1" data-t="41">00:41</span>。</div>
+              </div>
+            </div>
+            <div class="composer">
+              <div class="qact">
+                <span class="chip">生成纪要</span><span class="chip">提取待办</span><span class="chip">总结本周</span>
+                <span class="chip">翻译成英文</span><span class="chip">查找"预算"相关讨论</span>
+              </div>
+              <div class="row">
+                <textarea id="aiInput" placeholder="基于所选记录提问，回答会附上可跳转的原句引用…"></textarea>
+                <div class="mdl">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg>
+                  GLM-4 ▾
+                </div>
+                <button class="send"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══ 设置 ═══ -->
+      <section class="page" id="p-set">
+        <div class="ph"><h1>设置</h1><span class="sub">voxnote server v0.1.0 · API v1</span></div>
+        <div class="setgrid">
+          <div class="card">
+            <h3>同步</h3>
+            <div class="srow"><div><div class="lb">自动同步</div><div class="hint">设备联网后自动拉取新录音</div></div>
+              <div class="rt"><span class="toggle on"></span></div></div>
+            <div class="srow"><div><div class="lb">仅在 Wi-Fi 下同步音频</div></div>
+              <div class="rt"><span class="toggle on"></span></div></div>
+            <div class="srow"><div><div class="lb">同步内容</div></div>
+              <div class="rt"><select><option>音频 + 转写稿</option><option>仅音频</option><option>仅转写稿</option></select></div></div>
+            <div class="srow"><div><div class="lb">同步后自动转写</div></div>
+              <div class="rt"><span class="toggle on"></span></div></div>
+          </div>
+          <div class="card">
+            <h3>转写</h3>
+            <div class="srow"><div><div class="lb">默认引擎</div></div>
+              <div class="rt"><select><option>Whisper large-v3（本地 GPU）</option><option>SenseVoice-Small（本地 CPU）</option><option>GLM-ASR（云端）</option></select></div></div>
+            <div class="srow"><div><div class="lb">说话人分离</div></div>
+              <div class="rt"><span class="toggle on"></span></div></div>
+            <div class="srow"><div><div class="lb">领域热词</div><div class="hint">优先按词典纠偏</div></div>
+              <div class="rt"><input type="text" value="voxnote, 转写, 逐句稿, 说话人" style="width:200px"></div></div>
+          </div>
+          <div class="card">
+            <h3>AI</h3>
+            <div class="srow"><div><div class="lb">服务商</div></div>
+              <div class="rt"><select><option>智谱 GLM</option><option>OpenAI 兼容</option><option>Ollama（本地）</option></select></div></div>
+            <div class="srow"><div><div class="lb">API Key</div></div>
+              <div class="rt"><input type="password" value="••••••••••••••••••••" style="width:190px"><button class="btn sm">测试</button></div></div>
+            <div class="srow"><div><div class="lb">对话模型</div></div>
+              <div class="rt"><select><option>GLM-4</option><option>GLM-4-Flash</option></select></div></div>
+          </div>
+          <div class="card">
+            <h3>设备与访问</h3>
+            <div class="srow"><div><div class="lb">S1 录音笔</div><div class="hint">2026-10-12 配对 · 86 场</div></div>
+              <div class="rt"><button class="btn sm danger">解除绑定</button></div></div>
+            <div class="srow"><div><div class="lb">配对令牌</div><div class="hint">App 端「设置 · 服务器」中填入</div></div>
+              <div class="rt"><span class="tok">vn-8f2k-…9d4c</span><button class="btn sm">复制</button></div></div>
+            <div class="srow"><div><div class="lb">API 访问</div><div class="hint">/api/v1 · Bearer 鉴权</div></div>
+              <div class="rt"><button class="btn sm">生成密钥</button></div></div>
+          </div>
+          <div class="card" style="grid-column:1/-1">
+            <h3>存储</h3>
+            <div class="srow"><div style="flex:1"><div class="lb">数据目录</div>
+              <div class="meter" style="max-width:420px"><i style="width:12%"></i></div>
+              <div class="kv" style="max-width:420px"><span>/data/voxnote · 音频 2.1 GB · 稿件 0.3 GB</span><span>2.4 / 20 GB</span></div></div>
+              <div class="rt"><button class="btn sm">更改目录</button><button class="btn sm">清理转写缓存</button></div></div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------------- 导航 ---------------- */
+var cur = 'home';
+document.querySelectorAll('.navi').forEach(function(n){
+  n.onclick = function(){
+    go(n.dataset.p);
+  };
+});
+function go(p){
+  cur = p;
+  document.querySelectorAll('.navi').forEach(function(x){x.classList.toggle('on', x.dataset.p===p)});
+  document.querySelectorAll('.page').forEach(function(x){x.classList.toggle('on', x.id==='p-'+p)});
+}
+document.querySelectorAll('[data-go]').forEach(function(el){
+  el.onclick = function(){ go(el.dataset.go); };
+});
+document.getElementById('goUpload').onclick = function(){ go('asr'); };
+
+/* ---------------- 数据 ---------------- */
+var SPK = [
+  {n:'发言人 1', c:'var(--s1)'}, {n:'发言人 2', c:'var(--s2)'},
+  {n:'发言人 3', c:'var(--s3)'}, {n:'未标注', c:'var(--dim)'}
+];
+var R = [
+  {id:'r1', t:'周会 · 产品路线', d:'10-23 14:02', dur:'32:18', cat:'会议', st:'done', rev:2, spk:3,
+   segs:[
+     [5,0,'先说一下这周的情况：转写服务上周上线，目前跑了六十几场，没有出现排队积压。',0],
+     [12,1,'同步链路我这边测下来，S1 到服务器平均一份录音 40 秒内就能完成转写。',0],
+     [21,0,'好。那服务端整理这块，大家用下来的感受怎么样？',0],
+     [30,2,'逐句稿里改说话人还挺方便的，就是长录音滚动有点卡。',1],
+     [41,1,'卡的问题我知道，渲染是把整场一次画出来的，后面改成虚拟列表。',0],
+     [55,0,'那这个排进下个迭代。AI 对接那边呢？',0],
+     [63,2,'纪要生成已经能跑通了，引用能定位到具体句子，点过去就能播。',0],
+     [75,0,'可以，下周把这个放到工作台首页做快捷入口。',0],
+     [232,1,'另外热词这块，客户名还是经常被写错，「和君咨询」老是变成「河君」。',1],
+     [244,2,'我把词表加上，晚点重新跑一遍这场的转写验证。',0],
+     [389,0,'最后确认一下下周的发布窗口，周三晚上十点，值班我来盯。',0],
+     [401,1,'收到，我这边提前把回滚脚本准备好。',0]
+   ]},
+  {id:'r2', t:'客户访谈 · 采购流程', d:'10-23 10:15', dur:'47:02', cat:'采访', st:'asr', rev:0, spk:2,
+   segs:[
+     [8,0,'感谢您抽时间，咱们主要想了解贵司现在录音到归档的流程。',0],
+     [16,1,'现在是完全手动的，散会以后助理把录音导出来，人工起名字存到共享盘。',0],
+     [31,1,'量大的时候一天七八场，找一段上个月的讨论基本要翻半小时。',0],
+     [52,0,'如果转写和检索是自动完成的，这个环节你们期望多久能接受？',0],
+     [61,1,'十分钟以内吧，最好当场就能搜。',0],
+     [70,0,'明白，这点现有的方案已经能做到 40 秒。',0]
+   ]},
+  {id:'r3', t:'语音备忘 · 转写策略', d:'10-22 21:40', dur:'02:11', cat:'备忘', st:'done', rev:1, spk:1,
+   segs:[
+     [3,0,'备忘：短录音走 SenseVoice 批处理，长会议才用大模型，GPU 排队要留给交互式转写。',0],
+     [38,0,'热词词表按周维护一次，来源是本周纠错记录。',1],
+     [71,0,'周五之前把这两条写进运维手册。',0]
+   ]},
+  {id:'r4', t:'Q4 预算讨论', d:'10-22 16:00', dur:'58:40', cat:'会议', st:'asr', rev:0, spk:0, segs:[]},
+  {id:'r5', t:'灵感 · 交互草稿', d:'10-21 23:05', dur:'01:48', cat:'备忘', st:'raw', rev:0, spk:0, segs:[]},
+  {id:'r6', t:'供应商电话', d:'10-21 11:20', dur:'21:37', cat:'速记', st:'fail', rev:0, spk:0, segs:[]},
+  {id:'r7', t:'面试 · 候选人 A', d:'10-20 15:00', dur:'39:26', cat:'采访', st:'done', rev:0, spk:2,
+   segs:[
+     [6,0,'简单介绍一下你做过的语音相关项目。',0],
+     [14,1,'我做过一个录音笔的配套服务端，从转写调度到逐句稿编辑都是我主导的。',0],
+     [33,1,'难点主要在说话人分离的准确率，我们后来加了人工修订层来兜底。',0],
+     [58,0,'修订会影响重转写吗？',0],
+     [62,1,'不会，修订单独存，重转写只更新机器层。',0]
+   ]},
+  {id:'r8', t:'小组周会', d:'10-20 14:00', dur:'44:12', cat:'会议', st:'done', rev:0, spk:4,
+   segs:[
+     [4,0,'这周主要收尾同步协议的重试逻辑。',0],
+     [19,3,'客户端断点续传测过了，弱网下丢包重试稳定。',0]
+   ]}
+];
+var STMAP = {done:['done','已转写'], asr:['asr','转写中'], raw:['raw','仅音频'], fail:['fail','失败']};
+var sel = 'r1', fStat='all', fCat='all';
+
+function fmtT(s){
+  var m = Math.floor(s/60), ss = Math.floor(s%60);
+  return (m<10?'0':'')+m+':'+(ss<10?'0':'')+ss;
+}
+
+/* ---------------- 列表 ---------------- */
+function renderList(){
+  var box = document.getElementById('rlist'); box.innerHTML='';
+  R.forEach(function(r){
+    if(fStat!=='all' && r.st!==fStat) return;
+    if(fStat==='ed' && r.rev===0) return;
+    if(fCat!=='all' && r.cat!==fCat) return;
+    var el = document.createElement('div');
+    el.className = 'ritem'+(r.id===sel?' on':'');
+    var st = r.rev>0 ? '<span class="st ed">修订 '+r.rev+'</span>' :
+      '<span class="st '+STMAP[r.st][0]+'">'+STMAP[r.st][1]+'</span>';
+    el.innerHTML = '<div class="t">'+r.t+st+'</div>'+
+      '<div class="m"><span>'+r.d+'</span><span>'+r.dur+'</span><span>'+r.cat+'</span>'+
+      (r.spk?'<span>'+r.spk+' 人</span>':'')+'</div>';
+    el.onclick = function(){ sel=r.id; renderList(); renderDetail(); };
+    box.appendChild(el);
+  });
+}
+document.querySelectorAll('#fchips .chip').forEach(function(c){
+  c.onclick = function(){
+    document.querySelectorAll('#fchips .chip').forEach(function(x){x.classList.remove('on')});
+    c.classList.add('on'); fStat=c.dataset.f; renderList();
+  };
+});
+document.querySelectorAll('#cats a').forEach(function(a){
+  a.onclick = function(){
+    document.querySelectorAll('#cats a').forEach(function(x){x.classList.remove('on')});
+    a.classList.add('on'); fCat=a.dataset.c; renderList();
+  };
+});
+
+/* ---------------- 详情 ---------------- */
+function renderDetail(){
+  var r = R.filter(function(x){return x.id===sel})[0];
+  var box = document.getElementById('rdetail');
+  var st = r.rev>0 ? '<span class="st ed">已修订 '+r.rev+'</span>' :
+    '<span class="st '+STMAP[r.st][0]+'">'+STMAP[r.st][1]+'</span>';
+  var h = '<div class="dt"><h2 contenteditable="true" spellcheck="false">'+r.t+'</h2>'+st+
+    '<div class="acts"><button class="btn sm">重新转写 ▾</button><button class="btn sm">导出 ▾</button>'+
+    '<button class="btn sm danger">删除</button></div></div>'+
+    '<div class="dm"><span>'+r.d+'</span><span>'+r.dur+'</span><span>'+r.cat+'</span>'+
+    (r.spk?'<span>'+r.spk+' 位发言人</span>':'')+'<span>来源 S1</span><span>已同步</span></div>'+
+    '<div class="player">'+
+      '<button class="pbtn" id="play">'+ (playing?'<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>':'<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg>') +'</button>'+
+      '<div class="wave" id="wave"></div>'+
+      '<span class="ptime" id="ptime">00:00 / '+r.dur+'</span>'+
+      '<div class="pside"><button class="btn sm ghost">1.0×</button><button class="btn sm ghost">下载</button></div>'+
+    '</div>';
+
+  if(r.segs.length){
+    h += '<div class="tabs"><button class="tab on">逐句稿</button><button class="tab">纯文本</button><button class="tab">摘要 · 待办</button>'+
+         '<button class="tab" style="color:var(--accent)">问 AI ›</button></div>'+
+         '<div class="segbar"><span class="auto"><span class="dot"></span>已保存</span>'+
+         '<span class="edmark">'+r.rev+' 处本地修订 · 重转写不覆盖</span><span class="grow"></span>'+
+         '<button class="btn sm ghost">批量指派说话人</button><button class="btn sm ghost">查找</button></div><div id="segs"></div>';
+  } else if(r.st==='asr'){
+    h += '<div class="tabs"><button class="tab on">逐句稿</button></div>'+
+      '<div class="card" style="text-align:center;padding:44px 20px">'+
+      '<div style="font-size:13px;color:var(--sub)">正在转写 · '+ (r.id==='r4'?'63%':'排队中') +'</div>'+
+      '<div class="pbar" style="width:200px;margin:14px auto 0"><i style="width:'+(r.id==='r4'?'63%':'0')+'"></i></div>'+
+      '<button class="btn sm" style="margin-top:16px">取消任务</button></div>';
+  } else if(r.st==='raw'){
+    h += '<div class="tabs"><button class="tab on">逐句稿</button></div>'+
+      '<div class="card" style="text-align:center;padding:44px 20px">'+
+      '<div style="font-size:13px;color:var(--sub)">尚无转写稿</div>'+
+      '<button class="btn accent sm" style="margin-top:14px;margin-right:6px">立即转写</button>'+
+      '<button class="btn sm">选择引擎 ▾</button></div>';
+  } else {
+    h += '<div class="tabs"><button class="tab on">逐句稿</button></div>'+
+      '<div class="card" style="text-align:center;padding:44px 20px">'+
+      '<div style="font-size:13px;color:var(--err)">转写失败 · 音频流损坏 00:11</div>'+
+      '<button class="btn sm" style="margin-top:14px;margin-right:6px">重试</button>'+
+      '<button class="btn sm">跳过损坏段继续</button></div>';
+  }
+  box.innerHTML = h;
+
+  /* 波形 */
+  var wave = document.getElementById('wave');
+  if(wave){
+    var seed = 7;
+    for(var i=0;i<96;i++){
+      seed = (seed*9301+49297)%233280;
+      var pct = 18 + (seed/233280)*82;
+      if(i>2 && i<6) pct *= .55;             /* 开头安静 */
+      var b = document.createElement('i');
+      b.style.height = Math.min(100,pct)+'%';
+      wave.appendChild(b);
+    }
+    paintWave();
+    wave.onclick = function(e){
+      var rect = wave.getBoundingClientRect();
+      pos = Math.max(0, Math.min(1,(e.clientX-rect.left)/rect.width));
+      paintWave(); updTime();
+    };
+  }
+
+  /* 逐句 */
+  var segbox = document.getElementById('segs');
+  if(segbox){
+    r.segs.forEach(function(g){
+      var el = document.createElement('div');
+      el.className = 'seg'+(g[3]?' ed':'');
+      el.innerHTML = '<span class="ts" title="从此句播放">'+fmtT(g[0])+'</span>'+
+        '<span class="spk" style="color:'+SPK[g[1]].c+';border-color:'+SPK[g[1]].c+'55">'+SPK[g[1]].n+'</span>'+
+        '<span class="tx" contenteditable="true" spellcheck="false">'+g[2]+'</span>'+
+        (g[3]?'<span class="edmark">已修订</span>':'')+
+        '<span class="ops"><button class="op">拆分</button><button class="op">并入上句</button><button class="op z">删除</button></span>';
+      el.querySelector('.spk').onclick = function(){
+        g[1] = (g[1]+1)%SPK.length;
+        this.style.color = SPK[g[1]].c; this.style.borderColor = SPK[g[1]].c+'55';
+        this.textContent = SPK[g[1]].n; markEdit(el,r);
+      };
+      var tx = el.querySelector('.tx');
+      tx.addEventListener('blur', function(){
+        if(this.textContent !== g[2]){ g[2]=this.textContent; markEdit(el,r); }
+      });
+      el.querySelector('.ts').onclick = function(){
+        pos = Math.min(.98, g[0]/1938); paintWave(); updTime();
+        if(!playing) togglePlay();
+      };
+      segbox.appendChild(el);
+    });
+  }
+}
+function markEdit(el,r){
+  if(!el.querySelector('.edmark')){
+    var m = document.createElement('span');
+    m.className='edmark'; m.textContent='已修订';
+    el.insertBefore(m, el.querySelector('.ops'));
+  }
+  el.classList.add('ed'); r.rev++;
+  var bar = document.querySelector('.segbar .edmark');
+  if(bar) bar.textContent = r.rev+' 处本地修订 · 重转写不覆盖';
+}
+
+/* ---------------- 播放（示意） ---------------- */
+var playing=false, pos=0, timer=null;
+function togglePlay(){
+  playing=!playing;
+  if(playing){
+    timer = setInterval(function(){
+      pos += 1/96/2;
+      if(pos>=1){ pos=0; togglePlay(); }
+      paintWave(); updTime();
+    },250);
+  } else clearInterval(timer);
+  renderDetail();
+}
+function paintWave(){
+  var w = document.getElementById('wave'); if(!w) return;
+  var bars = w.children, n = Math.floor(pos*bars.length);
+  for(var i=0;i<bars.length;i++) bars[i].className = i<n?'past':'';
+}
+function updTime(){
+  var r = R.filter(function(x){return x.id===sel})[0];
+  var parts = r.dur.split(':'); var total = (+parts[0])*60+(+parts[1]);
+  var el = document.getElementById('ptime');
+  if(el) el.textContent = fmtT(pos*total)+' / '+r.dur;
+}
+document.addEventListener('click', function(e){
+  if(e.target.closest && e.target.closest('.pbtn')) togglePlay();
+});
+
+/* ---------------- AI 引用跳转 ---------------- */
+document.querySelectorAll('.cite').forEach(function(c){
+  c.onclick = function(){
+    sel = c.dataset.r; go('lib'); renderList(); renderDetail();
+    pos = Math.min(.98, (+c.dataset.t)/1938); paintWave(); updTime();
+  };
+});
+document.querySelectorAll('.qact .chip').forEach(function(ch){
+  ch.onclick = function(){
+    var t = document.getElementById('aiInput');
+    t.value = ch.textContent.replace(/^查找/, '').replace(/["""]/g,'') || '查找';
+    if(ch.textContent.indexOf('查找')===0) t.value = '查找关于'+ch.textContent.split('"')[1]+'的讨论';
+    t.focus();
+  };
+});
+document.querySelectorAll('.toggle').forEach(function(t){
+  t.onclick = function(){ t.classList.toggle('on'); };
+});
+document.querySelectorAll('#engs .eng').forEach(function(e){
+  e.onclick = function(){
+    document.querySelectorAll('#engs .eng').forEach(function(x){x.classList.remove('on')});
+    e.classList.add('on');
+  };
+});
+
+renderList();
+renderDetail();
+</script>
+</body>
+</html>
