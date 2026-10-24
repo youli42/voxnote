@@ -552,7 +552,8 @@ public class DetailSheet implements Overlay {
 
     private void bind(boolean keepTitle) {
         binding = true;
-        if (!keepTitle) titleInput.setText(vm.title);
+        // 未改名的默认标题显示完整日期时间（与列表/Web 一致）；库内仍存「录音 HH:MM」
+        if (!keepTitle) titleInput.setText(vm.isDefaultTitle() ? vm.displayTitle() : vm.title);
         String m = vm.dateText() + " · " + vm.fmtDur() + " · " + vm.statusLabel();
         int spkN = distinctSpeakers();
         if (spkN > 1) m += " · " + spkN + " 位发言人";
