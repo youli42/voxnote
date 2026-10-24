@@ -450,15 +450,27 @@
 <script>
 /* ================= 基础 ================= */
 var API = '/api/v1';
+/* 服务端设置了 VOXNOTE_API_KEY 时，首次 401 会提示输入并记在 localStorage */
+function apiKey(){try{return localStorage.getItem('vn.key')||''}catch(e){return ''}}
 function api(path, opt){
   opt = opt || {};
-  if(opt.body && !(opt.body instanceof FormData)){
+  if(opt.body && typeof opt.body!=='string' && !(opt.body instanceof FormData)){
     opt.headers = Object.assign({'Content-Type':'application/json'}, opt.headers||{});
     opt.body = JSON.stringify(opt.body);
   }
+  if(apiKey()) opt.headers = Object.assign({'X-VoxNote-Key':apiKey()}, opt.headers||{});
   return fetch(API+path, opt).then(function(r){
     return r.json().catch(function(){return {}}).then(function(j){
-      if(!r.ok) throw new Error(j.detail || ('HTTP '+r.status));
+      if(r.status===401 && j && j.detail==='需要 X-VoxNote-Key' && !opt._retried){
+        var k=prompt('此服务已启用访问密钥（VOXNOTE_API_KEY），请输入：', apiKey());
+        if(k!==null){try{localStorage.setItem('vn.key',k)}catch(e){}}
+        return api(path, Object.assign({}, opt, {_retried:1}));
+      }
+      if(!r.ok){
+        var d=j.detail;
+        if(d&&d.push)d=d.map(function(x){return x.msg||JSON.stringify(x)}).join('；'); /* 422 校验错误是数组 */
+        throw new Error(d || ('HTTP '+r.status));
+      }
       return j;
     });
   });
@@ -611,12 +623,14 @@ function jobFor(id){
   var j=null;(stats&&stats.active_jobs||[]).forEach(function(a){if(a.record_id===id)j=a;});
   return j;
 }
-/* 实时出稿区行渲染：只读版逐句稿（无 contenteditable/删除按钮） */
-function liveSegsHTML(segs){
-  return segs.map(function(s){
+/* 实时出稿区行渲染：只读版逐句稿（无 contenteditable/删除按钮）。
+   shownN = 前 N 句显示全文（打字基线），其余渲染空 .tx 等打字机接管。 */
+function liveSegsHTML(segs,shownN){
+  if(shownN==null)shownN=segs.length;
+  return segs.map(function(s,i){
     return '<div class="seg"><span class="ts">'+fmtMs(s.t_ms)+'</span>'+
       '<span class="spk" style="color:'+(s.spk>=0?SPKC[s.spk%4]:'var(--dim)')+'">'+spkName(s.spk)+'</span>'+
-      '<span class="tx">'+esc(s.text)+'</span></div>';
+      '<span class="tx">'+(i<shownN?esc(s.text):'')+'</span></div>';
   }).join('');
 }
 /* 逐字打字机：流式引擎逐句回调已是真增量，前端把新到句子按字逐步显现，观感即"逐字冒出"。
@@ -641,16 +655,9 @@ function refreshLive(rid){
     }
     if(segs.length<=liveType.n)return; /* 没有新句子：不动 DOM，打字机继续 */
     var stick=box.scrollHeight-box.scrollTop-box.clientHeight<60;
-    var html='';
-    for(var i=0;i<segs.length;i++){
-      var shown=i<liveType.n;
-      html+='<div class="seg"><span class="ts">'+fmtMs(segs[i].t_ms)+'</span>'+
-        '<span class="spk" style="color:'+(segs[i].spk>=0?SPKC[segs[i].spk%4]:'var(--dim)')+'">'+spkName(segs[i].spk)+'</span>'+
-        '<span class="tx">'+(shown?esc(segs[i].text):'')+'</span></div>';
-    }
-    box.innerHTML=html;
+    box.innerHTML=liveSegsHTML(segs,liveType.n);
     if(stick)box.scrollTop=box.scrollHeight;
-    for(i=liveType.n;i<segs.length;i++){
+    for(var i=liveType.n;i<segs.length;i++){
       liveType.queue.push({tx:box.children[i].querySelector('.tx'),text:segs[i].text,rev:0});
     }
     liveType.n=segs.length;
@@ -661,7 +668,11 @@ function refreshLive(rid){
 }
 function typeTick(){
   var box=document.getElementById('liveSegs'),q=liveType.queue;
-  if(!q.length||!box){liveTypeReset();return;}
+  if(!box){liveTypeReset();return;}
+  if(!q.length){ /* 打完了：只停表。清 rid/n 会让下轮 refreshLive 认为换了记录，把全部旧句重打一遍 */
+    if(liveType.timer){clearInterval(liveType.timer);liveType.timer=0;}
+    return;
+  }
   var near=box.scrollHeight-box.scrollTop-box.clientHeight<60;
   var it=q[0],step=1+Math.min(8,q.length); /* 积压越多出字越快 */
   it.rev=Math.min(it.text.length,it.rev+step);
@@ -802,7 +813,7 @@ function renderDetail(){
   var st=r.edited?'<span class="st ed">已修订 '+r.edited+'</span>':stChip(r.status);
   var h='<div class="dt"><h2 contenteditable="true" spellcheck="false" id="recTitle">'+esc(r.title||r.id)+'</h2>'+st+
     '<div class="acts"><button class="btn sm" id="btnRetr">重新转写</button>'+
-    '<a class="btn sm ghost" style="text-decoration:none" href="'+API+'/records/'+r.id+'/transcript.md" target="_blank">导出 MD</a>'+
+    '<a class="btn sm ghost" style="text-decoration:none" href="'+API+'/records/'+esc(r.id)+'/transcript.md" target="_blank">导出 MD</a>'+
     '<button class="btn sm danger" id="btnDel">删除</button></div></div>'+
     '<div class="dm"><span>'+fmtTime(r.created_at)+'</span><span>'+fmtDur(r.dur_ms)+'</span>'+
     '<span class="chip" id="catChip" style="cursor:pointer">'+esc(r.cat||'未分类')+' ▾</span>'+
@@ -874,7 +885,9 @@ function renderDetail(){
   var title=document.getElementById('recTitle');
   if(title)title.addEventListener('blur',function(){
     var v=this.textContent.trim();
-    if(v!==(r.title||r.id))api('/records/'+r.id,{method:'PATCH',body:{title:v}}).then(function(){toast('标题已保存');loadList();});
+    if(v!==(r.title||r.id))api('/records/'+r.id,{method:'PATCH',body:{title:v}})
+      .then(function(){toast('标题已保存');loadList();})
+      .catch(function(e){toast('标题保存失败：'+e.message);});
   });
   var cat=document.getElementById('catChip');
   if(cat)cat.onclick=function(){pickCat(r);};
@@ -948,7 +961,8 @@ function pickCat(r){
 }
 function setCat(r,v){
   api('/records/'+r.id,{method:'PATCH',body:{cat:v}})
-    .then(function(){r.cat=v;renderDetail();loadList();toast(v?'标签已设为 '+v:'标签已清除');});
+    .then(function(){r.cat=v;renderDetail();loadList();toast(v?'标签已设为 '+v:'标签已清除');})
+    .catch(function(e){toast('标签保存失败：'+e.message);});
 }
 function closeCatMenu(){
   var m=document.getElementById('catMenu');
@@ -1065,20 +1079,23 @@ function renderSegs(r){
     el.querySelector('.spk').onclick=function(){
       var ns=s.spk>=2?-1:s.spk+1;
       api('/records/'+r.id+'/segments/'+s.id,{method:'PATCH',body:{spk:ns}})
-        .then(function(){s.spk=ns;if(!s.edited){s.edited=true;r.edited++;}renderSegs(r);});
+        .then(function(){s.spk=ns;if(!s.edited){s.edited=true;r.edited++;}renderSegs(r);})
+        .catch(function(e){toast('说话人保存失败：'+e.message);});
     };
     var tx=el.querySelector('.tx');
     tx.addEventListener('blur',function(){
       var v=this.textContent.trim();
       if(v!==s.text)api('/records/'+r.id+'/segments/'+s.id,{method:'PATCH',body:{text:v}})
-        .then(function(){s.text=v;if(!s.edited){s.edited=true;r.edited++;}toast('修订已保存');});
+        .then(function(){s.text=v;if(!s.edited){s.edited=true;r.edited++;}toast('修订已保存');})
+        .catch(function(e){toast('修订保存失败：'+e.message);});
     });
     el.querySelector('.ts').onclick=function(){
       if(window._curAudio&&window._curAudio._seek){window._curAudio._seek(s.t_ms/1000);window._curAudio.play();}
     };
     el.querySelector('[data-del]').onclick=function(){
       api('/records/'+r.id+'/segments/'+s.id,{method:'DELETE'})
-        .then(function(){r.segments=r.segments.filter(function(x){return x.id!==s.id;});renderSegs(r);});
+        .then(function(){r.segments=r.segments.filter(function(x){return x.id!==s.id;});renderSegs(r);})
+        .catch(function(e){toast('删除失败：'+e.message);});
     };
     box.appendChild(el);
   });
@@ -1305,8 +1322,8 @@ function loadSettings(){
       '</div>'+
       '<div class="card"><h3>存储位置</h3>'+
       row('数据目录','启动参数/环境变量决定，改路径需改启动配置','<span class="tok">'+esc(st.data_dir)+'</span>')+
-      row('音频目录','新上传即时生效；相对路径基于数据目录；留空恢复默认','<input type="text" id="setAudioDir" value="'+esc(st.audio_dir||'')+'" style="width:260px">')+
-      row('数据库文件','改后需手动搬 voxnote.db 到新位置并重启服务','<input type="text" id="setDbPath" value="'+esc(st.db_path||'')+'" style="width:260px">')+
+      row('音频目录','相对路径基于数据目录；留空 = 默认 '+esc(st.data_dir)+'\\audio（新上传即时生效）','<input type="text" id="setAudioDir" placeholder="'+esc(st.audio_dir)+'" value="'+esc(st.audio_dir_set||'')+'" style="width:260px">')+
+      row('数据库文件','改后需手动搬 voxnote.db 到新位置并重启服务；留空 = 默认 '+esc(st.db_path),'<input type="text" id="setDbPath" placeholder="'+esc(st.db_path)+'" value="'+esc(st.db_path_set||'')+'" style="width:260px">')+
       row('','','<button class="btn sm" id="btnSaveStorage">保存位置</button>'+
         '<span class="hint" style="font-size:10.5px;color:var(--dim);margin-left:8px">配置写入 '+esc(st.config_file||'data/config.json')+'</span>')+
       '</div>'+
