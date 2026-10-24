@@ -42,6 +42,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 方向：推（把本地音频传上服务器）+ 拉（把服务器转好的稿子回填成本地 <stamp>.md）。
  * 回填规则：本地没有文稿的直接写；服务器回填过的场次有更新（含转写进行中的增量）就覆盖重写；
  * 本地自己转出来的稿子可能是用户改过的，绝不覆盖。
+ * 记录对应关系：上传时上报本机设备名（device），服务器返回的真实 id 若与本地不同
+ * （同秒撞车加 -2 后缀）记成 srvid.<本地id> 映射，拉取时按映射对回，不会错拿别的设备的稿子。
  *
  * 全部请求是阻塞式 HTTP（java.net，无第三方依赖），跑在自己的单线程 executor 上，
  * 回调切回主线程。文件大小/改动时间没变过的场次跳过，不重复上传。
@@ -211,9 +213,18 @@ public class ServerSync {
                 meta.put("cat", nameOf(catNames, vm.cat));
                 meta.put("mode", vm.mode == null ? "" : vm.mode);
                 meta.put("sid", vm.sid);
+                meta.put("device", deviceName());
                 meta.put("recorded_at", vm.startMs);
                 meta.put("dur_ms", vm.durMs);
-                postMultipart(url, meta.toString(), vm.id + ext, in);
+                String resp = postMultipart(url, meta.toString(), vm.id + ext, in);
+                // 服务器可能给这条记录换了 id（同秒撞车加 -2 后缀）：记下映射，
+                // 拉取时按映射对回本地记录，否则会拿别的设备的稿子错位回填。
+                try {
+                    String srvId = new JSONObject(resp).optString("id", "");
+                    if (srvId.length() > 0 && !srvId.equals(vm.id)) {
+                        prefs.edit().putString("srvid." + vm.id, srvId).apply();
+                    }
+                } catch (Throwable ignore) { }
                 prefs.edit().putString("up." + vm.id, marker).apply();
                 ok++;
             } catch (Throwable t) {
@@ -240,12 +251,23 @@ public class ServerSync {
     }
 
     /** 上传去重标记：文件看 size+mtime，content:// 记 uri。 */
-    private static String markerOf(RecordVm vm) {
-        if (vm.audioPath != null && vm.audioPath.length() > 0) {
+    private static String markerOf(RecordVm vm) {        if (vm.audioPath != null && vm.audioPath.length() > 0) {
             File f = new File(vm.audioPath);
             return f.length() + ":" + f.lastModified();
         }
         return String.valueOf(vm.audioUri);
+    }
+
+    /** 上报给服务器的本机设备名：设置页可自设，留空用手机型号。 */
+    private String deviceName() {
+        String n = s.deviceName == null ? "" : s.deviceName.trim();
+        if (n.length() > 0) return n;
+        try {
+            n = android.os.Build.MODEL;
+        } catch (Throwable t) {
+            n = "";
+        }
+        return n == null ? "" : n;
     }
 
     private String extOf(RecordVm vm) {
@@ -285,6 +307,10 @@ public class ServerSync {
     /** 服务器有稿（done）或正在转写（asr，内容边长边推）的场次：
      *  本地没有文稿就回填；上次就是服务器回填过的（tr 标记存在）且服务器有更新则覆盖重写。
      *  本地自己转出来的稿子（无 tr 标记）绝不动。
+     *  记录对回本地：先按 push 时记下的 id 映射（srvid.<本地id> = 服务器id，同秒撞车
+     *  时服务器会给 -2 后缀），再按同名 id 兜底——但已被映射占走的本地记录不再参与
+     *  兜底，否则撞车后两台设备同名记录会互相错拿对方的稿子。
+     *  回填文稿、tr/cat 持久标记、标签差异上报全都按本地 id 记。
      *  同时收集标签差异（服务器标签名 ≠ 本地标签名）到 catUpdates，由宿主落库——
      *  只应用服务器的非空标签；空标签不清本地（可能是服务器侧从没打过的）。
      *  差异同时记成持久标记 cat.<id>（宿主落库成功后清），补扫让滑出增量窗口
@@ -299,6 +325,15 @@ public class ServerSync {
 
         Map<String, RecordVm> byId = new HashMap<String, RecordVm>();
         for (int i = 0; i < items.size(); i++) byId.put(items.get(i).id, items.get(i));
+        Map<String, String> bySrv = new HashMap<String, String>();   // 服务器id → 本地id
+        java.util.Set<String> mappedLocal = new java.util.HashSet<String>();
+        for (Map.Entry<String, ?> en : prefs.getAll().entrySet()) {
+            String k = en.getKey();
+            if (k.startsWith("srvid.")) {
+                bySrv.put(String.valueOf(en.getValue()), k.substring(6));
+                mappedLocal.add(k.substring(6));
+            }
+        }
 
         long cursor = since;
         long processed = since;   // 游标只推进到"已处理完"的记录：
@@ -308,14 +343,21 @@ public class ServerSync {
         for (int i = 0; i < recs.length(); i++) {
             JSONObject o = recs.optJSONObject(i);
             if (o == null) continue;
-            String id = o.optString("id", "");
+            String srvId = o.optString("id", "");
             long upd = o.optLong("updated_at", 0);
             String status = o.optString("status", "");
-            RecordVm vm = byId.get(id);
-            if (vm == null) {                      // 本地没有这场（可能已删）
+            RecordVm vm = null;
+            String mapped = bySrv.get(srvId);
+            if (mapped != null) vm = byId.get(mapped);
+            if (vm == null) {
+                RecordVm cand = byId.get(srvId);
+                if (cand != null && !mappedLocal.contains(cand.id)) vm = cand;
+            }
+            if (vm == null) {                      // 本地没有这场（可能已删 / 别的设备传的）
                 if (upd > processed) processed = upd;
                 continue;
             }
+            String id = vm.id;                     // 本地 id：md 文件名与持久标记都按它
             // 标签回填：与转写回填独立，本地稿子受保护也不影响
             String srvCat = o.optString("cat", "");
             if (srvCat.length() > 0 && !srvCat.equals(nameOf(catNames, vm.cat))) {
@@ -553,7 +595,8 @@ public class ServerSync {
         }
     }
 
-    private void postMultipart(String url, String metaJson, String filename, InputStream in) throws Exception {
+    /** multipart 上传；返回响应体（服务器给出的真实记录 id 在里面）。 */
+    private String postMultipart(String url, String metaJson, String filename, InputStream in) throws Exception {
         String boundary = "----voxnote" + System.currentTimeMillis();
         HttpURLConnection c = open(url, 120000);
         try {
@@ -573,6 +616,7 @@ public class ServerSync {
             write(out, "\r\n--" + boundary + "--\r\n");
             out.close();
             check(c, 200);
+            return readAll(c);
         } finally {
             c.disconnect();
         }
