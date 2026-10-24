@@ -14,7 +14,8 @@ import android.widget.TextView;
 public class TabItem extends LinearLayout {
 
     public static final int ICON_RECORD = 0;
-    public static final int ICON_SETTINGS = 1;
+    public static final int ICON_STREAM = 1;
+    public static final int ICON_SETTINGS = 2;
 
     private final Icon icon;
     private final TextView label;
@@ -77,6 +78,13 @@ public class TabItem extends LinearLayout {
             if (type == ICON_RECORD) {
                 paint.setStyle(Paint.Style.STROKE);
                 canvas.drawCircle(cx, cy, r * 0.65f, paint);
+            } else if (type == ICON_STREAM) {
+                // 录音流：三条错落横线（自上而下渐短的列表/流意象）
+                paint.setStyle(Paint.Style.STROKE);
+                float gap = r * 0.55f;
+                canvas.drawLine(cx - r * 0.75f, cy - gap, cx + r * 0.75f, cy - gap, paint);
+                canvas.drawLine(cx - r * 0.55f, cy, cx + r * 0.55f, cy, paint);
+                canvas.drawLine(cx - r * 0.35f, cy + gap, cx + r * 0.35f, cy + gap, paint);
             } else {
                 paint.setStyle(Paint.Style.STROKE);
                 canvas.drawCircle(cx, cy, r * 0.28f, paint);

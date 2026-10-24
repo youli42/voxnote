@@ -37,6 +37,8 @@ public class UiSettings {
     public String keyBindingLabel = "";
     public String markKey = " ";
     public boolean sortDesc = true;
+    /** 录音流：播完自动接下一条。 */
+    public boolean streamAuto = false;
     public String swipeRightCat = "c1";
     public String swipeLeftCat = "c2";
     /** 自托管服务器（voxnote server）：地址形如 http://192.168.1.10:8787，令牌在控制台设置页可见。
@@ -78,6 +80,7 @@ public class UiSettings {
         keyBindingLabel = prefs.getString("keyBindingLabel", "");
         markKey = prefs.getString("markKey", " ");
         sortDesc = prefs.getBoolean("sortDesc", true);
+        streamAuto = prefs.getBoolean("streamAuto", false);
         swipeRightCat = prefs.getString("swipeRightCat", "c1");
         swipeLeftCat = prefs.getString("swipeLeftCat", "c2");
         serverUrl = prefs.getString("serverUrl", "");
@@ -195,6 +198,7 @@ public class UiSettings {
                 .putString("keyBindingLabel", nz(keyBindingLabel))
                 .putString("markKey", nz(markKey))
                 .putBoolean("sortDesc", sortDesc)
+                .putBoolean("streamAuto", streamAuto)
                 .putString("swipeRightCat", swipeRightCat)
                 .putString("swipeLeftCat", swipeLeftCat)
                 .putString("serverUrl", nz(serverUrl))
@@ -221,6 +225,7 @@ public class UiSettings {
         keyBindingLabel = "";
         markKey = " ";
         sortDesc = true;
+        streamAuto = false;
         normalize();
         save();
     }

@@ -224,9 +224,9 @@ public final class Ui {
     }
 
     /**
-     * 底部 tab 栏：横向 LinearLayout，两半各放一个 TabItem（weight 1）。
-     * 自己只在正中间画一条竖向虚线做分界——只画线、不拦触摸，
-     * 点落在哪一半就由那一格的 TabItem 响应，整半区域都生效。
+     * 底部 tab 栏：横向 LinearLayout，子项各占 weight 1。
+     * 自己只在相邻子项的边界处画竖向虚线做分界——只画线、不拦触摸，
+     * 点落在哪一格就由那一格的 TabItem 响应，整格区域都生效。
      */
     public static class TabBar extends LinearLayout {
         private final Paint dash;
@@ -245,9 +245,11 @@ public final class Ui {
         @Override
         protected void dispatchDraw(Canvas canvas) {
             super.dispatchDraw(canvas);
-            float x = getWidth() / 2f;
             float pad = dp(7);
-            canvas.drawLine(x, pad, x, getHeight() - pad, dash);
+            for (int i = 1; i < getChildCount(); i++) {
+                float x = getChildAt(i).getX();
+                canvas.drawLine(x, pad, x, getHeight() - pad, dash);
+            }
         }
     }
 

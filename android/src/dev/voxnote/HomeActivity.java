@@ -84,7 +84,9 @@ public class HomeActivity extends Activity implements Picker.Host {
     private LinearLayout filtersRow;
     private TextView emptyText;
     private TabItem tabRecord;
+    private TabItem tabStream;
     private TabItem tabSettings;
+    private StreamScreen streamScreen;
 
     private EditText recTitle;
     private TextView recTimer;
@@ -135,6 +137,20 @@ public class HomeActivity extends Activity implements Picker.Host {
             if (!recording) return;
             recWave.setLevel(recorder.level());
             ui.postDelayed(this, 60);
+        }
+    };
+
+    private final StreamScreen.Host streamHost = new StreamScreen.Host() {
+        public ArrayList<RecordVm> records() {
+            return all;
+        }
+
+        public String catName(RecordVm vm) {
+            return settings.catName(vm.cat);
+        }
+
+        public void openDetail(RecordVm vm) {
+            HomeActivity.this.openDetail(vm);
         }
     };
 
@@ -273,9 +289,12 @@ public class HomeActivity extends Activity implements Picker.Host {
         listScreen = buildListScreen();
         settingsPage = new SettingsScreen(this, settings, storage, settingsHost);
         settingsScreen = settingsPage.view();
+        streamScreen = new StreamScreen(this, player, settings, streamHost);
         content.addView(listScreen);
         content.addView(settingsScreen);
+        content.addView(streamScreen);
         settingsScreen.setVisibility(View.GONE);
+        streamScreen.setVisibility(View.GONE);
         // 批量操作栏在 buildListScreen 里建好后加进来的，这里把它提到最上层，
         // 否则会被后加入的列表页整个盖住。
         if (batchBar != null) content.bringChildToFront(batchBar);
@@ -288,13 +307,19 @@ public class HomeActivity extends Activity implements Picker.Host {
     private View buildTabBar() {
         Ui.TabBar bar = new Ui.TabBar(this, Ui.LINE2);
         tabRecord = new TabItem(this, TabItem.ICON_RECORD, "录音");
+        tabStream = new TabItem(this, TabItem.ICON_STREAM, "流");
         tabSettings = new TabItem(this, TabItem.ICON_SETTINGS, "设置");
-        // 左右各占一半、中间虚线分界：点这一半里的任意位置都由这格响应。
         bar.addView(tabRecord, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        bar.addView(tabStream, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         bar.addView(tabSettings, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         tabRecord.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 switchTab("record");
+            }
+        });
+        tabStream.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                switchTab("stream");
             }
         });
         tabSettings.setOnClickListener(new View.OnClickListener() {
@@ -311,6 +336,8 @@ public class HomeActivity extends Activity implements Picker.Host {
         if (!"record".equals(name)) exitBatch();
         listScreen.setVisibility("record".equals(name) ? View.VISIBLE : View.GONE);
         settingsScreen.setVisibility("settings".equals(name) ? View.VISIBLE : View.GONE);
+        streamScreen.setVisibility("stream".equals(name) ? View.VISIBLE : View.GONE);
+        if ("stream".equals(name)) streamScreen.refresh();
         if ("settings".equals(name)) {
             settingsPage.refresh();
             settingsPage.refreshSources(data.sourceInfoBlocking());
@@ -320,6 +347,7 @@ public class HomeActivity extends Activity implements Picker.Host {
 
     private void setTabActive(String name) {
         tabRecord.setActive("record".equals(name));
+        tabStream.setActive("stream".equals(name));
         tabSettings.setActive("settings".equals(name));
     }
 
@@ -886,6 +914,7 @@ public class HomeActivity extends Activity implements Picker.Host {
             emptyText.setText("该分类下还没有录音");
         }
         rebuildFilters();
+        if (streamScreen != null) streamScreen.refresh(); // 流页与列表同源，数据变了同步重建
         if (keepScroll && keepPos >= 0) {
             list.setSelectionFromTop(keepPos, keepTop);
         } else {
@@ -1122,6 +1151,7 @@ public class HomeActivity extends Activity implements Picker.Host {
     }
 
     private void openDetail(RecordVm vm) {
+        if (streamScreen != null) streamScreen.stopSession(); // 详情页接管播放控制，避免两边同时管一个 Player
         detail.open(vm);
         pushOverlay(detail);
     }
