@@ -1168,9 +1168,19 @@ function applyCat(r,v,onDone){
   api('/records/'+r.id,{method:'PATCH',body:{cat:v}})
     .then(function(){
       r.cat=v;toast(v?'标签已设为 '+v:'标签已清除');
+      addCatEverywhere(v); /* 新标签立即进两页的候选快照，别的卡片不用刷新就能选到 */
       if(onDone)onDone();else{renderDetail();loadList();}
     })
     .catch(function(e){toast('标签保存失败：'+e.message);});
+}
+/* 记录库（S）与录音流（ST）各持一份标签快照；打标签成功后把它同步进两份，
+   缓存里没有 = 库内首条，计数从 1 起（下次 load 会带回准确值）。 */
+function addCatEverywhere(v){
+  if(!v)return;
+  [S,ST].forEach(function(p){
+    p.cats=p.cats||[];
+    if(!p.cats.some(function(c){return c.cat===v;}))p.cats.push({cat:v,n:1});
+  });
 }
 function closeCatMenu(){
   var m=document.getElementById('catMenu');
@@ -1720,6 +1730,7 @@ function pickStreamCat(el,r){
     if(nr)nr.cat=r.cat;
     el.classList.toggle('open',ST.open[r.id]);
     renderStream();
+    renderStCats(); /* 新标签同步进筛选 chips，不用刷新 */
   },ST.cats);
 }
 
