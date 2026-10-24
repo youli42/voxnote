@@ -19,6 +19,11 @@ from . import config
 _local = threading.local()
 
 
+def now_ms() -> int:
+    """统一毫秒时间戳（建行/更新/任务收尾用）。"""
+    return int(time.time() * 1000)
+
+
 def conn() -> sqlite3.Connection:
     """每线程一个连接；FastAPI 线程池复用线程，实际连接数有限。"""
     c = getattr(_local, "conn", None)
@@ -158,9 +163,8 @@ def record_row(id_: str):
 
 
 def insert_record(**kw) -> sqlite3.Row:
-    now = int(time.time() * 1000)
-    kw.setdefault("created_at", now)
-    kw["updated_at"] = now
+    kw.setdefault("created_at", now_ms())
+    kw["updated_at"] = now_ms()
     cols = ",".join(kw.keys())
     qs = ",".join("?" * len(kw))
     with conn() as c:
@@ -169,7 +173,7 @@ def insert_record(**kw) -> sqlite3.Row:
 
 
 def update_record(id_: str, **kw):
-    kw["updated_at"] = int(time.time() * 1000)
+    kw["updated_at"] = now_ms()
     sets = ",".join("%s=?" % k for k in kw)
     with conn() as c:
         c.execute("UPDATE records SET %s WHERE id=?" % sets, tuple(kw.values()) + (id_,))
@@ -202,22 +206,24 @@ def replace_machine_segments(record_id: str, segs):
 
     segs: [{t_ms, e_ms, text, spk}]
     """
-    now = int(time.time() * 1000)
+    now = now_ms()
     with conn() as c:
         old = c.execute(
             "SELECT id, idx, t_ms, e_ms, m_text, m_spk, e_text, e_spk, edited_at FROM segments"
             " WHERE record_id=? ORDER BY t_ms", (record_id,)).fetchall()
         c.execute("DELETE FROM segments WHERE record_id=?", (record_id,))
         c.execute("DELETE FROM fts WHERE record_id=?", (record_id,))
-        # 修订过的旧句：作为"钉住的"修订行保留（时间轴取旧值，正文取修订值）
+        # 修订过的旧句：作为"钉住的"修订行保留（时间轴取旧值，正文取修订值）。
+        # 重插拿到的是新自增 id，FTS 必须记新 id——记旧 id 会悬空，之后这句再修订
+        # 时 DELETE fts WHERE seg_id=新id 删不掉旧行，搜索会召回过期文本。
         for o in old:
             if o["e_text"] is not None or o["e_spk"] is not None:
-                c.execute(
+                cur = c.execute(
                     "INSERT INTO segments(record_id,idx,t_ms,e_ms,m_text,m_spk,e_text,e_spk,edited_at)"
                     " VALUES(?,?,?,?,?,?,?,?,?)",
                     (record_id, o["idx"], o["t_ms"], o["e_ms"], o["m_text"], o["m_spk"],
                      o["e_text"], o["e_spk"], o["edited_at"] or now))
-                _fts_upsert(c, o["id"], record_id,
+                _fts_upsert(c, cur.lastrowid, record_id,
                             o["e_text"] if o["e_text"] is not None else o["m_text"])
         # 新机器层
         for i, s in enumerate(segs):
@@ -231,7 +237,7 @@ def replace_machine_segments(record_id: str, segs):
 
 def patch_segment(record_id: str, seg_id: int, text=None, spk=None) -> bool:
     """人工修订：只写 e_*，永不碰机器层。"""
-    now = int(time.time() * 1000)
+    now = now_ms()
     with conn() as c:
         row = c.execute("SELECT * FROM segments WHERE id=? AND record_id=?",
                         (seg_id, record_id)).fetchone()
@@ -344,7 +350,9 @@ def export_mirror(record_id: str):
                 f.write("`[%s → %s]` %s\n\n" % (
                     _fmt_ms(s["t_ms"]), _fmt_ms(s["e_ms"]), s["text"]))
     except Exception:
-        pass
+        # 可再生镜像，失败不影响主流程，但别完全无声——排查靠它
+        import traceback
+        traceback.print_exc()
 
 
 def _spk_name(spk):
