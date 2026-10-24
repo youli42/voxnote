@@ -21,7 +21,13 @@
   ::-webkit-scrollbar-thumb{background:#262a33;border-radius:8px}
   ::-webkit-scrollbar-track{background:transparent}
 
-  .app{display:grid;grid-template-columns:208px 1fr;height:100vh}
+  .app{display:grid;grid-template-columns:208px 1fr;height:100vh;transition:grid-template-columns .12s}
+  .app.collapsed{grid-template-columns:54px 1fr}
+  .app.collapsed .bn,.app.collapsed .bs,.app.collapsed .navi .tx,.app.collapsed .navi .cnt,
+  .app.collapsed .syncbox,.app.collapsed .foldhint{display:none}
+  .app.collapsed .navi{justify-content:center;padding:9px 0}
+  .app.collapsed .brand{justify-content:center;padding-left:0;padding-right:0}
+  .app.collapsed #btnFold{margin:0 auto}
 
   /* 侧栏 */
   .side{background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:14px 10px 12px}
@@ -124,7 +130,15 @@
   .act .bd b{color:var(--text);font-weight:600}
 
   /* 记录库：列表列限宽、详情列必须可收缩（minmax(0,…)），否则窄视口被波形条撑爆 */
-  .lib{display:grid;grid-template-columns:minmax(220px,318px) minmax(0,1fr);gap:0;height:100%;margin:-20px -22px -40px}
+  .lib{display:grid;grid-template-columns:minmax(220px,var(--libw,318px)) 4px minmax(0,1fr);gap:0;height:100%;margin:-20px -22px -40px}
+  .vsplit{cursor:col-resize;background:transparent}
+  .vsplit:hover{background:var(--accent-dim)}
+  .pager{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11px;color:var(--dim);flex-wrap:wrap}
+  .pager button{background:var(--card);border:1px solid var(--line2);color:var(--sub);border-radius:7px;
+    padding:4px 10px;cursor:pointer;font-size:11px;font-family:inherit}
+  .pager button:hover{color:var(--text)}
+  .pager button[disabled]{opacity:.4;cursor:default}
+  .pager .cur{color:var(--accent-h)}
   .liblist{border-right:1px solid var(--line);padding:16px 14px 30px;overflow-y:auto}
   .liblist .search{width:100%;margin-bottom:10px}
   .chips{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
@@ -138,6 +152,11 @@
   .ritem .t{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px}
   .ritem .t .st{margin-left:auto;transform:scale(.9)}
   .ritem .m{font-size:10.5px;color:var(--dim);margin-top:5px;display:flex;gap:8px;align-items:center}
+  .ritem .pv{font-size:10.5px;color:var(--sub);margin-top:4px;line-height:1.55;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+  .dlrow{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .hintblk{font-size:10.5px;color:var(--dim);line-height:1.8;margin-top:9px}
+  .hintblk a{color:var(--info);text-decoration:none}
 
   .libdetail{overflow-y:auto;overflow-x:hidden;padding:20px 26px 46px;min-width:0}
   .dt{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
@@ -153,7 +172,7 @@
   .pbtn{width:38px;height:38px;border-radius:99px;background:var(--accent);border:0;color:#fff;cursor:pointer;
         display:flex;align-items:center;justify-content:center;flex:none}
   .pbtn:hover{background:var(--accent-h)}
-  .wave{flex:1;min-width:0;display:flex;align-items:center;gap:2px;height:40px;cursor:pointer}
+  .wave{flex:1;min-width:0;display:flex;align-items:center;gap:2px;height:40px;cursor:pointer;overflow:hidden}
   .wave i{flex:1 1 0;min-width:1px;background:#2b303b;border-radius:2px}
   .wave i.past{background:var(--accent)}
   .ptime{font-size:11px;color:var(--sub);white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -180,6 +199,10 @@
   .seg .tx:hover{background:#1d2029}
   .seg .tx:focus{background:var(--raise);box-shadow:0 0 0 1px #4a4368;color:var(--text)}
   .seg .ops{margin-left:auto;display:none;gap:3px;flex:none;padding-top:2px}
+  /* 转写中实时出稿区：复用 .seg 行样式，只读（转写完成前不开放修订，防机器层替换踩掉编辑） */
+  .livesegs{max-height:320px;overflow-y:auto;margin-top:12px;text-align:left;border-top:1px solid var(--line);padding-top:8px}
+  .livesegs .seg .spk,.livesegs .seg .tx{cursor:default}
+  .livesegs .seg .tx:hover{background:none}
   .seg:hover .ops{display:flex}
   .op{background:var(--raise);border:1px solid var(--line2);color:var(--dim);font-size:10px;border-radius:6px;
       padding:3px 7px;cursor:pointer;white-space:nowrap}
@@ -262,23 +285,26 @@
     <div class="brand">
       <div class="logo">v</div>
       <div><div class="bn">voxnote</div><div class="bs">SERVER</div></div>
+      <button class="btn sm ghost" id="btnFold" title="折叠/展开侧栏" style="margin-left:auto;padding:4px 7px">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4v16M4 6h8M4 12h8M4 18h8"/></svg>
+      </button>
     </div>
     <button class="navi on" data-p="home">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
-      工作台</button>
+      <span class="tx">工作台</span></button>
     <button class="navi" data-p="lib">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-      记录库<span class="cnt" id="cntRecs">–</span></button>
+      <span class="tx">记录库</span><span class="cnt" id="cntRecs">–</span></button>
     <button class="navi" data-p="asr">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2l2-7 3 14 3-10 2 5 2-2h4"/></svg>
-      转写任务<span class="cnt" id="cntJobs">–</span></button>
+      <span class="tx">转写任务</span><span class="cnt" id="cntJobs">–</span></button>
     <button class="navi" data-p="ai">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>
-      AI 助手</button>
+      <span class="tx">AI 助手</span></button>
     <div class="gap"></div>
     <button class="navi" data-p="set">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12a7 7 0 0 0 .1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6A7 7 0 0 0 19 12z"/></svg>
-      设置</button>
+      <span class="tx">设置</span></button>
     <div style="height:12px"></div>
     <div class="syncbox">
       <div class="row"><span class="dot"></span>服务运行中</div>
@@ -339,8 +365,11 @@
               <span class="chip" data-f="fail">失败</span>
               <span class="chip" data-f="edited">已修订</span>
             </div>
+            <div class="chips" id="catChips" style="display:none"></div>
             <div id="rlist"></div>
+            <div class="pager" id="rPager"></div>
           </div>
+          <div class="vsplit" id="vsplit" title="拖拽调整列表宽度"></div>
           <div class="libdetail" id="rdetail"></div>
         </div>
       </section>
@@ -356,6 +385,7 @@
             <thead><tr><th style="width:34%">记录</th><th>引擎</th><th>状态</th><th>提交时间</th><th style="text-align:right">操作</th></tr></thead>
             <tbody id="jobRows"></tbody>
           </table>
+          <div class="pager" id="jobPager" style="justify-content:flex-end"></div>
         </div>
       </section>
 
@@ -424,16 +454,29 @@ function toast(s){
 }
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function fmtMs(ms){ms=Math.max(0,ms|0);var s=Math.floor(ms/1000);return (s/60|0)+':'+('0'+s%60).slice(-2);}
-function fmtDur(ms){var s=Math.round(ms/1000);return ('0'+(s/60|0)).slice(-2)+':'+('0'+s%60).slice(-2);}
+function fmtDur(ms){var s=Math.round(ms/1000),m=s/60|0;return (m<100?('0'+m).slice(-2):m)+':'+('0'+s%60).slice(-2);}
 function fmtTime(ts){var d=new Date(ts);return (d.getMonth()+1)+'-'+('0'+d.getDate()).slice(-2)+' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);}
 function fmtBytes(b){if(b>1<<30)return (b/(1<<30)).toFixed(1)+' GB';if(b>1<<20)return (b/(1<<20)).toFixed(0)+' MB';return (b/1024|0)+' KB';}
 var STMAP={done:['done','已转写'],queued:['queued','排队'],asr:['asr','转写中'],fail:['fail','失败'],raw:['raw','仅音频']};
 function stChip(st){var m=STMAP[st]||STMAP.raw;return '<span class="st '+m[0]+'">'+m[1]+'</span>';}
+/* 逐字实时出稿只对流式引擎开放；批量引擎（一次性返回整篇）显示提示 */
+var STREAM_ENGINES={'whisper-local':1};
+function engineName(id){var e=(engines||[]).filter(function(x){return x.id===id;})[0];return e?e.name:(id||'');}
 var SPKC=['var(--s1)','var(--s2)','var(--s3)','var(--s4)'];
 function spkName(s){return s>=0?'发言人 '+(s+1):'未标注';}
 
 var cur='home';
-function go(p){
+/* ================= URL 路由（hash） =================
+   #/home · #/lib · #/lib/<记录id> · #/asr · #/ai · #/set
+   刷新 / 前进 / 后退都回到原页面与正在阅读的记录。
+   静态目录以 html=True 挂在 / 下，真实路径刷新会 404，故用 hash。 */
+var _navInternal=false;
+function setHash(h){
+  if(location.hash===h)return;
+  _navInternal=true; /* 自己写的 hash 由 hashchange 里吞掉，不重复渲染 */
+  location.hash=h;
+}
+function go(p,rid){
   cur=p;
   document.querySelectorAll('.navi').forEach(function(x){x.classList.toggle('on',x.dataset.p===p)});
   document.querySelectorAll('.page').forEach(function(x){x.classList.toggle('on',x.id==='p-'+p)});
@@ -442,12 +485,58 @@ function go(p){
   if(p==='asr')loadAsr();
   if(p==='set')loadSettings();
   if(p==='ai')initAi();
+  if(p==='lib')setHash('#/lib'+((rid||S.sel)?'/'+(rid||S.sel):''));
+  else setHash('#/'+p);
 }
+function routeFromHash(){
+  var parts=location.hash.replace(/^#\/?/,'').split('/');
+  var p=document.getElementById('p-'+parts[0])?parts[0]:'home';
+  var rid=p==='lib'&&parts[1]?parts[1]:null;
+  if(rid&&rid!==S.sel){
+    S.sel=rid;
+    if(cur==='lib'){renderList();loadDetail(rid);return;} /* 已在记录库：只换选中记录 */
+  }
+  go(p);
+}
+window.addEventListener('hashchange',function(){
+  if(_navInternal){_navInternal=false;return;}
+  routeFromHash(); /* 浏览器前进/后退 */
+});
 document.querySelectorAll('.navi').forEach(function(n){n.onclick=function(){go(n.dataset.p)};});
 document.querySelectorAll('[data-go]').forEach(function(el){el.onclick=function(){go(el.dataset.go)};});
 
+/* ================= 折叠侧栏 + 拖拽调宽（记忆在 localStorage） ================= */
+(function(){
+  var app=document.querySelector('.app');
+  try{
+    if(localStorage.getItem('vn.side')==='1')app.classList.add('collapsed');
+    var w=parseInt(localStorage.getItem('vn.libw')||'',10);
+    if(w>=220&&w<=560)document.querySelector('.lib').style.setProperty('--libw',w+'px');
+  }catch(e){}
+  document.getElementById('btnFold').onclick=function(){
+    app.classList.toggle('collapsed');
+    try{localStorage.setItem('vn.side',app.classList.contains('collapsed')?'1':'0');}catch(e){}
+    setTimeout(function(){if(window._waveResizeFn)window._waveResizeFn();},160);
+  };
+  var vs=document.getElementById('vsplit'),dragging=false;
+  vs.addEventListener('mousedown',function(e){e.preventDefault();dragging=true;document.body.style.cursor='col-resize';});
+  document.addEventListener('mousemove',function(e){
+    if(!dragging)return;
+    var left=document.querySelector('.liblist').getBoundingClientRect();
+    var w=Math.max(220,Math.min(560,e.clientX-left.left));
+    document.querySelector('.lib').style.setProperty('--libw',w+'px');
+  });
+  document.addEventListener('mouseup',function(){
+    if(!dragging)return;
+    dragging=false;document.body.style.cursor='';
+    var w=parseInt(getComputedStyle(document.querySelector('.lib')).getPropertyValue('--libw'),10);
+    try{localStorage.setItem('vn.libw',String(w));}catch(e){}
+  });
+})();
+
 /* ================= 工作台 ================= */
 var stats=null;
+var lastRecCount=-1; /* 上次轮询到的记录总数，用于感知新内容（手机同步/他端上传/删除） */
 function loadStats(){
   api('/stats').then(function(s){
     stats=s;
@@ -488,30 +577,166 @@ function loadStats(){
       r.appendChild(d);
     });
     if(cur==='ai')document.getElementById('ctxAll').textContent=s.records+' 场';
+
+    /* 新内容自动刷新：总数变化说明有记录进/出（手机同步、他端上传或删除）。
+       在记录库页就地形刷新列表；其他页给个提示，切过去时 go('lib') 本来就会重拉。 */
+    if(lastRecCount>=0&&s.records!==lastRecCount){
+      if(cur==='lib')loadList();
+      if(s.records>lastRecCount)toast('新增 '+(s.records-lastRecCount)+' 条记录');
+    }
+    lastRecCount=s.records;
+
+    syncTrans();
   }).catch(function(e){toast('统计加载失败：'+e.message);});
+}
+function jobFor(id){
+  var j=null;(stats&&stats.active_jobs||[]).forEach(function(a){if(a.record_id===id)j=a;});
+  return j;
+}
+/* 实时出稿区行渲染：只读版逐句稿（无 contenteditable/删除按钮） */
+function liveSegsHTML(segs){
+  return segs.map(function(s){
+    return '<div class="seg"><span class="ts">'+fmtMs(s.t_ms)+'</span>'+
+      '<span class="spk" style="color:'+(s.spk>=0?SPKC[s.spk%4]:'var(--dim)')+'">'+spkName(s.spk)+'</span>'+
+      '<span class="tx">'+esc(s.text)+'</span></div>';
+  }).join('');
+}
+/* 逐字打字机：流式引擎逐句回调已是真增量，前端把新到句子按字逐步显现，观感即"逐字冒出"。
+   打字速度随积压队列自适应（队列越长出字越快，尽快追平）；只在底部附近时跟随滚动。 */
+var liveType={rid:null,n:0,queue:[],timer:0};
+function liveTypeReset(){
+  if(liveType.timer){clearInterval(liveType.timer);liveType.timer=0;}
+  liveType.rid=null;liveType.n=0;liveType.queue=[];
+}
+/* 转写中拉增量句子：只更新实时出稿区 DOM，不重渲染详情（不打断播放）。 */
+function refreshLive(rid){
+  api('/records/'+rid).then(function(nu){
+    if(!S.rec||S.rec.id!==rid||S.rec.status!=='asr')return;
+    S.rec.segments=nu.segments||[];
+    var segs=S.rec.segments;
+    var box=document.getElementById('liveSegs');
+    if(!box||!segs.length)return;
+    if(liveType.rid!==rid){liveTypeReset();liveType.rid=rid;}
+    if(segs.length<=liveType.n)return; /* 没有新句子：不动 DOM，打字机继续 */
+    var stick=box.scrollHeight-box.scrollTop-box.clientHeight<60;
+    var html='';
+    for(var i=0;i<segs.length;i++){
+      var shown=i<liveType.n;
+      html+='<div class="seg"><span class="ts">'+fmtMs(segs[i].t_ms)+'</span>'+
+        '<span class="spk" style="color:'+(segs[i].spk>=0?SPKC[segs[i].spk%4]:'var(--dim)')+'">'+spkName(segs[i].spk)+'</span>'+
+        '<span class="tx">'+(shown?esc(segs[i].text):'')+'</span></div>';
+    }
+    box.innerHTML=html;
+    if(stick)box.scrollTop=box.scrollHeight;
+    for(i=liveType.n;i<segs.length;i++){
+      liveType.queue.push({tx:box.children[i].querySelector('.tx'),text:segs[i].text,rev:0});
+    }
+    liveType.n=segs.length;
+    if(!liveType.timer)liveType.timer=setInterval(typeTick,60);
+    var cnt=document.getElementById('liveCnt');
+    if(cnt)cnt.textContent='实时出稿 · 已 '+segs.length+' 句 · 完成前为机器稿，暂不可修订';
+  }).catch(function(){});
+}
+function typeTick(){
+  var box=document.getElementById('liveSegs'),q=liveType.queue;
+  if(!q.length||!box){liveTypeReset();return;}
+  var near=box.scrollHeight-box.scrollTop-box.clientHeight<60;
+  var it=q[0],step=1+Math.min(8,q.length); /* 积压越多出字越快 */
+  it.rev=Math.min(it.text.length,it.rev+step);
+  it.tx.textContent=it.text.slice(0,it.rev);
+  if(it.rev>=it.text.length)q.shift();
+  if(near)box.scrollTop=box.scrollHeight;
+}
+/* 转写进度直刷：挂在 3s 统计轮询上。详情页进度条就地更新（不重渲染，避免打断播放）；
+   任务从活跃队列消失（已完成或失败）时拉新详情与列表，自动切出转写稿/失败卡片。 */
+function syncTrans(){
+  if(cur!=='lib'||!S.rec)return;
+  var r=S.rec;
+  if(r.status==='asr'||r.status==='queued'){
+    var j=jobFor(r.id);
+    var txt=document.getElementById('transTxt');
+    if(j&&j.state==='running'){
+      var p=(j.progress*100|0);
+      var bar=document.getElementById('transPbar');
+      if(bar)bar.style.width=p+'%';
+      if(txt)txt.textContent='正在转写 '+p+'%';
+      if(!r.engine||STREAM_ENGINES[r.engine])refreshLive(r.id); /* 批量引擎没有增量可拉，跳过 */
+    }else if(j&&j.state==='queued'){
+      if(txt)txt.textContent='排队等待中…';
+    }else{
+      r.status='refresh'; /* 等待拉新期间不重复触发 */
+      liveTypeReset();
+      loadDetail(r.id);loadList();
+    }
+  }
+  /* 列表里转写中的记录，状态 chip 就地追加百分比；任务消失时整表刷新一次 */
+  var needList=false;
+  S.list.forEach(function(x){
+    if(x.status!=='asr'&&x.status!=='queued')return;
+    var lj=jobFor(x.id);
+    if(lj&&lj.state==='running'){
+      var chip=document.querySelector('.ritem[data-id="'+x.id+'"] .st.asr');
+      if(chip)chip.textContent='转写中 '+(lj.progress*100|0)+'%';
+    }else if(!lj&&x.status!=='refresh'){
+      x.status='refresh';needList=true;
+    }
+  });
+  if(needList)loadList();
 }
 
 /* ================= 记录库 ================= */
-var S={list:[],sel:null,rec:null,filter:'',q:''};
+var S={list:[],sel:null,rec:null,filter:'',cat:'',q:'',page:0,limit:50,total:0,cats:[]};
 document.getElementById('globalSearch').addEventListener('keydown',function(e){
   if(e.key==='Enter'){go('lib');document.getElementById('libSearch').value=this.value;S.q=this.value;loadList();}
 });
 document.getElementById('libSearch').addEventListener('input',function(){
-  S.q=this.value.trim();clearTimeout(this._h);this._h=setTimeout(loadList,300);
+  S.q=this.value.trim();S.page=0;clearTimeout(this._h);this._h=setTimeout(loadList,300);
 });
 document.querySelectorAll('#fchips .chip').forEach(function(c){
   c.onclick=function(){
     document.querySelectorAll('#fchips .chip').forEach(function(x){x.classList.remove('on')});
-    c.classList.add('on');S.filter=c.dataset.f;loadList();
+    c.classList.add('on');S.filter=c.dataset.f;S.page=0;loadList();
   };
 });
+function renderCats(){
+  var box=document.getElementById('catChips');
+  var cats=(S.cats||[]).filter(function(c){return c.cat;});
+  if(!cats.length){box.style.display='none';return;}
+  box.style.display='flex';
+  var h='<span class="chip'+(S.cat?'':' on')+'" data-c="">全部标签</span>';
+  cats.forEach(function(c){
+    h+='<span class="chip'+(S.cat===c.cat?' on':'')+'" data-c="'+esc(c.cat)+'">'+esc(c.cat)+' <span style="opacity:.6">'+c.n+'</span></span>';
+  });
+  box.innerHTML=h;
+  box.querySelectorAll('.chip').forEach(function(ch){
+    ch.onclick=function(){
+      S.cat=ch.dataset.c;S.page=0;
+      box.querySelectorAll('.chip').forEach(function(x){x.classList.toggle('on',x===ch)});
+      loadList();
+    };
+  });
+}
+function renderPager(el,page,limit,total,goPage){
+  var pages=Math.max(1,Math.ceil(total/limit));
+  if(pages<=1&&page===0){el.innerHTML='';return;}
+  var h='<button'+(page<=0?' disabled':'')+' data-pg="prev">‹ 上一页</button>'+
+    '<span>第 <span class="cur">'+(page+1)+'</span> / '+pages+' 页 · 共 '+total+' 条</span>'+
+    '<button'+(page>=pages-1?' disabled':'')+' data-pg="next">下一页 ›</button>';
+  el.innerHTML=h;
+  el.querySelector('[data-pg="prev"]').onclick=function(){if(page>0)goPage(page-1);};
+  el.querySelector('[data-pg="next"]').onclick=function(){if(page<pages-1)goPage(page+1);};
+}
 function loadList(){
-  var p='/records?limit=200'+(S.filter?'&status='+S.filter:'')+(S.q?'&q='+encodeURIComponent(S.q):'');
+  var p='/records?limit='+S.limit+'&offset='+(S.page*S.limit)+
+    (S.filter?'&status='+S.filter:'')+(S.cat?'&cat='+encodeURIComponent(S.cat):'')+
+    (S.q?'&q='+encodeURIComponent(S.q):'');
   api(p).then(function(r){
-    S.list=r.records;
+    S.list=r.records;S.total=r.total||0;S.cats=r.cats||[];
+    if(S.page>0&&!S.list.length){S.page=Math.max(0,Math.ceil(S.total/S.limit)-1);return loadList();}
     if(S.sel && !r.records.some(function(x){return x.id===S.sel}))S.sel=null;
     if(!S.sel && r.records.length)S.sel=r.records[0].id;
-    renderList();
+    renderCats();renderList();
+    renderPager(document.getElementById('rPager'),S.page,S.limit,S.total,function(pg){S.page=pg;loadList();});
     if(S.sel)loadDetail(S.sel);
   }).catch(function(e){toast(e.message)});
 }
@@ -521,10 +746,12 @@ function renderList(){
   S.list.forEach(function(r){
     var el=document.createElement('div');
     el.className='ritem'+(r.id===S.sel?' on':'');
+    el.dataset.id=r.id; /* 供 syncTrans 就地更新转写进度 chip */
     var st=r.edited?'<span class="st ed">修订</span>':stChip(r.status);
     el.innerHTML='<div class="t">'+esc(r.title||r.id)+st+'</div>'+
       '<div class="m"><span>'+fmtTime(r.created_at)+'</span><span>'+fmtDur(r.dur_ms)+'</span>'+
-      (r.cat?'<span>'+esc(r.cat)+'</span>':'')+(r.has_audio?'':'<span>无音频</span>')+'</div>';
+      (r.cat?'<span>'+esc(r.cat)+'</span>':'')+(r.has_audio?'':'<span>无音频</span>')+'</div>'+
+      (r.preview?'<div class="pv">'+esc(r.preview)+'</div>':'');
     el.onclick=function(){S.sel=r.id;renderList();loadDetail(r.id);};
     b.appendChild(el);
   });
@@ -534,12 +761,17 @@ function loadDetail(id){
   api('/records/'+id).then(function(r){
     S.rec=r;renderDetail();
     if(cur==='ai')renderCtx();
+    if(cur==='lib')setHash('#/lib/'+id); /* 点选记录即入 URL，刷新可回到该记录 */
   }).catch(function(e){toast(e.message)});
 }
+/* 由记录 id 伪随机生成占位波形（与音频内容无关，仅装饰）。
+   注意经典 LCG 必须对 233280 取模：若对 2^32 取模（>>>0），
+   x/233280 可达 ~1.8 万，条高会到百万百分比，波形条直接爆出卡片。 */
 function waveHeights(id,n){
   var h=[],x=0;
   for(var i=0;i<id.length;i++)x=(x*31+id.charCodeAt(i))>>>0;
-  for(i=0;i<n;i++){x=(x*9301+49297)>>>0;h.push(20+((x/233280)*78));}
+  x=x||1;
+  for(i=0;i<n;i++){x=(x*9301+49297)%233280;h.push(20+(x/233280)*78);}
   return h;
 }
 function renderDetail(){
@@ -570,11 +802,22 @@ function renderDetail(){
        '<span class="edmark">'+r.edited+' 处修订 · 重转写不覆盖</span><span class="grow"></span></div><div id="segs"></div>'+
        '<div id="plain" style="display:none"></div>';
   } else if(r.status==='asr'||r.status==='queued'){
-    var prog=0;
-    if(stats&&stats.active_jobs)stats.active_jobs.forEach(function(a){if(a.record_id===r.id)prog=a.progress;});
-    h+='<div class="card" style="text-align:center;padding:44px 20px">'+
-       '<div style="font-size:13px;color:var(--sub)">正在转写</div>'+
-       '<div class="pbar" style="width:200px;margin:14px auto 0"><i style="width:'+(prog*100|0)+'%"></i></div></div>';
+    var job=jobFor(r.id),p=job&&job.state==='running'?(job.progress*100|0):0;
+    var segs=r.segments||[];
+    var streamOk=!r.engine||STREAM_ENGINES[r.engine];
+    h+='<div class="card" style="padding:20px;text-align:center">'+
+       '<div style="font-size:13px;color:var(--sub)" id="transTxt">'+(job&&job.state==='queued'?'排队等待中…':'正在转写'+(p?' '+p+'%':''))+'</div>'+
+       '<div class="pbar" style="width:200px;margin:14px auto 0"><i id="transPbar" style="width:'+p+'%"></i></div>';
+    if(!streamOk){
+      h+='<div style="font-size:11.5px;color:var(--warn);margin-top:12px">「'+esc(engineName(r.engine))+'」为批量转写，不支持逐字实时出稿，完成后一次性显示</div>';
+    }else if(segs.length){
+      h+='<div style="font-size:11.5px;color:var(--dim);margin-top:12px" id="liveCnt">实时出稿 · 已 '+segs.length+' 句 · 完成前为机器稿，暂不可修订</div>'+
+         '<div class="livesegs" id="liveSegs">'+liveSegsHTML(segs)+'</div>';
+    }else{
+      h+='<div style="font-size:11.5px;color:var(--dim);margin-top:12px" id="liveCnt"></div>'+
+         '<div class="livesegs" id="liveSegs" style="display:none"></div>';
+    }
+    h+='</div>';
   } else if(r.status==='raw'){
     h+='<div class="card" style="text-align:center;padding:44px 20px">'+
        '<div style="font-size:13px;color:var(--sub)">尚无转写稿</div>'+
@@ -588,18 +831,29 @@ function renderDetail(){
   }
   b.innerHTML=h;
 
+  /* 打字机状态与本次渲染对齐：首渲染以库内已有句数为基线（旧句不重打），
+     同记录重渲染时把打字队列重新绑到新 DOM，避免正打的句子丢字。 */
+  if(r.status==='asr'||r.status==='queued'){
+    var streamOk2=!r.engine||STREAM_ENGINES[r.engine];
+    if(streamOk2&&document.getElementById('liveSegs')){
+      if(liveType.rid!==r.id){liveTypeReset();liveType.rid=r.id;liveType.n=segs.length;}
+      else{
+        var base=liveType.n-liveType.queue.length,lb=document.getElementById('liveSegs');
+        liveType.queue.forEach(function(it,k){
+          var row=lb.children[base+k];
+          if(row){it.tx=row.querySelector('.tx');it.tx.textContent=it.text.slice(0,it.rev);}
+        });
+      }
+    }
+  }else if(liveType.rid||liveType.timer)liveTypeReset();
+
   var title=document.getElementById('recTitle');
   if(title)title.addEventListener('blur',function(){
     var v=this.textContent.trim();
     if(v!==(r.title||r.id))api('/records/'+r.id,{method:'PATCH',body:{title:v}}).then(function(){toast('标题已保存');loadList();});
   });
   var cat=document.getElementById('catChip');
-  if(cat)cat.onclick=function(){
-    var cats=['','会议','备忘','采访','速记'];
-    var i=cats.indexOf(r.cat||'');
-    var next=cats[(i+1)%cats.length];
-    api('/records/'+r.id,{method:'PATCH',body:{cat:next}}).then(function(){r.cat=next;renderDetail();loadList();});
-  };
+  if(cat)cat.onclick=function(){pickCat(r);};
   var retr=document.getElementById('btnRetr');
   if(retr)retr.onclick=function(){doTranscribe(r.id);};
   var tn=document.getElementById('btnTransNow');
@@ -625,6 +879,19 @@ function doTranscribe(id){
     toast('已入队');loadDetail(id);loadList();loadStats();
   }).catch(function(e){toast(e.message)});
 }
+/* 分类标签：候选 = 库内已有标签（安卓端自定义的可直接选），也可新建。
+   列表上的标签 chips 由 loadList 的 cats 驱动，两端看到的是同一套。 */
+function pickCat(r){
+  var names=(S.cats||[]).map(function(c){return c.cat;});
+  var cur=r.cat||'';
+  var opts=names.filter(function(n){return n&&n!==cur;});
+  var msg='输入标签（已有：'+(names.filter(Boolean).join('、')||'无')+'，留空清除）：';
+  var v=prompt(msg,cur);
+  if(v===null)return;
+  v=v.trim();
+  api('/records/'+r.id,{method:'PATCH',body:{cat:v}})
+    .then(function(){r.cat=v;renderDetail();loadList();toast(v?'标签已设为 '+v:'标签已清除');});
+}
 function setupPlayer(r){
   if(window._curAudio){try{window._curAudio.pause();}catch(e){}}
   audio=new Audio(r.audio_url);audio.preload='metadata';
@@ -637,23 +904,57 @@ function setupPlayer(r){
       ?'<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg>'
       :'<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
   }
-  function paint(){
-    var dur=audio.duration||r.dur_ms/1000||1;
-    var pos=audio.currentTime/dur,n=Math.floor(pos*wave.children.length);
-    for(var i=0;i<wave.children.length;i++)wave.children[i].className=i<n?'past':'';
-    document.getElementById('ptime').textContent=fmtDur(audio.currentTime*1000)+' / '+fmtDur((audio.duration||r.dur_ms/1000)*1000);
+  function dur(){
+    var d=audio.duration;
+    return isFinite(d)&&d>0?d:(r.dur_ms>0?r.dur_ms/1000:0);
   }
-  audio.addEventListener('timeupdate',paint);
-  audio.addEventListener('play',paintBtn);audio.addEventListener('pause',paintBtn);
-  audio.addEventListener('loadedmetadata',paint);
-  paintBtn();
+  function seek(sec){
+    var d=dur();
+    if(d>0)sec=Math.max(0,Math.min(sec,d));
+    if(audio.readyState>=1)audio.currentTime=sec;
+    else audio._pendingSeek=sec; /* 元数据未就绪时浏览器会忽略 currentTime，先挂起 */
+  }
+  audio._seek=seek; /* 供逐句稿时间戳跳转复用 */
+  audio.addEventListener('timeupdate',paint); /* 兜底：rAF 只在播放时跑，暂停/拖动后的状态靠事件刷 */
+  /* timeupdate 每秒仅触发约 4 次，进度高亮会一顿一顿；播放期间用 rAF 逐帧重绘。
+     循环自终止：暂停或切走（audio 被 pause / 不再是 _curAudio）后下一帧自动停。 */
+  var rafId=0,me=audio; /* 绑定实例：切换记录后旧循环自然退出，不与新循环重复跑 */
+  function rafStep(){
+    if(!me.paused&&me===window._curAudio){paint();rafId=requestAnimationFrame(rafStep);}
+    else rafId=0;
+  }
+  audio.addEventListener('play',function(){paintBtn();if(!rafId)rafId=requestAnimationFrame(rafStep);});
+  audio.addEventListener('pause',function(){paintBtn();paint();});
+  audio.addEventListener('loadedmetadata',function(){
+    if(audio._pendingSeek!=null){audio.currentTime=audio._pendingSeek;audio._pendingSeek=null;}
+    paint();
+  });
+  paintBtn();paint();
   btn.onclick=function(){audio.paused?audio.play():audio.pause();};
   wave.onclick=function(e){
     var rect=wave.getBoundingClientRect();
-    audio.currentTime=(e.clientX-rect.left)/rect.width*(audio.duration||r.dur_ms/1000);
+    seek((e.clientX-rect.left)/rect.width*dur());
   };
   var rate=document.getElementById('rateBtn'),rates=[1,1.25,1.5,2],ri=0;
   rate.onclick=function(){ri=(ri+1)%rates.length;audio.playbackRate=rates[ri];this.textContent=rates[ri]+'×';};
+}
+/* 进度高亮 + 时间显示。挂在全局以便波形条重建（缩放）后立即恢复，不必等下一次 timeupdate。
+   高亮条按上次位置增量更新，rAF 每帧调用时不整表重写 className。 */
+var paintLastN=-1;
+function paint(){
+  var r=S.rec,wave=document.getElementById('wave');
+  if(!r||!wave||!wave.children.length||audio!==window._curAudio)return;
+  var d=audio.duration;
+  if(!isFinite(d)||d<=0)d=r.dur_ms>0?r.dur_ms/1000:0;
+  var pos=d>0?Math.min(1,audio.currentTime/d):0;
+  var n=Math.floor(pos*wave.children.length);
+  if(n!==paintLastN){
+    var ch=wave.children,lo=Math.max(0,Math.min(n,paintLastN)),hi=Math.max(n,paintLastN);
+    for(var i=lo;i<hi;i++)ch[i].className=i<n?'past':'';
+    paintLastN=n;
+  }
+  var pt=document.getElementById('ptime');
+  if(pt)pt.textContent=fmtDur(audio.currentTime*1000)+' / '+fmtDur(d*1000);
 }
 /* 波形条数量按容器实际宽度生成（约 5px 一根），窗口缩放时防抖重建。
    固定 96 根在窄视口下会把最小内容宽度撑到 ~382px，把详情列挤溢出。 */
@@ -661,24 +962,26 @@ var waveCtx={id:null,rec:null};
 function buildWave(wave,r){
   waveCtx={id:r.id,rec:r};
   renderWave(wave);
-  clearTimeout(window._waveResize);
-  window._waveResizeFn=function(){
-    clearTimeout(window._waveResize);
-    window._waveResize=setTimeout(function(){
-      var w=document.getElementById('wave');
-      if(w&&S.rec&&S.rec.id===waveCtx.id)renderWave(w);
-    },150);
-  };
-  window.removeEventListener('resize',window._waveResizeFn);
-  window.addEventListener('resize',window._waveResizeFn);
+  if(!window._waveResizeFn){
+    window._waveResizeFn=function(){
+      clearTimeout(window._waveResize);
+      window._waveResize=setTimeout(function(){
+        var w=document.getElementById('wave');
+        if(w&&S.rec&&S.rec.id===waveCtx.id&&w.clientWidth>0)renderWave(w);
+      },150);
+    };
+    window.addEventListener('resize',window._waveResizeFn);
+  }
 }
 function renderWave(wave){
   var r=waveCtx.rec;if(!r)return;
   var cw=wave.clientWidth;
-  var n=cw>0?Math.max(24,Math.min(120,Math.floor(cw/5))):64;
+  if(cw<=0)return; /* 页面隐藏时宽度为 0，避免生成一套假条；回到本页会整体重建 */
+  var n=Math.max(24,Math.min(120,Math.floor(cw/5)));
   wave.innerHTML='';
-  var hs=waveHeights(r.id,n);
-  hs.forEach(function(p){var i=document.createElement('i');i.style.height=p+'%';wave.appendChild(i);});
+  paintLastN=-1; /* 条已重建，paint 的增量游标作废 */
+  waveHeights(r.id,n).forEach(function(p){var i=document.createElement('i');i.style.height=p+'%';wave.appendChild(i);});
+  paint(); /* 重建后立即恢复已播进度高亮 */
 }
 function renderSegs(r){
   var box=document.getElementById('segs');box.innerHTML='';
@@ -702,7 +1005,7 @@ function renderSegs(r){
         .then(function(){s.text=v;if(!s.edited){s.edited=true;r.edited++;}toast('修订已保存');});
     });
     el.querySelector('.ts').onclick=function(){
-      if(window._curAudio){window._curAudio.currentTime=s.t_ms/1000;window._curAudio.play();}
+      if(window._curAudio&&window._curAudio._seek){window._curAudio._seek(s.t_ms/1000);window._curAudio.play();}
     };
     el.querySelector('[data-del]').onclick=function(){
       api('/records/'+r.id+'/segments/'+s.id,{method:'DELETE'})
@@ -714,7 +1017,7 @@ function renderSegs(r){
   pl.textContent=r.segments.map(function(s){return s.text;}).join('\n');
 }
 function openRecord(id,segId){
-  go('lib');S.sel=id;
+  S.sel=id;go('lib',id); /* rid 随 go 进 URL：跨页跳转（任务页「查看」等）也保留位置 */
   api('/records/'+id).then(function(r){
     S.rec=r;renderList();renderDetail();
     if(segId){
@@ -727,8 +1030,9 @@ function openRecord(id,segId){
 
 /* ================= 转写任务 ================= */
 var engines=[];
+var J={page:0,limit:50,total:0};
 function loadAsr(){
-  Promise.all([api('/engines'),api('/jobs')]).then(function(rs){
+  Promise.all([api('/engines'),api('/jobs?limit='+J.limit+'&offset='+(J.page*J.limit))]).then(function(rs){
     engines=rs[0].engines;
     var def=rs[0].default;
     document.getElementById('asrSub').textContent='默认引擎 '+(engines.filter(function(e){return e.id===def})[0]||{}).name;
@@ -747,6 +1051,7 @@ function loadAsr(){
       eb.appendChild(el);
     });
     var tb=document.getElementById('jobRows');tb.innerHTML='';
+    J.total=rs[1].total||0;
     if(!rs[1].jobs.length)tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--dim);padding:24px">队列为空</td></tr>';
     rs[1].jobs.forEach(function(j){
       var tr=document.createElement('tr');
@@ -769,6 +1074,7 @@ function loadAsr(){
       if(cb)cb.onclick=function(){api('/jobs/'+j.id+'/cancel',{method:'POST'}).then(function(){loadAsr();}).catch(function(e){toast(e.message)});};
       tb.appendChild(tr);
     });
+    renderPager(document.getElementById('jobPager'),J.page,J.limit,J.total,function(pg){J.page=pg;loadAsr();});
   }).catch(function(e){toast(e.message)});
 }
 function uploadFiles(files){
@@ -908,6 +1214,26 @@ function loadSettings(){
       row('API Key',s.cloud_asr_key_set?'已配置（留空不更改）':'未配置','<input type="password" data-k="cloud_asr_key" placeholder="'+(s.cloud_asr_key_set?'••••••••••••':'sk-…')+'" style="width:190px">')+
       row('模型','如 whisper-large-v3 / SenseVoiceLarge','<input type="text" data-k="cloud_asr_model" value="'+esc(s.cloud_asr_model)+'" style="width:190px">')+
       '</div>'+
+      '<div class="card"><h3>本地大模型 · Qwen3-ASR-1.7B</h3>'+
+      row('模型文件','q4_k 1.31 GB（2C/6G 推荐）· q5_k 1.82 GB','<span id="llamaStat" style="font-size:11px;color:var(--dim)">–</span>')+
+      row('下载模型','选量化自动填仓库，也可手动改','<span class="dlrow">'+
+        '<select id="llamaQuant">'+
+        '<option value="Q4_K_M">q4_k_m（推荐）</option>'+
+        '<option value="Q8_0">q8_0（官方 ggml-org）</option>'+
+        '<option value="">自定义仓库</option></select>'+
+        '<input type="text" id="llamaRepo" value="'+esc(s.llama_repo||'')+'" style="width:200px">'+
+        '<button class="btn sm accent" id="btnDl">下载</button>'+
+        '<button class="btn sm" id="btnDlStop" style="display:none">取消</button></span>')+
+      '<div class="pbar" id="llamaDlBar" style="width:100%;margin:8px 0 2px;display:none"><i></i></div>'+
+      '<div class="hint" id="llamaDlTxt" style="font-size:10.5px;color:var(--dim);margin-bottom:6px"></div>'+
+      row('llama-server 路径','llama.cpp 发布包里的 llama-server(.exe) 完整路径','<input type="text" data-k="llama_server_path" value="'+esc(s.llama_server_path||'')+'" style="width:230px">')+
+      row('服务端口','','<input type="text" data-k="llama_port" value="'+esc(s.llama_port||'8849')+'" style="width:80px">')+
+      row('推理服务','转写时自动启动，也可手动预热','<span class="dlrow"><span id="llamaSrvHint" style="font-size:11px;color:var(--dim)">–</span>'+
+        '<button class="btn sm" id="btnSrv">启动</button></span>')+
+      '<div class="hintblk">模型下载走 <a href="https://hf-mirror.com" target="_blank">hf-mirror.com</a> 镜像；'+
+      '模型与音频编码器（mmproj）存到 <span class="tok">data/models/qwen3-asr/</span>。Qwen3-ASR 不输出时间戳，转写稿为整段一句。'+
+      'llama.cpp 发布包见 <a href="https://github.com/ggml-org/llama.cpp/releases" target="_blank">github.com/ggml-org/llama.cpp/releases</a>。</div>'+
+      '</div>'+
       '<div class="card"><h3>设备与访问</h3>'+
       row('配对令牌','App 端「设置 → 服务器」中填入','<span class="tok">'+esc(s.sync_token)+'</span><button class="btn sm" id="btnCopyTok">复制</button>')+
       row('重置令牌','旧令牌立即失效，设备需更新','<button class="btn sm" id="btnResetTok">重置</button>')+
@@ -925,11 +1251,89 @@ function loadSettings(){
       if(!confirm('重置后旧令牌立即失效，已配对设备需要更新令牌。继续？'))return;
       api('/settings/reset-token',{method:'POST'}).then(function(r){toast('新令牌：'+r.sync_token);loadSettings();});
     };
+    wireLlama();
+    loadModel();
   }).catch(function(e){toast(e.message)});
+}
+
+/* ================= 本地大模型（Qwen3-ASR · llama.cpp） ================= */
+var QUANT_REPO={'Q4_K_M':'foryoung365/Qwen3-ASR-1.7B-Q4_K_M-GGUF','Q8_0':'ggml-org/Qwen3-ASR-1.7B-GGUF'};
+function wireLlama(){
+  var q=document.getElementById('llamaQuant'),repo=document.getElementById('llamaRepo');
+  if(!q||!repo)return;
+  q.onchange=function(){if(QUANT_REPO[q.value])repo.value=QUANT_REPO[q.value];};
+  if(!repo.value)repo.value=QUANT_REPO.Q4_K_M;
+  document.getElementById('btnDl').onclick=function(){
+    var r=repo.value.trim();
+    if(!r){toast('请填写模型仓库');return;}
+    saveLlamaSettings(function(){
+      api('/models/asr/download',{method:'POST',body:{repo:r,quant:q.value}})
+        .then(function(){toast('开始下载（走 hf-mirror 镜像）');loadModel();})
+        .catch(function(e){toast(e.message)});
+    });
+  };
+  document.getElementById('btnDlStop').onclick=function(){
+    api('/models/asr/download/stop',{method:'POST'}).then(function(){toast('正在取消…');});
+  };
+  document.getElementById('btnSrv').onclick=function(){
+    if(this.dataset.stop){
+      api('/models/asr/server',{method:'POST',body:{action:'stop'}}).then(function(){loadModel();});
+      return;
+    }
+    saveLlamaSettings(function(){
+      var b=document.getElementById('btnSrv');b.disabled=true;
+      api('/models/asr/server',{method:'POST',body:{action:'start'}})
+        .then(function(){toast('llama-server 已就绪');loadModel();})
+        .catch(function(e){toast(e.message);loadModel();});
+    });
+  };
+}
+function saveLlamaSettings(cb){
+  var p={};
+  ['llama_server_path','llama_port'].forEach(function(k){
+    var el=document.querySelector('[data-k="'+k+'"]');
+    if(el)p[k]=el.value;
+  });
+  p.llama_repo=document.getElementById('llamaRepo').value;
+  api('/settings',{method:'PATCH',body:p}).then(cb).catch(function(e){toast(e.message)});
+}
+var _dlSig='';
+function loadModel(){
+  api('/models/asr').then(function(m){
+    var st=document.getElementById('llamaStat');if(!st)return;
+    var mb=m.model;
+    if(mb.ready){
+      st.innerHTML='<span style="color:var(--ok)">已就绪</span> · 主模型 '+fmtBytes(mb.main_bytes)+
+        ' · 编码器 '+fmtBytes(mb.mmproj_bytes);
+    }else{
+      var got=[];
+      if(mb.main)got.push('主模型 '+fmtBytes(mb.main_bytes));
+      if(mb.mmproj)got.push('编码器 '+fmtBytes(mb.mmproj_bytes));
+      st.innerHTML='<span style="color:var(--warn)">'+(got.length?'缺编码器或主模型（已有 '+got.join(' + ')+'）':'未下载')+'</span>';
+    }
+    var dl=m.download;
+    var bar=document.getElementById('llamaDlBar'),dt=document.getElementById('llamaDlTxt'),
+        bd=document.getElementById('btnDl'),bs=document.getElementById('btnDlStop');
+    if(dl.state==='downloading'){
+      bar.style.display='block';bar.firstElementChild.style.width=((dl.progress||0)*100).toFixed(1)+'%';
+      dt.textContent='下载中 '+dl.file+' · '+fmtBytes(dl.got)+(dl.total?' / '+fmtBytes(dl.total):'');
+      bd.style.display='none';bs.style.display='';
+    }else{
+      bar.style.display='none';
+      dt.textContent=dl.state==='fail'?('下载失败：'+dl.error):(dl.state==='done'?'下载完成':'');
+      bd.style.display='';bs.style.display='none';
+    }
+    var srv=m.server,sb=document.getElementById('btnSrv'),sh=document.getElementById('llamaSrvHint');
+    sb.disabled=false;
+    if(srv.healthy){sb.textContent='停止';sb.dataset.stop='1';sh.innerHTML='<span style="color:var(--ok)">运行中</span> · 端口 '+srv.port;}
+    else if(srv.running){sb.textContent='停止';sb.dataset.stop='1';sh.innerHTML='进程存在 · 端口 '+srv.port+'（模型加载中）';}
+    else{sb.textContent='启动';delete sb.dataset.stop;sh.innerHTML='未运行';}
+  }).catch(function(){});
 }
 document.getElementById('btnSave').onclick=function(){
   var p={};
-  ['default_engine','whisper_model','whisper_device','whisper_language','ai_base','ai_model','cloud_asr_base','cloud_asr_model'].forEach(function(k){
+  ['default_engine','whisper_model','whisper_device','whisper_language','ai_base','ai_model',
+   'cloud_asr_base','cloud_asr_model','llama_server_path','llama_port','llama_repo','hf_mirror'].forEach(function(k){
     if(typeof setForm[k]==='string')p[k]=setForm[k];
   });
   ['cloud_asr_key','ai_key'].forEach(function(k){
@@ -946,10 +1350,11 @@ document.getElementById('btnRefresh').onclick=function(){
   if(cur==='lib')loadList();
 };
 
-/* 启动：先拿引擎清单（设置页要用），再进工作台 */
-api('/engines').then(function(r){engines=r.engines;});
+/* 启动：先拿引擎清单（设置页/引擎名映射要用），再按 URL 进入页面（缺省 #/home） */
+api('/engines').then(function(r){engines=r.engines;}).catch(function(){});
 loadStats();
-setInterval(function(){loadStats();if(cur==='asr')loadAsr();},3000);
+routeFromHash();
+setInterval(function(){loadStats();if(cur==='asr')loadAsr();if(cur==='set')loadModel();},3000);
 </script>
 </body>
 </html>
