@@ -14,6 +14,7 @@ def list_engines():
 
 @router.get("/jobs")
 def list_jobs(state: str = "", limit: int = 50, offset: int = 0):
+    limit = max(0, min(limit, 200))  # 同 records：负值会绕过分页上限
     where, args = [], []
     if state:
         where.append("j.state=?")
@@ -23,7 +24,7 @@ def list_jobs(state: str = "", limit: int = 50, offset: int = 0):
     total = c.execute("SELECT COUNT(*) FROM jobs j" + cond, args).fetchone()[0]
     sql = ("SELECT j.*, r.title FROM jobs j JOIN records r ON r.id=j.record_id"
            + cond + " ORDER BY j.id DESC LIMIT ? OFFSET ?")
-    rows = c.execute(sql, args + [min(limit, 200), max(0, offset)]).fetchall()
+    rows = c.execute(sql, args + [limit, max(0, offset)]).fetchall()
     out = []
     for r in rows:
         out.append({

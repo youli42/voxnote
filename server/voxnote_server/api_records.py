@@ -35,6 +35,7 @@ def _rec_out(r, with_segs=False):
 @router.get("/records")
 def list_records(status: str = "", q: str = "", cat: str = "",
                  limit: int = 50, offset: int = 0):
+    limit = max(0, min(limit, 500))  # 负值在 SQLite 里 LIMIT -1 = 无限制，会绕过分页上限
     sql = "SELECT * FROM records"
     where, args = [], []
     if status == "edited":
@@ -61,7 +62,7 @@ def list_records(status: str = "", q: str = "", cat: str = "",
     total = c.execute("SELECT COUNT(*) FROM records" + cond, args).fetchone()[0]
 
     sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-    rows = c.execute(sql, args + [min(limit, 500), max(0, offset)]).fetchall()
+    rows = c.execute(sql, args + [limit, max(0, offset)]).fetchall()
 
     previews = db.first_texts([r["id"] for r in rows])
     out = []
@@ -181,6 +182,10 @@ def record_audio(rid: str):
 
 @router.get("/records/{rid}/transcript.md")
 def transcript_md(rid: str):
+    # 先查库再拼路径：rid 是 URL 单段，不查库直接 join 的话 ".."/Windows 反斜杠
+    # 编码能把路径带出 transcripts 目录
+    if db.record_row(rid) is None:
+        raise HTTPException(404, "记录不存在")
     db.export_mirror(rid)
     path = os.path.join(config.transcript_dir(rid), "transcript.md")
     if not os.path.isfile(path):
@@ -190,6 +195,8 @@ def transcript_md(rid: str):
 
 @router.get("/records/{rid}/segments.jsonl")
 def segments_jsonl(rid: str):
+    if db.record_row(rid) is None:
+        raise HTTPException(404, "记录不存在")
     db.export_mirror(rid)
     path = os.path.join(config.transcript_dir(rid), "segments.jsonl")
     if not os.path.isfile(path):
