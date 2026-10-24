@@ -237,6 +237,14 @@
   .tab:hover{color:var(--text)}
   .tab.on{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
 
+  /* 转写版本页签：当前结果 + 历史存档，逐版本一块 */
+  .veritem{margin-top:14px}
+  .verhead{font-size:11px;color:var(--sub);display:flex;gap:10px;align-items:center;margin-bottom:5px;
+    font-variant-numeric:tabular-nums}
+  .vernum{border:1px solid #413b66;color:var(--accent-h);border-radius:5px;padding:1px 8px;font-size:9.5px}
+  .vertext{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:10px 13px;
+    font-size:12px;line-height:1.8;color:#ccd1da;white-space:pre-wrap;overflow-wrap:anywhere}
+
   .segbar{display:flex;align-items:center;gap:9px;margin-bottom:10px}
   .segbar .auto{font-size:10.5px;color:var(--ok);display:flex;align-items:center;gap:5px}
   .segbar .grow{flex:1}
@@ -1047,10 +1055,12 @@ function renderDetail(){
     }
     h+='</div>';
   } else if(r.segments && r.segments.length){
-    h+='<div class="tabs"><button class="tab on" data-t="segs">逐句稿</button><button class="tab" data-t="plain">纯文本</button></div>'+
+    h+='<div class="tabs"><button class="tab on" data-t="segs">逐句稿</button><button class="tab" data-t="plain">纯文本</button>'+
+       '<button class="tab" data-t="ver" id="verTab" style="display:none">转写版本</button></div>'+
        '<div class="segbar"><span class="auto"><span class="dot"></span>修订即时保存</span>'+
        '<span class="edmark">'+r.edited+' 处修订 · 重转写不覆盖</span><span class="grow"></span></div><div id="segs"></div>'+
-       '<div id="plain" style="display:none"></div>';
+       '<div id="plain" style="display:none"></div>'+
+       '<div id="ver" style="display:none"></div>';
   } else if(r.status==='raw'){
     h+='<div class="card" style="text-align:center;padding:44px 20px">'+
        '<div style="font-size:13px;color:var(--sub)">尚无转写稿</div>'+
@@ -1120,10 +1130,36 @@ function renderDetail(){
   b.querySelectorAll('.tab').forEach(function(t){
     t.onclick=function(){
       b.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')});t.classList.add('on');
-      document.getElementById('segs').style.display=t.dataset.t==='segs'?'block':'none';
-      document.getElementById('plain').style.display=t.dataset.t==='plain'?'block':'none';
+      ['segs','plain','ver'].forEach(function(k){
+        var el=document.getElementById(k);
+        if(el)el.style.display=t.dataset.t===k?'block':'none';
+      });
     };
   });
+  /* 转写版本：懒加载，有历史存档才亮出页签 */
+  if(r.segments&&r.segments.length&&r.status!=='asr'&&r.status!=='queued'){
+    api('/records/'+r.id+'/versions').then(function(v){
+      var vs=v.versions||[];
+      var cur=v.current;
+      if(!vs.length)return;
+      var tabB=document.getElementById('verTab'),box=document.getElementById('ver');
+      if(!tabB||!box)return;
+      tabB.style.display='';
+      var h='';
+      var head=function(label,engine,at,nseg){
+        return '<div class="verhead"><span class="vernum">'+label+'</span>'+
+          '<span>'+esc(engine||'未知引擎')+'</span><span>'+fmtTime(at)+'</span><span>'+nseg+' 句</span></div>';
+      };
+      if(cur)h+='<div class="veritem">'+head('当前',cur.engine,cur.at,cur.nseg)+
+        '<div class="vertext">'+esc(cur.text)+'</div></div>';
+      for(var i=vs.length-1;i>=0;i--){
+        var ver=vs[i];
+        h+='<div class="veritem">'+head('第 '+(i+1)+' 次',ver.engine,ver.at,ver.nseg)+
+          '<div class="vertext">'+esc(ver.text)+'</div></div>';
+      }
+      box.innerHTML=h;
+    }).catch(function(){});
+  }
 }
 function doTranscribe(id){
   api('/records/'+id+'/transcribe',{method:'POST',body:{}}).then(function(){

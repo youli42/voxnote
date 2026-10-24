@@ -245,6 +245,14 @@ def _run(job, engines):
         _fail(job, rid, had_content, friendly or ("转写失败：" + raw[:280]), raw[:2000])
         return
 
+    # 旧机器结果先存档为历史版本（与新结果不同才存，相同不制造版本噪音），
+    # 然后才整层替换——控制台详情页的「转写版本」页签读的就是这些存档。
+    old = db.machine_text(rid)
+    if old is not None:
+        new_text = "\n".join(s["text"] for s in segs)
+        if old["text"] != new_text:
+            db.archive_version(rid, rec["engine"], rec["updated_at"], old["text"], old["nseg"])
+
     db.replace_machine_segments(rid, segs)
     dur = segs[-1]["e_ms"] if segs else rec["dur_ms"]
     db.update_record(rid, status="done", engine=e.id, dur_ms=dur or rec["dur_ms"],

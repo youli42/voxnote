@@ -26,7 +26,8 @@ docker compose --profile gpu up -d   # NVIDIA GPU（需 nvidia-container-toolkit
 ```
 
 数据落在 `./data`（容器内 `/data/voxnote`）：`voxnote.db` + `audio/<yyyy.MM>/` +
-`transcripts/<id>/`（可再生的导出镜像）。
+`transcripts/<id>/`（可再生的导出镜像；重转写结果有差异时旧机器结果
+存档在 `transcripts/<id>/versions/`，供控制台详情页的「转写版本」对比）。
 
 ## 与 App / S1 配对
 

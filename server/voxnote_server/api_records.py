@@ -91,6 +91,21 @@ def get_record(rid: str):
     return _rec_out(r, with_segs=True)
 
 
+@router.get("/records/{rid}/versions")
+def record_versions(rid: str):
+    """转写版本：历史机器结果存档（有差异才产生）+ 当前机器结果。
+    供控制台详情页对比不同引擎/不同时间的转写产出。"""
+    r = db.record_row(rid)
+    if r is None:
+        raise HTTPException(404, "记录不存在")
+    cur = db.machine_text(rid)
+    return {
+        "versions": db.list_versions(rid),
+        "current": ({"engine": r["engine"], "at": r["updated_at"],
+                     "nseg": cur["nseg"], "text": cur["text"]} if cur else None),
+    }
+
+
 @router.get("/records/{rid}/meta")
 def record_meta(rid: str):
     """详细信息弹窗：文件落盘位置、音频元数据、转写统计与最近一次转写任务。"""

@@ -292,6 +292,50 @@ def distinct_cats():
         " GROUP BY cat ORDER BY n DESC, cat").fetchall()
 
 
+# ------------------------------------------------------------ 转写版本（历史结果存档）
+# 机器派生、可再生，放 transcripts/<id>/versions/（不落契约、不进 DB）。
+# 只在两次结果有差异时存档，用户关心的是"不同引擎/不同时间产出了什么"。
+
+def machine_text(record_id: str):
+    """当前机器层纯文本（不含人工修订），无机器内容返回 None。"""
+    rows = conn().execute(
+        "SELECT m_text FROM segments WHERE record_id=? ORDER BY t_ms", (record_id,)).fetchall()
+    if not rows:
+        return None
+    texts = [r["m_text"] or "" for r in rows]
+    return {"text": "\n".join(texts), "nseg": len(texts)}
+
+
+def archive_version(record_id: str, engine, at: int, text: str, nseg: int):
+    """重转写替换机器层前调用：把旧机器结果存档为历史版本。失败不影响主流程。"""
+    try:
+        d = os.path.join(config.transcript_dir(record_id), "versions")
+        os.makedirs(d, exist_ok=True)
+        payload = json.dumps({"engine": engine or "unknown", "at": at, "nseg": nseg,
+                              "text": text}, ensure_ascii=False)
+        with open(os.path.join(d, "%d.json" % at), "w", encoding="utf-8") as f:
+            f.write(payload)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+
+
+def list_versions(record_id: str):
+    d = os.path.join(config.transcript_dir(record_id), "versions")
+    out = []
+    if os.path.isdir(d):
+        for name in os.listdir(d):
+            if not name.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(d, name), encoding="utf-8") as f:
+                    out.append(json.load(f))
+            except Exception:
+                pass
+    out.sort(key=lambda v: v.get("at", 0))
+    return out
+
+
 def search_sentences(query: str, limit=12, record_ids=None):
     """句级召回（FTS5，前缀友好的 OR 查询），供 AI 引用与全局搜索。"""
     terms = [t for t in _tokenize(query) if len(t) >= 1]
