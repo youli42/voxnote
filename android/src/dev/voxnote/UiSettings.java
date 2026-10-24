@@ -46,6 +46,8 @@ public class UiSettings {
     public volatile String serverUrl = "";
     public volatile String serverToken = "";
     public boolean autoSync = false;
+    /** 上传时报给服务器的本机设备名；空 = 用 Build.MODEL。控制台按它显示「从哪台设备传的」。 */
+    public volatile String deviceName = "";
     public ArrayList<Cat> categories = new ArrayList<Cat>();
 
     private SharedPreferences prefs;
@@ -86,6 +88,7 @@ public class UiSettings {
         serverUrl = prefs.getString("serverUrl", "");
         serverToken = prefs.getString("serverToken", "");
         autoSync = prefs.getBoolean("autoSync", false);
+        deviceName = prefs.getString("deviceName", "");
 
         categories = new ArrayList<Cat>();
         String raw = prefs.getString(KEY_CATS, "");
@@ -204,6 +207,7 @@ public class UiSettings {
                 .putString("serverUrl", nz(serverUrl))
                 .putString("serverToken", nz(serverToken))
                 .putBoolean("autoSync", autoSync)
+                .putString("deviceName", nz(deviceName))
                 .putString(KEY_CATS, a.toString())
                 .apply();
     }

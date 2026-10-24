@@ -286,6 +286,14 @@ public class SettingsScreen {
                     }
                 }));
         srvGroup.addView(Ui.divider(act));
+        srvGroup.addView(inputBlock("本机设备名", s.deviceName, InputType.TYPE_CLASS_TEXT, false,
+                "显示在服务器控制台的设备标签；留空用手机型号", new OnText() {
+                    public void onText(String v) {
+                        s.deviceName = v;
+                        s.save();
+                    }
+                }));
+        srvGroup.addView(Ui.divider(act));
         LinearLayout srvStatusRow = Ui.row(act);
         Ui.pad(srvStatusRow, 0, 8, 0, 8);
         srvStatusRow.addView(Ui.text(act, "状态", 12.5f, Ui.TEXT), Ui.lp(0,
@@ -958,12 +966,17 @@ public class SettingsScreen {
     }
 
     private View inputBlock(String label, String value, int inputType, boolean mono, final OnText cb) {
+        return inputBlock(label, value, inputType, mono, null, cb);
+    }
+
+    private View inputBlock(String label, String value, int inputType, boolean mono,
+                            String hint, final OnText cb) {
         LinearLayout box = Ui.col(act);
         Ui.pad(box, 0, 8, 0, 8);
         box.addView(Ui.text(act, label, 12.5f, Ui.TEXT));
         EditText f = field(value, mono);
         f.setInputType(inputType);
-        f.setHint(label);
+        f.setHint(hint == null || hint.length() == 0 ? label : hint);
         f.addTextChangedListener(watcher(cb));
         box.addView(f, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 0));
