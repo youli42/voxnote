@@ -93,6 +93,8 @@
   .st.fail{color:#e8949b;border-color:#58383e}
   .st.raw{color:#a8b4c8;border-color:#39414f}
   .st.ed{color:#b9aef5;border-color:#413b66}
+  /* 默认标题的相对日标记（今天/昨天/前天/一周内…） */
+  .st.rel{color:#9db4d8;border-color:#39445c}
 
   .toggle{width:34px;height:19px;border-radius:99px;background:#2a2e39;border:1px solid var(--line2);position:relative;
           cursor:pointer;flex:none;transition:.15s}
@@ -581,6 +583,26 @@ function fmtTime(ts){var d=new Date(ts);return (d.getMonth()+1)+'-'+('0'+d.getDa
 function fmtFull(ts){if(!ts)return '–';var d=new Date(ts);
   return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)+
   ' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)+':'+('0'+d.getSeconds()).slice(-2);}
+/* 完整日期时间（不含秒），默认标题的替代显示用 */
+function fmtDT(ts){var d=new Date(ts);
+  return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)+
+  ' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);}
+/* 默认标题（安卓端生成的「录音 HH:MM」）在列表里换成完整日期时间 + 相对日标记，
+   方便快速检查；用户自己起的标题原样显示。空标题同样按默认处理。 */
+var DEFAULT_TITLE_RE=/^录音 \d{1,2}:\d{2}$/;
+function isDefaultTitle(t){t=String(t||'').trim();return !t||DEFAULT_TITLE_RE.test(t);}
+function relDay(ts){
+  var midnight=function(x){return new Date(x.getFullYear(),x.getMonth(),x.getDate()).getTime();};
+  var n=Math.round((midnight(new Date())-midnight(new Date(ts)))/86400000);
+  if(n<=0)return '今天';
+  if(n===1)return '昨天';
+  if(n===2)return '前天';
+  if(n<=7)return '一周内';
+  if(n<=14)return '一周前';
+  if(n<=30)return '两周前';
+  return '一月前';
+}
+function relChip(ts){return ' <span class="st rel">'+relDay(ts)+'</span>';}
 function fmtBytes(b){if(b>1<<30)return (b/(1<<30)).toFixed(1)+' GB';if(b>1<<20)return (b/(1<<20)).toFixed(0)+' MB';return (b/1024|0)+' KB';}
 var STMAP={done:['done','已转写'],queued:['queued','排队'],asr:['asr','转写中'],fail:['fail','失败'],raw:['raw','仅音频']};
 function stChip(st){var m=STMAP[st]||STMAP.raw;return '<span class="st '+m[0]+'">'+m[1]+'</span>';}
@@ -940,8 +962,9 @@ function renderList(){
     el.className='ritem'+(S.batch?(S.picks[r.id]?' picked':''):(r.id===S.sel?' on':''));
     el.dataset.id=r.id; /* 供 syncTrans 就地更新转写进度 chip */
     var st=r.edited?'<span class="st ed">修订</span>':stChip(r.status);
+    var defT=isDefaultTitle(r.title);
     el.innerHTML='<div class="t">'+(S.batch?'<span class="pickbox">'+(S.picks[r.id]?'☑':'☐')+'</span>':'')+
-      esc(r.title||r.id)+st+'</div>'+
+      (defT?esc(fmtDT(r.created_at))+relChip(r.created_at):esc(r.title||r.id))+st+'</div>'+
       '<div class="m"><span>'+fmtTime(r.created_at)+'</span><span>'+fmtDur(r.dur_ms)+'</span>'+
       (r.cat?'<span>'+esc(r.cat)+'</span>':'<span style="opacity:.55">未分类</span>')+(r.has_audio?'':'<span>无音频</span>')+'</div>'+
       (r.preview?'<div class="pv">'+esc(r.preview)+'</div>':'');
@@ -1503,9 +1526,11 @@ function renderStream(){
     el.className='sc'+(ST.playingId===r.id?' playing':'')+(ST.open[r.id]?' open':'');
     el.dataset.id=r.id;
     var st=r.edited?'<span class="st ed">修订</span>':stChip(r.status);
+    var defT=isDefaultTitle(r.title);
     el.innerHTML='<div class="hd">'+
       (r.has_audio?'<button class="pbtn" data-play title="播放">'+(ST.playingId===r.id?SVG_PAUSE:SVG_PLAY)+'</button>':'')+
-      '<span class="tt" title="到记录库打开">'+esc(r.title||r.id)+'</span>'+
+      '<span class="tt" title="到记录库打开">'+(defT?esc(fmtDT(r.created_at)):esc(r.title||r.id))+'</span>'+
+      (defT?relChip(r.created_at):'')+
       '<span class="mt2">'+st+'<span>'+fmtTime(r.created_at)+'</span><span>'+fmtDur(r.dur_ms)+'</span>'+
       '<span class="catchip" data-cat style="cursor:pointer">'+esc(r.cat||'未分类')+' ▾</span></span>'+
       '<span class="grow"></span>'+
