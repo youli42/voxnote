@@ -116,6 +116,10 @@ _ERROR_RULES = [
      "云端请求被限流：配额用尽或频率过高"),
     (("model_not_found", "model does not exist", "http 404"),
      "模型不存在：检查引擎的模型名/仓库配置"),
+    # 模型下载失败常被包成 LocalEntryNotFoundError（文本只有 "cannot find ... snapshot
+    # folder"，会被下面的文件缺失规则误报），靠因果链里的 huggingface.co 抢先命中
+    (("huggingface", "hf-mirror", "snapshot folder", "faster-whisper-", "model download"),
+     "模型下载失败：访问 HuggingFace 超时或不可达（检查网络，或配置镜像后重试）"),
     (("connecterror", "connection refused", "connectionreset", "all connection attempts failed",
       "remoteendclosed", "积极拒绝", "无法连接"),
      "无法连接转写服务：本地服务未启动或端口不对"),
@@ -133,12 +137,21 @@ _ERROR_RULES = [
 
 
 def _classify_error(exc):
-    """→ (friendly, detail)。friendly 为 None 表示没有已知归类（调用方回退展示原文）。"""
-    raw = str(exc).strip() or exc.__class__.__name__
-    low = raw.lower()
+    """→ (friendly, detail)。friendly 为 None 表示没有已知归类（调用方回退展示原文）。
+
+    匹配文本沿 __cause__/__context__ 拼整条因果链：下游库常把网络/模型错误
+    包一层本地异常，只看最外层会误报（如 HF 下载超时被标成"文件缺失"）。"""
+    parts, seen, t = [], set(), exc
+    while t is not None and id(t) not in seen:
+        seen.add(id(t))
+        parts.append(str(t) or t.__class__.__name__)
+        t = t.__cause__ or t.__context__
+    chain = "\n-- caused by --\n".join(parts)
+    raw = (str(exc).strip() or exc.__class__.__name__)
+    low = chain.lower()
     for keys, msg in _ERROR_RULES:
         if any(k in low for k in keys):
-            return msg, raw
+            return msg, chain
     return None, raw
 
 
