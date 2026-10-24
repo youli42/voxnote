@@ -165,6 +165,44 @@
   .hintblk{font-size:10.5px;color:var(--dim);line-height:1.8;margin-top:9px}
   .hintblk a{color:var(--info);text-decoration:none}
 
+  /* 录音流：平铺卡片 + 连播，批量 review 用。工具栏吸顶，翻看长列表时筛选随手可换。
+     卡片紧凑：首行=播放钮+标题+元信息+操作，次行细进度条，正文 3 行钳制 */
+  .sttop{position:sticky;top:0;z-index:20;background:var(--bg);margin:-20px -22px 0;
+         padding:12px 22px 9px;border-bottom:1px solid var(--line)}
+  .sthd{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .sthd h1{font-size:17px;font-weight:650}
+  .sthd .sub{font-size:11.5px;color:var(--dim)}
+  .sthd .grow{flex:1}
+  .sttop .search{width:100%;max-width:420px;margin:8px 0 0}
+  .sttop .chips{margin-bottom:2px}
+  .sttop .chips:last-child{margin-bottom:0}
+  .sc{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:9px 13px 8px;margin-bottom:7px}
+  .sc.playing{border-color:#4a4376}
+  .sc .hd{display:flex;align-items:center;gap:8px;min-width:0}
+  .sc .pbtn{width:27px;height:27px;flex:none}
+  .sc .tt{font-size:13px;font-weight:650;cursor:pointer;flex:0 1 auto;min-width:0;overflow:hidden;
+          text-overflow:ellipsis;white-space:nowrap}
+  .sc .tt:hover{color:var(--accent-h)}
+  .sc .mt2{font-size:10.5px;color:var(--dim);white-space:nowrap;display:flex;gap:7px;align-items:center;flex:none}
+  .sc .mt2 .st{transform:scale(.92)}
+  .sc .grow{flex:1;min-width:8px}
+  .sc .acts{display:flex;gap:4px;flex:none}
+  .sc .acts .op{font-size:10px;padding:3px 8px}
+  .sc .bar{height:4px;background:#22252e;border-radius:99px;margin-top:8px;cursor:pointer;overflow:hidden}
+  .sc .bar i{display:block;height:100%;width:0;background:var(--accent);border-radius:99px}
+  /* 流卡片精简波形：细条 16px 高，静音段压暗，播放进度逐条点亮 */
+  .sc .wave{height:16px;margin-top:8px;cursor:pointer;overflow:hidden}
+  .sc .wave i{background:#2b303b;border-radius:1px}
+  .sc .wave i.past{background:var(--accent)}
+  .sc .wave i.sil{background:#1d2027}
+  .sc .wave i.sil.past{background:#3a3565}
+  /* 默认收起 3 行；.open 时换回块级布局解除行数钳制（-webkit-box 的 clamp 即失效） */
+  .sc .txt{font-size:12.5px;line-height:1.8;color:#ccd1da;margin-top:8px;overflow-wrap:anywhere;white-space:pre-wrap;
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .sc .txt.dim{color:var(--dim)}
+  .sc.open .txt{display:block}
+  .sc .ft{display:flex;justify-content:flex-end;margin-top:5px}
+
   .libdetail{overflow-y:auto;overflow-x:hidden;padding:20px 26px 46px;min-width:0}
   .dt{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
   .dt h2{font-size:18px;font-weight:650;outline:0;border-radius:6px;padding:2px 5px;margin:-2px -5px;min-width:80px;
@@ -318,6 +356,9 @@
     <button class="navi" data-p="lib">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
       <span class="tx">记录库</span><span class="cnt" id="cntRecs">–</span></button>
+    <button class="navi" data-p="stream">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h12M3 12h16M3 17h12M19 5v6M16 8h6"/></svg>
+      <span class="tx">录音流</span></button>
     <button class="navi" data-p="asr">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2l2-7 3 14 3-10 2 5 2-2h4"/></svg>
       <span class="tx">转写任务</span><span class="cnt" id="cntJobs">–</span></button>
@@ -396,6 +437,32 @@
           <div class="vsplit" id="vsplit" title="拖拽调整列表宽度"></div>
           <div class="libdetail" id="rdetail"></div>
         </div>
+      </section>
+
+      <!-- 录音流：平铺全部转写内容，连播，批量 review -->
+      <section class="page" id="p-stream">
+        <div class="sttop">
+          <div class="sthd"><h1>录音流</h1><span class="sub" id="stSub">–</span><span class="grow"></span>
+            <label style="font-size:11.5px;color:var(--sub);display:flex;align-items:center;gap:6px;cursor:pointer">
+              <span class="toggle" id="stAuto"></span>自动连播</label>
+            <label style="font-size:11.5px;color:var(--sub);display:flex;align-items:center;gap:6px;cursor:pointer" title="播放时自动越过波形里的静音段">
+              <span class="toggle" id="stSkip"></span>跳过静音</label></div>
+          <div class="search">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input id="stSearch" placeholder="在记录中搜索…">
+          </div>
+          <div class="chips" id="stFchips">
+            <span class="chip on" data-f="">全部</span>
+            <span class="chip" data-f="done">已转写</span>
+            <span class="chip" data-f="asr">转写中</span>
+            <span class="chip" data-f="raw">仅音频</span>
+            <span class="chip" data-f="fail">失败</span>
+            <span class="chip" data-f="edited">已修订</span>
+          </div>
+          <div class="chips" id="stCatChips" style="display:none"></div>
+        </div>
+        <div id="stList" style="margin-top:14px"></div>
+        <div class="pager" id="stPager"></div>
       </section>
 
       <!-- 转写 -->
@@ -520,6 +587,7 @@ function go(p,rid){
   document.querySelectorAll('.page').forEach(function(x){x.classList.toggle('on',x.id==='p-'+p)});
   if(p==='home')loadStats();
   if(p==='lib')loadList();
+  if(p==='stream')loadStream();
   if(p==='asr')loadAsr();
   if(p==='set')loadSettings();
   if(p==='ai')initAi();
@@ -620,11 +688,13 @@ function loadStats(){
        在记录库页就地形刷新列表；其他页给个提示，切过去时 go('lib') 本来就会重拉。 */
     if(lastRecCount>=0&&s.records!==lastRecCount){
       if(cur==='lib')loadList();
+      if(cur==='stream')loadStream();
       if(s.records>lastRecCount)toast('新增 '+(s.records-lastRecCount)+' 条记录');
     }
     lastRecCount=s.records;
 
     syncTrans();
+    syncStreamJobs();
   }).catch(function(e){toast('统计加载失败：'+e.message);});
 }
 function jobFor(id){
@@ -723,6 +793,23 @@ function syncTrans(){
     }
   });
   if(needList)loadList();
+}
+
+/* 录音流上的转写进度联动：流卡片只显示状态 chip，任务消失（完成/失败）时整流刷新一次 */
+function syncStreamJobs(){
+  if(cur!=='stream'||!ST.list.length)return;
+  var need=false;
+  ST.list.forEach(function(x){
+    if(x.status!=='asr'&&x.status!=='queued')return;
+    var lj=jobFor(x.id);
+    if(lj&&lj.state==='running'){
+      var chip=document.querySelector('.sc[data-id="'+x.id+'"] .st.asr');
+      if(chip)chip.textContent='转写中 '+(lj.progress*100|0)+'%';
+    }else if(!lj&&x.status!=='refresh'){
+      x.status='refresh';need=true;
+    }
+  });
+  if(need)loadStream();
 }
 
 /* ================= 记录库 ================= */
@@ -984,17 +1071,18 @@ function doTranscribe(id){
 /* 分类标签：候选 = 库内已有标签（安卓端自定义的可直接选），也可新建。
    列表上的标签 chips 由 loadList 的 cats 驱动，两端看到的是同一套。 */
 /* 标签选择：点 chip 弹下拉菜单（已有标签 + 新建），替代 prompt 手输。
-   服务器标签是自由字符串，安卓端拉取时会按名字对上/新建本地分类。 */
-function pickCat(r){
+   服务器标签是自由字符串，安卓端拉取时会按名字对上/新建本地分类。
+   锚点与回调参数化：记录库详情页、录音流卡片共用同一套菜单。 */
+function pickCatAt(r,anchorRect,onDone,cats){
   closeCatMenu();
-  var names=(S.cats||[]).map(function(c){return c.cat;}).filter(Boolean);
+  var names=(cats||[]).map(function(c){return c.cat;}).filter(Boolean);
   if(r.cat&&names.indexOf(r.cat)<0)names.unshift(r.cat);
   var m=document.createElement('div');m.className='catmenu';m.id='catMenu';
   function item(label,val){
     var b=document.createElement('button');
     b.textContent=label;
     if(val&&val===r.cat)b.className='on';
-    b.onclick=function(){closeCatMenu();setCat(r,val);};
+    b.onclick=function(){closeCatMenu();applyCat(r,val,onDone);};
     m.appendChild(b);
   }
   if(r.cat)item('未分类','');
@@ -1003,18 +1091,23 @@ function pickCat(r){
   nb.onclick=function(){
     closeCatMenu();
     var v=prompt('新标签名：','');if(v===null)return;
-    v=v.trim();if(v)setCat(r,v);
+    v=v.trim();if(v)applyCat(r,v,onDone);
   };
   m.appendChild(nb);
   document.body.appendChild(m);
-  var rc=document.getElementById('catChip').getBoundingClientRect();
-  m.style.left=Math.max(8,Math.min(rc.left,window.innerWidth-m.offsetWidth-8))+'px';
-  m.style.top=Math.min(rc.bottom+6,window.innerHeight-m.offsetHeight-8)+'px';
+  m.style.left=Math.max(8,Math.min(anchorRect.left,window.innerWidth-m.offsetWidth-8))+'px';
+  m.style.top=Math.min(anchorRect.bottom+6,window.innerHeight-m.offsetHeight-8)+'px';
   document.addEventListener('mousedown',catMenuOutside);
 }
-function setCat(r,v){
+function pickCat(r){
+  pickCatAt(r,document.getElementById('catChip').getBoundingClientRect(),null,S.cats);
+}
+function applyCat(r,v,onDone){
   api('/records/'+r.id,{method:'PATCH',body:{cat:v}})
-    .then(function(){r.cat=v;renderDetail();loadList();toast(v?'标签已设为 '+v:'标签已清除');})
+    .then(function(){
+      r.cat=v;toast(v?'标签已设为 '+v:'标签已清除');
+      if(onDone)onDone();else{renderDetail();loadList();}
+    })
     .catch(function(e){toast('标签保存失败：'+e.message);});
 }
 function closeCatMenu(){
@@ -1165,6 +1258,300 @@ function openRecord(id,segId){
         setTimeout(function(){el.classList.remove('hl')},2200);}
     }
   });
+}
+
+/* ================= 录音流 =================
+   平铺展示筛选结果的全部转写内容（3 行收起，点开看全文），播完一条自动接下一条，
+   供批量 review。筛选/搜索与记录库同源（status/cat/q），卡片上可直接重转写、打标签。 */
+var ST={list:[],filter:'',cat:'',q:'',page:0,limit:50,total:0,cats:[],untagged:0,
+  auto:false,skip:false,playingId:null,audio:null,open:{},waves:{}};
+document.getElementById('stSearch').addEventListener('input',function(){
+  ST.q=this.value.trim();ST.page=0;clearTimeout(this._h);this._h=setTimeout(loadStream,300);
+});
+document.querySelectorAll('#stFchips .chip').forEach(function(c){
+  c.onclick=function(){
+    document.querySelectorAll('#stFchips .chip').forEach(function(x){x.classList.remove('on')});
+    c.classList.add('on');ST.filter=c.dataset.f;ST.page=0;loadStream();
+  };
+});
+document.getElementById('stAuto').onclick=function(){
+  ST.auto=!ST.auto;this.classList.toggle('on',ST.auto);
+  try{localStorage.setItem('vn.stauto',ST.auto?'1':'0');}catch(e){}
+  toast(ST.auto?'已开启自动连播':'已关闭自动连播');
+};
+document.getElementById('stSkip').onclick=function(){
+  ST.skip=!ST.skip;this.classList.toggle('on',ST.skip);
+  try{localStorage.setItem('vn.stskip',ST.skip?'1':'0');}catch(e){}
+  if(ST.skip&&ST.audio&&!ST.audio.paused)streamSkipSilence(true);
+  toast(ST.skip?'已开启跳过静音':'已关闭跳过静音');
+};
+try{
+  if(localStorage.getItem('vn.stauto')==='1'){ST.auto=true;
+    document.getElementById('stAuto').classList.add('on');}
+  if(localStorage.getItem('vn.stskip')==='1'){ST.skip=true;
+    document.getElementById('stSkip').classList.add('on');}
+}catch(e){}
+
+function loadStream(){
+  var p='/records?limit='+ST.limit+'&offset='+(ST.page*ST.limit)+'&preview_len=400'+
+    (ST.filter?'&status='+ST.filter:'')+(ST.cat?'&cat='+encodeURIComponent(ST.cat):'')+
+    (ST.q?'&q='+encodeURIComponent(ST.q):'');
+  api(p).then(function(r){
+    ST.list=r.records;ST.total=r.total||0;ST.cats=r.cats||[];ST.untagged=r.untagged||0;
+    if(ST.page>0&&!ST.list.length){ST.page=Math.max(0,Math.ceil(ST.total/ST.limit)-1);return loadStream();}
+    if(ST.playingId && !ST.list.some(function(x){return x.id===ST.playingId;}))stopStreamAudio();
+    renderStCats();renderStream();
+    renderPager(document.getElementById('stPager'),ST.page,ST.limit,ST.total,
+      function(pg){ST.page=pg;loadStream();});
+    document.getElementById('stSub').textContent='共 '+ST.total+' 场 · 从上往下连播 review';
+  }).catch(function(e){toast(e.message)});
+}
+function renderStCats(){
+  var box=document.getElementById('stCatChips');
+  var cats=(ST.cats||[]).filter(function(c){return c.cat;});
+  if(!cats.length&&!ST.untagged){box.style.display='none';return;}
+  box.style.display='flex';
+  var h='<span class="chip'+(ST.cat?'':' on')+'" data-c="">全部标签</span>';
+  if(ST.untagged)h+='<span class="chip'+(ST.cat==='__none__'?' on':'')+'" data-c="__none__">未分类 <span style="opacity:.6">'+ST.untagged+'</span></span>';
+  cats.forEach(function(c){
+    h+='<span class="chip'+(ST.cat===c.cat?' on':'')+'" data-c="'+esc(c.cat)+'">'+esc(c.cat)+' <span style="opacity:.6">'+c.n+'</span></span>';
+  });
+  box.innerHTML=h;
+  box.querySelectorAll('.chip[data-c]').forEach(function(ch){
+    ch.onclick=function(){
+      ST.cat=ch.dataset.c;ST.page=0;
+      box.querySelectorAll('.chip[data-c]').forEach(function(x){x.classList.toggle('on',x===ch)});
+      loadStream();
+    };
+  });
+}
+/* 流卡片：一行标题+元信息+操作，细进度条，3 行转写正文 */
+function renderStream(){
+  var b=document.getElementById('stList');b.innerHTML='';
+  if(!ST.list.length){b.innerHTML='<div class="emptybox">没有记录<br>换个筛选条件，或从 App 同步 / 导入音频</div>';return;}
+  ST.list.forEach(function(r){
+    var el=document.createElement('div');
+    el.className='sc'+(ST.playingId===r.id?' playing':'')+(ST.open[r.id]?' open':'');
+    el.dataset.id=r.id;
+    var st=r.edited?'<span class="st ed">修订</span>':stChip(r.status);
+    el.innerHTML='<div class="hd">'+
+      (r.has_audio?'<button class="pbtn" data-play title="播放"></button>':'')+
+      '<span class="tt" title="到记录库打开">'+esc(r.title||r.id)+'</span>'+
+      '<span class="mt2">'+st+'<span>'+fmtTime(r.created_at)+'</span><span>'+fmtDur(r.dur_ms)+'</span>'+
+      '<span class="catchip" data-cat style="cursor:pointer">'+esc(r.cat||'未分类')+' ▾</span></span>'+
+      '<span class="grow"></span>'+
+      '<span class="acts">'+
+      '<button class="op" data-retr>重转写</button>'+
+      '<button class="op" data-del style="color:var(--err)">删除</button></span></div>'+
+      (r.has_audio?'<div class="wave" data-wave></div>':'')+
+      '<div class="txt'+(r.preview?'':' dim')+'">'+(r.preview?esc(r.preview):'暂无转写内容')+'</div>'+
+      '<div class="ft"><button class="op" data-more style="display:none">展开</button></div>';
+    b.appendChild(el);
+    wireStreamCard(el,r);
+  });
+  observeStreamWaves();
+}
+/* 滚入视口的卡片预解码波形（不等播放，方便直接点波形定位声音位置） */
+var _waveObs=null;
+function observeStreamWaves(){
+  if(!('IntersectionObserver' in window))return;
+  if(!_waveObs)_waveObs=new IntersectionObserver(function(es){
+    es.forEach(function(en){
+      if(!en.isIntersecting)return;
+      var card=en.target.closest('.sc');
+      var rec=ST.list.filter(function(x){return x.id===card.dataset.id;})[0];
+      if(rec&&rec.has_audio)streamWaveBars(rec,card);
+      _waveObs.unobserve(en.target);
+    });
+  },{root:document.getElementById('p-stream'),rootMargin:'200px'});
+  document.querySelectorAll('.sc [data-wave]').forEach(function(w){
+    var rid=w.closest('.sc').dataset.id,c=ST.waves[rid];
+    if(!c||!c.peaks)_waveObs.observe(w);
+  });
+}
+/* 卡片内交互：播放（全局单实例+ended 连播）、进度条 seek、重转写、标签、删除、展开 */
+function wireStreamCard(el,r){
+  var pb=el.querySelector('[data-play]');
+  if(pb)pb.onclick=function(){ST.playingId===r.id?stopStreamAudio():playStreamCard(r.id);};
+  el.querySelector('.tt').onclick=function(){openRecord(r.id);};
+  var rt=el.querySelector('[data-retr]');
+  if(rt)rt.onclick=function(){
+    api('/records/'+r.id+'/transcribe',{method:'POST',body:{}})
+      .then(function(){toast('已入队');loadStream();loadStats();})
+      .catch(function(e){toast(e.message)});
+  };
+  var cc=el.querySelector('[data-cat]');
+  cc.onclick=function(){pickStreamCat(el,r);};
+  var dl=el.querySelector('[data-del]');
+  dl.onclick=function(){
+    if(!confirm('删除「'+(r.title||r.id)+'」？音频与转写稿一并删除，不可恢复。'))return;
+    api('/records/'+r.id,{method:'DELETE'})
+      .then(function(){if(ST.playingId===r.id)stopStreamAudio();toast('已删除');loadStream();loadStats();});
+  };
+  var bar=el.querySelector('[data-wave]');
+  if(bar)bar.onclick=function(e){
+    if(ST.playingId!==r.id||!ST.audio)return;
+    var rect=bar.getBoundingClientRect();
+    ST.audio.currentTime=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width))*
+      (isFinite(ST.audio.duration)&&ST.audio.duration>0?ST.audio.duration:r.dur_ms/1000||0);
+    if(ST.skip)streamSkipSilence(); /* seek 落进静音段也直接跳出去 */
+  };
+  /* 溢出才显示展开钮；-webkit-box 的 scrollHeight 即全文高度。
+     卡片已 append 才能测出高度，且不能放 rAF（页签隐藏时不触发）。 */
+  var txt=el.querySelector('.txt'),more=el.querySelector('[data-more]');
+  if(txt.scrollHeight>txt.clientHeight+2){
+    more.style.display='';
+    more.onclick=function(){
+      ST.open[r.id]=!ST.open[r.id];
+      el.classList.toggle('open',ST.open[r.id]);
+      more.textContent=ST.open[r.id]?'收起':'展开';
+    };
+  }
+}
+/* 流卡片波形：播放时解码音频取真实振幅（静音段压暗，方便定位声音位置），
+   解码前先铺平条占位；解码失败退化为装饰波形（仍可 seek）。结果按记录缓存。 */
+var STWAVE_N=72,_actx=null;
+function streamWaveBars(rec,el){
+  var wave=el.querySelector('[data-wave]');
+  if(!wave||wave.children.length)return;
+  var cached=ST.waves[rec.id];
+  if(cached&&cached.peaks){paintStreamWave(rec.id,cached);return;}
+  if(cached&&cached.pending)return;
+  for(var i=0;i<STWAVE_N;i++){var b=document.createElement('i');b.style.height='15%';wave.appendChild(b);}
+  ST.waves[rec.id]={pending:true};
+  var finish=function(peaks,sil){
+    var w=ST.waves[rec.id];
+    if(!w||!w.pending)return;
+    ST.waves[rec.id]={peaks:peaks,sil:sil||[]};
+    paintStreamWave(rec.id,ST.waves[rec.id]);
+  };
+  fetch(rec.audio_url).then(function(r){return r.arrayBuffer();}).then(function(buf){
+    if(!_actx)_actx=new (window.AudioContext||window.webkitAudioContext)();
+    return _actx.decodeAudioData(buf);
+  }).then(function(ab){
+    var d=ab.getChannelData(0),n=d.length,per=Math.floor(n/STWAVE_N)||1,
+        peaks=[],mx=0,i,j;
+    for(i=0;i<STWAVE_N;i++){
+      var pk=0,off=i*per;
+      for(j=0;j<per;j+=16){var v=Math.abs(d[off+j]||0);if(v>pk)pk=v;}
+      peaks.push(pk);if(pk>mx)mx=pk;
+    }
+    if(mx>0)for(i=0;i<STWAVE_N;i++)peaks[i]=Math.max(0.06,peaks[i]/mx);
+    /* 静音段：50ms 窗 RMS，阈值取自适应底线；连片 >=0.35s 记为静音 */
+    var win=Math.floor(ab.sampleRate*0.05)||1,sil=[],run=null,thr=0,
+        sams=[];
+    for(off=0;off<n;off+=win){
+      var sum=0,cnt=0;
+      for(j=off;j<Math.min(off+win,n);j+=8){sum+=d[j]*d[j];cnt++;}
+      sams.push(Math.sqrt(sum/(cnt||1)));
+    }
+    var sorted=sams.slice().sort(function(a,b){return a-b;});
+    thr=Math.max(0.012,sorted[Math.floor(sorted.length*0.08)]*1.6);
+    var t=0;
+    for(i=0;i<sams.length;i++){
+      var ts=(i*win)/ab.sampleRate;
+      if(sams[i]<=thr){ if(!run)run={s:ts}; }
+      else if(run){ if(ts-run.s>=0.35)sil.push([run.s,ts]); run=null; }
+      t=ts;
+    }
+    if(run&&t-run.s>=0.35)sil.push([run.s,t]);
+    finish(peaks,sil);
+  }).catch(function(){ finish(waveHeights(rec.id,STWAVE_N).map(function(p){return p/100;})); });
+}
+function paintStreamWave(id,w){
+  var el=document.querySelector('.sc[data-id="'+id+'"]');
+  var wave=el&&el.querySelector('[data-wave]');
+  if(!wave)return;
+  var bars=wave.children;
+  /* 占位条与峰值条同数量，用 drawn 标记保证真波形首次必重绘 */
+  if(w.peaks&&!w.drawn&&bars.length){
+    wave.innerHTML='';bars=null;
+    w.peaks.forEach(function(p){var b=document.createElement('i');
+      b.style.height=Math.round(p*100)+'%';wave.appendChild(b);});
+    w.drawn=true;bars=wave.children;
+  }
+  if(!w.peaks)return;
+  var sil=w.sil||[],dur=0;
+  if(ST.playingId===id&&ST.audio&&isFinite(ST.audio.duration))dur=ST.audio.duration;
+  else{var rec=ST.list.filter(function(x){return x.id===id;})[0];if(rec)dur=rec.dur_ms/1000;}
+  for(var i=0;i<bars.length;i++){
+    var t0=i/bars.length*dur,t1=(i+1)/bars.length*dur,mid=(t0+t1)/2,isSil=false;
+    for(var k=0;k<sil.length;k++)if(mid>=sil[k][0]&&mid<sil[k][1]){isSil=true;break;}
+    bars[i].className=(ST.playingId===id&&i<paintStreamN?'past':'')+(isSil?' sil':'');
+  }
+}
+var paintStreamN=0;
+function paintStreamCard(){
+  var el=document.querySelector('.sc[data-id="'+ST.playingId+'"]');
+  if(!el||!ST.audio)return;
+  var d=isFinite(ST.audio.duration)&&ST.audio.duration>0?ST.audio.duration:0;
+  if(!d&&ST.audio.readyState===0){ /* duration 未就绪：先用记录时长画个大概 */
+    var rec=ST.list.filter(function(x){return x.id===ST.playingId;})[0];
+    d=rec?rec.dur_ms/1000:0;
+  }
+  var w=ST.waves[ST.playingId];
+  if(w&&w.peaks&&d>0){
+    paintStreamN=Math.floor(Math.min(1,ST.audio.currentTime/d)*STWAVE_N);
+    paintStreamWave(ST.playingId,w);
+    if(ST.skip&&!ST.audio.paused)streamSkipSilence();
+  }
+  var pb=el.querySelector('[data-play]');
+  if(pb)pb.innerHTML=ST.audio.paused
+    ?'<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg>'
+    :'<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
+}
+/* 跳过静音：当前播放位置落在静音区间内（且已进入 0.12s，避免误跳句间换气）就跳到区间尾 */
+function streamSkipSilence(force){
+  if(!ST.audio||!ST.skip)return;
+  var w=ST.waves[ST.playingId];
+  if(!w||!w.sil||!w.sil.length)return;
+  var t=ST.audio.currentTime;
+  for(var k=0;k<w.sil.length;k++){
+    var s=w.sil[k];
+    if(t>=s[0]+(force?0:0.12)&&t<s[1]){ST.audio.currentTime=s[1];return;}
+  }
+}
+function stopStreamAudio(){
+  if(ST.audio){try{ST.audio.pause();}catch(e){}}
+  ST.audio=null;ST.playingId=null;paintStreamN=0;
+  document.querySelectorAll('.sc.playing').forEach(function(x){x.classList.remove('playing')});
+}
+function playStreamCard(id){
+  var rec=ST.list.filter(function(x){return x.id===id;})[0];
+  if(!rec||!rec.has_audio){toast('这条没有音频');return;}
+  if(window._curAudio){try{window._curAudio.pause();}catch(e){}}
+  stopStreamAudio();
+  var a=new Audio(rec.audio_url);a.preload='metadata';
+  ST.audio=a;ST.playingId=id;
+  window._curAudio=a;
+  document.querySelectorAll('.sc[data-id="'+id+'"]').forEach(function(x){x.classList.add('playing')});
+  a.addEventListener('play',paintStreamCard);
+  a.addEventListener('pause',paintStreamCard);
+  a.addEventListener('timeupdate',paintStreamCard);
+  a.addEventListener('ended',function(){
+    if(!ST.auto){paintStreamCard();return;}
+    var i=ST.list.findIndex(function(x){return x.id===id;});
+    for(var n=i+1;n<ST.list.length;n++){
+      if(ST.list[n].has_audio){playStreamCard(ST.list[n].id);
+        var el=document.querySelector('.sc[data-id="'+ST.list[n].id+'"]');
+        if(el)el.scrollIntoView({behavior:'smooth',block:'center'});
+        return;}
+    }
+    toast('本页播完了');paintStreamCard();
+  });
+  paintStreamCard();
+  streamWaveBars(rec,document.querySelector('.sc[data-id="'+id+'"]'));
+  a.play().catch(function(){toast('播放失败');});
+}
+/* 流卡片打标签：复用详情页的 catmenu（已有标签 + 新建） */
+function pickStreamCat(el,r){
+  var oldChip=el.querySelector('.catchip'),rc=oldChip.getBoundingClientRect();
+  pickCatAt(r,rc,function(){
+    var nr=ST.list.filter(function(x){return x.id===r.id;})[0];
+    if(nr)nr.cat=r.cat;
+    el.classList.toggle('open',ST.open[r.id]);
+    renderStream();
+  },ST.cats);
 }
 
 /* ================= 转写任务 ================= */

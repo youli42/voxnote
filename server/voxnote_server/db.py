@@ -265,18 +265,24 @@ def _fts_upsert(c, seg_id, record_id, text):
               (text or "", seg_id, record_id))
 
 
-def first_texts(record_ids):
-    """列表预览：每场第一条生效句，返回 {record_id: text}（无转写的记录不在结果里）。"""
+def preview_texts(record_ids, max_chars=80):
+    """列表/流视图预览：每场从头累计生效句，凑满 max_chars 字即止。
+    返回 {record_id: text}（无转写的记录不在结果里）。"""
     if not record_ids:
         return {}
     qs = ",".join("?" * len(record_ids))
     rows = conn().execute(
-        "SELECT record_id, text FROM ("
-        " SELECT record_id, COALESCE(e_text, m_text) AS text,"
-        " ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY t_ms, idx) AS rn"
-        " FROM segments WHERE record_id IN (%s))"
-        " WHERE rn = 1" % qs, tuple(record_ids)).fetchall()
-    return {r["record_id"]: r["text"] for r in rows}
+        "SELECT record_id, COALESCE(e_text, m_text) AS text"
+        " FROM segments WHERE record_id IN (%s)"
+        " ORDER BY record_id, t_ms, idx" % qs, tuple(record_ids)).fetchall()
+    out, got = {}, {}
+    for r in rows:
+        rid, t = r["record_id"], (r["text"] or "").strip()
+        if not t or got.get(rid, 0) >= max_chars:
+            continue
+        out[rid] = (out.get(rid, "") + t)[:max_chars]
+        got[rid] = len(out[rid])
+    return out
 
 
 def distinct_cats():

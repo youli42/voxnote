@@ -34,8 +34,9 @@ def _rec_out(r, with_segs=False):
 
 @router.get("/records")
 def list_records(status: str = "", q: str = "", cat: str = "",
-                 limit: int = 50, offset: int = 0):
+                 limit: int = 50, offset: int = 0, preview_len: int = 80):
     limit = max(0, min(limit, 500))  # 负值在 SQLite 里 LIMIT -1 = 无限制，会绕过分页上限
+    preview_len = max(1, min(preview_len, 1000))  # 预览上限：录音流卡片也就三五行，用不着更多
     sql = "SELECT * FROM records"
     where, args = [], []
     if status == "edited":
@@ -70,13 +71,13 @@ def list_records(status: str = "", q: str = "", cat: str = "",
     sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
     rows = c.execute(sql, args + [limit, max(0, offset)]).fetchall()
 
-    previews = db.first_texts([r["id"] for r in rows])
+    previews = db.preview_texts([r["id"] for r in rows], preview_len)
     out = []
     for r in rows:
         o = _rec_out(r)
         pv = (previews.get(r["id"]) or "").strip()
         if pv:
-            o["preview"] = pv[:80]
+            o["preview"] = pv
         out.append(o)
     return {"records": out, "total": total, "untagged": untagged,
             "cats": [dict(x) for x in db.distinct_cats()]}
