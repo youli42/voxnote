@@ -3,16 +3,25 @@
 安全模型（当前阶段，v0.1）：
   - 默认只绑 127.0.0.1，控制台 API 本机免鉴权；
   - 设备同步 API（/api/v1/sync/*）始终要求 Bearer 配对令牌；
-  - 绑 0.0.0.0 前请自行加反代鉴权（README 有说明）。
+  - 绑 0.0.0.0 前请自行加反代鉴权，或设置环境变量 VOXNOTE_API_KEY
+    开启全站访问密钥（README 有说明）。
 """
 import importlib
 import importlib.util
+import logging
 import os
+import secrets
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, config
+
+# 可选全站密钥：设置后除设备同步（自带 Bearer 配对令牌）与健康检查外，
+# 所有 /api/* 都要求 X-VoxNote-Key 请求头；控制台收到 401 会提示输入。
+# 留空 = 维持"默认只绑本机、控制台免鉴权"的原模型。
+API_KEY = os.environ.get("VOXNOTE_API_KEY", "").strip()
 
 
 def create_app() -> FastAPI:
@@ -20,6 +29,16 @@ def create_app() -> FastAPI:
                   docs_url="/api/docs", openapi_url="/api/openapi.json",
                   lifespan=_lifespan)
     _wire_routers(app)
+
+    @app.middleware("http")
+    async def _guard(request: Request, call_next):
+        if API_KEY and request.url.path.startswith("/api"):
+            exempt = (request.url.path.startswith("/api/v1/sync")
+                      or request.url.path == "/api/v1/health")
+            if not exempt and not secrets.compare_digest(
+                    request.headers.get("x-voxnote-key", ""), API_KEY):
+                return JSONResponse({"detail": "需要 X-VoxNote-Key"}, status_code=401)
+        return await call_next(request)
 
     @app.get("/api/v1/health")
     def health():
@@ -40,18 +59,19 @@ async def _lifespan(app: FastAPI):
         from . import jobs
         jobs.start_worker()
     except Exception:
-        pass
+        # worker 起不来时所有任务会永远停在 queued，必须留痕
+        logging.exception("转写 worker 启动失败，新任务将停留在排队状态")
     yield
     try:
         from . import jobs
         jobs.stop_worker()
     except Exception:
-        pass
+        logging.exception("转写 worker 停止失败")
     try:
         from .engines import local_llama
         local_llama.stop_server()
     except Exception:
-        pass
+        logging.exception("llama-server 停止失败")
 
 
 def _wire_routers(app: FastAPI):
