@@ -98,13 +98,19 @@ SETTING_DEFAULTS = {
     "ai_base": "https://open.bigmodel.cn/api/paas/v4",
     "ai_key": "",
     "ai_model": "glm-4-flash",
+    "llama_server_path": "",     # llama.cpp 发布包中的 llama-server(.exe) 路径
+    "llama_port": "8849",
+    "llama_model_dir": "",       # 留空 = data/models/qwen3-asr
+    "llama_repo": "foryoung365/Qwen3-ASR-1.7B-Q4_K_M-GGUF",  # 下载仓库（q4_k，2C/6G 推荐）
+    "hf_mirror": "https://hf-mirror.com",  # HuggingFace 镜像（直连不可达时用）
     "retention_audio": "keep",   # keep|compact（预留）
 }
 
 PUBLIC_SETTING_KEYS = [
     "default_engine", "auto_transcribe", "whisper_model", "whisper_device",
     "whisper_compute", "whisper_language", "cloud_asr_base", "cloud_asr_model",
-    "ai_base", "ai_model",
+    "ai_base", "ai_model", "llama_server_path", "llama_port", "llama_repo",
+    "hf_mirror",
 ]
 
 

@@ -47,6 +47,11 @@ async def _lifespan(app: FastAPI):
         jobs.stop_worker()
     except Exception:
         pass
+    try:
+        from .engines import local_llama
+        local_llama.stop_server()
+    except Exception:
+        pass
 
 
 def _wire_routers(app: FastAPI):
@@ -56,6 +61,7 @@ def _wire_routers(app: FastAPI):
         ("api_records", "/api/v1", ["records"]),
         ("api_jobs", "/api/v1", ["jobs"]),
         ("api_settings", "/api/v1", ["settings"]),
+        ("api_models", "/api/v1/models", ["models"]),
         ("api_ai", "/api/v1/ai", ["ai"]),
     ]
     for mod, prefix, tags in spec:

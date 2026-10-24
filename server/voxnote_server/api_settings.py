@@ -91,6 +91,10 @@ class SettingsPatch(BaseModel):
     cloud_asr_model: Optional[str] = None
     ai_base: Optional[str] = None
     ai_model: Optional[str] = None
+    llama_server_path: Optional[str] = None
+    llama_port: Optional[str] = None
+    llama_repo: Optional[str] = None
+    hf_mirror: Optional[str] = None
     # 密钥与令牌：传非空才写（掩码回传不算更改）
     cloud_asr_key: Optional[str] = None
     ai_key: Optional[str] = None
