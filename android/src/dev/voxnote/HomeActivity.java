@@ -154,28 +154,33 @@ public class HomeActivity extends Activity implements Picker.Host {
         serverSync = new ServerSync(this, settings, storage);
         serverSync.setCatApplier(new ServerSync.CatApplier() {
             /** 服务器拉回的标签（[记录id, 标签名]）：按名字对上本地分类，
-             *  对不上就新建一个（服务端标签是自由字符串），再 patch 用户态。 */
+             *  对不上就新建一个（服务端标签是自由字符串），再 patch 用户态。
+             *  每条 patch 完成后清掉同步侧的待落库标记（没清的话下一轮同步会重试），
+             *  最后一条的回调顺带重扫列表亮出新分类。 */
             public void apply(ArrayList<String[]> updates) {
+                boolean catsAdded = false;
                 for (int i = 0; i < updates.size(); i++) {
                     final String[] u = updates.get(i);
                     String catId = settings.catIdByName(u[1]);
                     if (catId == null) {
                         UiSettings.Cat c = new UiSettings.Cat(settings.newCatId(), u[1]);
-                        settings.categories.add(c);
-                        settings.save();
+                        settings.categories.add(c);   // 批量追加，循环外一次 save
+                        catsAdded = true;
                         catId = c.id;
                     }
                     try {
                         JSONObject p = new JSONObject();
                         p.put("cat", catId);
                         final boolean last = i == updates.size() - 1;
-                        data.patch(u[0], p, last ? new DataCenter.DoneCallback() {
+                        data.patch(u[0], p, new DataCenter.DoneCallback() {
                             public void onDone() {
-                                load(false, null, false);  // patch 异步落库，完成后重扫让列表亮出新分类
+                                serverSync.markCatDone(u[0]);
+                                if (last) load(false, null, false);  // patch 异步落库，完成后重扫让列表亮出新分类
                             }
-                        } : null);
+                        });
                     } catch (Throwable ignore) { }
                 }
+                if (catsAdded) settings.save();
             }
         });
 

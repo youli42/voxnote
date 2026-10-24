@@ -142,6 +142,9 @@ public class ServerSync {
         }
         final ArrayList<RecordVm> snapshot =
                 items == null ? new ArrayList<RecordVm>() : new ArrayList<RecordVm>(items);
+        // 分类名快照要在 UI 线程拍：IO 线程里直接遍历 categories 会与 UI 线程
+        // 的增删（标签回填新建分类/设置页管理）并发抛 CME。
+        final HashMap<String, String> catNames = s.catNameSnapshot();
         io.execute(new Runnable() {
             public void run() {
                 String err = null;
@@ -149,11 +152,11 @@ public class ServerSync {
                 ArrayList<String[]> catUpdates = new ArrayList<String[]>();
                 try {
                     lastPushError = "";
-                    int[] p = push(snapshot);
+                    int[] p = push(snapshot, catNames);
                     pushed = p[0];
                     if (p[1] > 0) err = "上传失败 " + p[1] + " 场" + (lastPushError.length() > 0 ? "：" + lastPushError : "");
                     try {
-                        int[] r = pull(snapshot, catUpdates);
+                        int[] r = pull(snapshot, catNames, catUpdates);
                         pulled = r[0];
                         cats = r[1];
                     } catch (Throwable t) {
@@ -181,8 +184,15 @@ public class ServerSync {
 
     // ------------------------------------------------------------ 推：上传音频
 
+    /** 快照里查分类名（id 不在快照 = 快照后本地删了该分类，视同未分类）。 */
+    private static String nameOf(Map<String, String> catNames, String catId) {
+        if (catId == null) return "";
+        String n = catNames.get(catId);
+        return n == null ? "" : n;
+    }
+
     /** 返回 {成功数, 失败数}；单个失败不中断整轮，原因记在 lastPushError。 */
-    private int[] push(ArrayList<RecordVm> items) {
+    private int[] push(ArrayList<RecordVm> items, Map<String, String> catNames) {
         int ok = 0, fail = 0;
         String url = api() + "/upload";
         for (int i = 0; i < items.size(); i++) {
@@ -198,7 +208,7 @@ public class ServerSync {
                 JSONObject meta = new JSONObject();
                 meta.put("stamp", vm.id);
                 meta.put("title", vm.title == null ? "" : vm.title);
-                meta.put("cat", vm.cat == null ? "" : s.catName(vm.cat));
+                meta.put("cat", nameOf(catNames, vm.cat));
                 meta.put("mode", vm.mode == null ? "" : vm.mode);
                 meta.put("sid", vm.sid);
                 meta.put("recorded_at", vm.startMs);
@@ -277,8 +287,11 @@ public class ServerSync {
      *  本地自己转出来的稿子（无 tr 标记）绝不动。
      *  同时收集标签差异（服务器标签名 ≠ 本地标签名）到 catUpdates，由宿主落库——
      *  只应用服务器的非空标签；空标签不清本地（可能是服务器侧从没打过的）。
+     *  差异同时记成持久标记 cat.<id>（宿主落库成功后清），补扫让滑出增量窗口
+     *  的更新也能重试，不随游标推进丢掉。
      *  返回 {回填场次数, 标签变化场次数}。 */
-    private int[] pull(ArrayList<RecordVm> items, ArrayList<String[]> catUpdates) throws Exception {
+    private int[] pull(ArrayList<RecordVm> items, Map<String, String> catNames,
+                       ArrayList<String[]> catUpdates) throws Exception {
         long since = prefs.getLong("cursor", 0);
         JSONObject root = new JSONObject(httpGet(api() + "/records?since=" + since));
         JSONArray recs = root.optJSONArray("records");
@@ -305,8 +318,9 @@ public class ServerSync {
             }
             // 标签回填：与转写回填独立，本地稿子受保护也不影响
             String srvCat = o.optString("cat", "");
-            if (srvCat.length() > 0 && !srvCat.equals(vm.cat == null ? "" : s.catName(vm.cat))) {
+            if (srvCat.length() > 0 && !srvCat.equals(nameOf(catNames, vm.cat))) {
                 catUpdates.add(new String[]{id, srvCat});
+                ed.putString("cat." + id, srvCat);  // 落库成功才清（markCatDone）
                 nCat++;
             }
             if (!"done".equals(status) && !"asr".equals(status)) {
@@ -330,7 +344,49 @@ public class ServerSync {
         }
         ed.apply();
         if (processed > since) prefs.edit().putLong("cursor", processed).apply();
+        nCat += rescanPendingCats(byId, catNames, catUpdates);
         return new int[]{n, nCat};
+    }
+
+    /** 补扫待落库的标签标记 cat.<id>=<服务器标签>：游标已经推过去（窗口里看不到）
+     *  的差异靠这里重试；本地记录已删、或已经对上的标记清掉。
+     *  返回本轮补收的场次数。 */
+    private int rescanPendingCats(Map<String, RecordVm> byId, Map<String, String> catNames,
+                                  ArrayList<String[]> catUpdates) {
+        Map<String, ?> all = prefs.getAll();
+        SharedPreferences.Editor ed = null;
+        int added = 0;
+        for (Map.Entry<String, ?> en : all.entrySet()) {
+            String k = en.getKey();
+            if (!k.startsWith("cat.") || !(en.getValue() instanceof String)) continue;
+            String id = k.substring(4);
+            String tag = (String) en.getValue();
+            boolean listed = false;
+            for (int i = 0; i < catUpdates.size(); i++) {
+                if (catUpdates.get(i)[0].equals(id)) { listed = true; break; }
+            }
+            if (listed) continue;                  // 本轮已收集，标记等宿主落库后清
+            RecordVm vm = byId.get(id);
+            if (vm == null) {                      // 本地已删这场：标记作废
+                if (ed == null) ed = prefs.edit();
+                ed.remove(k);
+                continue;
+            }
+            if (tag.equals(nameOf(catNames, vm.cat))) {
+                if (ed == null) ed = prefs.edit(); // 已经落上（上轮 patch 生效）
+                ed.remove(k);
+            } else {
+                catUpdates.add(new String[]{id, tag});
+                added++;
+            }
+        }
+        if (ed != null) ed.apply();
+        return added;
+    }
+
+    /** 标签已在本地落库（CatApplier 的 patch 回调里调）：清持久标记。 */
+    public void markCatDone(String recordId) {
+        prefs.edit().remove("cat." + recordId).apply();
     }
 
     /** 标签差异交给宿主（主线程）落库；宿主负责对上/新建本地分类并 patch 用户态。 */
@@ -352,13 +408,14 @@ public class ServerSync {
         if (!running.compareAndSet(false, true)) return;   // 全量同步进行中就跳过这轮
         final ArrayList<RecordVm> snapshot =
                 items == null ? new ArrayList<RecordVm>() : new ArrayList<RecordVm>(items);
+        final HashMap<String, String> catNames = s.catNameSnapshot();  // 同 syncNow：UI 线程拍快照
         io.execute(new Runnable() {
             public void run() {
                 int pulled = 0, cats = 0;
                 String err = null;
                 ArrayList<String[]> catUpdates = new ArrayList<String[]>();
                 try {
-                    int[] r = pull(snapshot, catUpdates);
+                    int[] r = pull(snapshot, catNames, catUpdates);
                     pulled = r[0];
                     cats = r[1];
                 } catch (Throwable t) {

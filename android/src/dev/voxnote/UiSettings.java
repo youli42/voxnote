@@ -7,6 +7,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -38,9 +39,10 @@ public class UiSettings {
     public boolean sortDesc = true;
     public String swipeRightCat = "c1";
     public String swipeLeftCat = "c2";
-    /** 自托管服务器（voxnote server）：地址形如 http://192.168.1.10:8787，令牌在控制台设置页可见。 */
-    public String serverUrl = "";
-    public String serverToken = "";
+    /** 自托管服务器（voxnote server）：地址形如 http://192.168.1.10:8787，令牌在控制台设置页可见。
+     *  UI 线程写、同步 IO 线程读，volatile 保证改完立刻可见。 */
+    public volatile String serverUrl = "";
+    public volatile String serverToken = "";
     public boolean autoSync = false;
     public ArrayList<Cat> categories = new ArrayList<Cat>();
 
@@ -154,6 +156,18 @@ public class UiSettings {
             }
         }
         return "c" + (max + 1);
+    }
+
+    /** 分类 id→名字的快照。categories 本体只在 UI 线程增删，而同步在 IO 线程
+     *  里查名字——直接遍历会与 UI 线程的 add 并发抛 ConcurrentModificationException，
+     *  同步开始前在 UI 线程拍一份只读快照带下去。 */
+    public HashMap<String, String> catNameSnapshot() {
+        HashMap<String, String> m = new HashMap<String, String>();
+        for (int i = 0; i < categories.size(); i++) {
+            Cat c = categories.get(i);
+            if (c.id != null) m.put(c.id, c.name == null ? "" : c.name);
+        }
+        return m;
     }
 
     public void save() {
