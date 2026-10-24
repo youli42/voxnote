@@ -190,7 +190,7 @@ def replace_machine_segments(record_id: str, segs):
     now = int(time.time() * 1000)
     with conn() as c:
         old = c.execute(
-            "SELECT id, idx, t_ms, e_ms, m_text, m_spk, e_text, e_spk FROM segments"
+            "SELECT id, idx, t_ms, e_ms, m_text, m_spk, e_text, e_spk, edited_at FROM segments"
             " WHERE record_id=? ORDER BY t_ms", (record_id,)).fetchall()
         c.execute("DELETE FROM segments WHERE record_id=?", (record_id,))
         c.execute("DELETE FROM fts WHERE record_id=?", (record_id,))

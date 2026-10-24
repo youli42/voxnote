@@ -77,7 +77,15 @@ def _loop():
         if job is None:
             _stop.wait(1.0)
             continue
-        _run(job, engines)
+        try:
+            _run(job, engines)
+        except Exception:
+            # 任何阶段崩了都不能带死 worker：记失败，接着消费下一个
+            traceback.print_exc()
+            try:
+                _finish(job, "fail", "任务异常，见服务端日志", None)
+            except Exception:
+                traceback.print_exc()
 
 
 def _claim():

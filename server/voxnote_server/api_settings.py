@@ -16,6 +16,12 @@ from . import db, config
 
 router = APIRouter()
 
+
+@router.get("/stats")
+def stats():
+    return build_stats()
+
+
 SECRET_KEYS = {"cloud_asr_key", "ai_key"}
 
 
