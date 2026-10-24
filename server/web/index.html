@@ -1935,8 +1935,8 @@ function sendChat(){
 }
 
 /* ================= 设置（分页） ================= */
-var setForm={},setS=null,setSt=null,setTab='engine';
-var SET_TABS=[['engine','转写'],['ai','AI 与云端'],['models','本地模型'],['sys','存储与安全']];
+var setForm={},setS=null,setSt=null,setTab='stt';
+var SET_TABS=[['stt','语音转文本模型'],['ai','AI 与 MCP'],['sys','存储与安全']];
 /* 引擎系列启用开关：停用的引擎藏起自己的设置，也不参与自动转写（disabled_engines 设置） */
 function engOff(id){
   return (','+(setForm.disabled_engines||'')+',').indexOf(','+id+',')>=0;
@@ -1967,10 +1967,13 @@ function renderSet(){
   var tabs='<div class="tabs" style="grid-column:1/-1;margin-bottom:2px">'+SET_TABS.map(function(t){
     return '<button class="tab'+(setTab===t[0]?' on':'')+'" data-st="'+t[0]+'">'+t[1]+'</button>';}).join('')+'</div>';
   var b='';
-  if(setTab==='engine'){
-    b='<div class="card"><h3>转写</h3>'+
+  if(setTab==='stt'){
+    function sec(t){return '<div style="font-size:11px;font-weight:600;color:var(--sub);margin:13px 0 2px">'+t+'</div>';}
+    /* 语音转文本一站配齐：引擎启停与参数 → 获取模型 → 管理模型。
+       卡片按流程分（配置 / 获取 / 管理），不按模型分卡。 */
+    b='<div class="card" style="grid-column:1/-1"><h3>转写引擎</h3>'+
       row('同步/导入后自动转写','', '<span class="toggle'+(setForm.auto_transcribe?' on':'')+'" data-k="auto_transcribe"></span>')+
-      '<div class="hint" style="margin:10px 0 0">转写引擎 · 关闭后隐藏对应设置，也不参与自动转写</div>'+
+      '<div class="hint" style="margin:10px 0 0">引擎启停 · 关闭后隐藏对应设置，也不参与自动转写</div>'+
       engines.map(function(e){
         return row(esc(e.name)+(e.available?'':'（依赖缺失）'), esc(e.desc),
           '<span class="toggle'+(engOff(e.id)?'':' on')+'" data-eng="'+esc(e.id)+'"></span>');
@@ -1981,34 +1984,23 @@ function renderSet(){
             (engOff(e.id)?'（已停用）':(e.available?'':'（不可用）'))+'</option>';
         }).join('')+'</select>')+
       (engOff('whisper-local')?'':
-      row('Whisper 模型','tiny / base / small / medium / large-v3 · 本地模型页可安装/卸载','<input type="text" data-k="whisper_model" value="'+esc(setForm.whisper_model)+'" style="width:120px">')+
+      sec('Whisper · 本地（GPU 优先，自动回退 CPU）')+
+      row('Whisper 模型','tiny / base / small / medium / large-v3 · 下方可安装/卸载','<input type="text" data-k="whisper_model" value="'+esc(setForm.whisper_model)+'" style="width:120px">')+
       row('设备','auto / cpu / cuda','<select data-k="whisper_device">'+['auto','cpu','cuda'].map(function(x){return '<option'+(x===setForm.whisper_device?' selected':'')+'>'+x+'</option>';}).join('')+'</select>')+
       row('语言','auto = 自动检测（短音频易判错）','<select data-k="whisper_language">'+['zh','auto','en','ja'].map(function(x){return '<option'+(x===setForm.whisper_language?' selected':'')+'>'+x+'</option>';}).join('')+'</select>'))+
       (engOff('llama-local')?'':
-      row('Qwen3 推理服务','模型在「本地模型」页获取；转写时自动启动，也可手动预热','<span class="dlrow"><span id="llamaSrvHint" style="font-size:11px;color:var(--dim)">–</span>'+
+      sec('Qwen3-ASR · 本地（llama.cpp，无 GPU 也能跑）')+
+      row('推理服务','模型在下方获取；转写时自动启动，也可手动预热','<span class="dlrow"><span id="llamaSrvHint" style="font-size:11px;color:var(--dim)">–</span>'+
         '<button class="btn sm" id="btnSrv">启动</button></span>')+
       row('llama-server 路径','llama.cpp 发布包里的 llama-server(.exe) 完整路径','<input type="text" data-k="llama_server_path" value="'+esc(setForm.llama_server_path||'')+'" style="width:230px">')+
       row('服务端口','','<input type="text" data-k="llama_port" value="'+esc(setForm.llama_port||'8849')+'" style="width:80px">'))+
-      '</div>';
-  } else if(setTab==='ai'){
-    b='<div class="card"><h3>AI</h3>'+
-      row('API 地址','OpenAI 兼容 /chat/completions','<input type="text" data-k="ai_base" value="'+esc(setForm.ai_base)+'" style="width:230px">')+
-      row('API Key',s.ai_key_set?'已配置（留空不更改）':'未配置','<input type="password" data-k="ai_key" placeholder="'+(s.ai_key_set?'••••••••••••':'sk-…')+'" style="width:190px">')+
-      row('模型','','<input type="text" data-k="ai_model" value="'+esc(setForm.ai_model)+'" style="width:150px">')+
-      '</div>'+
-      '<div class="card"><h3>云端转写（可选）</h3>'+
-      row('启用云端转写引擎',esc(engDesc('cloud-openai'))+(s.cloud_asr_ready?'':' · 未配置时不可用'),
-        '<span class="toggle'+(engOff('cloud-openai')?'':' on')+'" data-eng="cloud-openai"></span>')+
       (engOff('cloud-openai')?'':
-      row('API 地址','OpenAI 兼容 /audio/transcriptions','<input type="text" data-k="cloud_asr_base" value="'+esc(setForm.cloud_asr_base)+'" style="width:230px">')+
+      sec('云端 API（OpenAI 兼容）')+
+      row('API 地址','/audio/transcriptions · 未配置时该引擎不可用','<input type="text" data-k="cloud_asr_base" value="'+esc(setForm.cloud_asr_base)+'" style="width:230px">')+
       row('API Key',s.cloud_asr_key_set?'已配置（留空不更改）':'未配置','<input type="password" data-k="cloud_asr_key" placeholder="'+(s.cloud_asr_key_set?'••••••••••••':'sk-…')+'" style="width:190px">')+
       row('模型','如 whisper-large-v3 / SenseVoiceLarge','<input type="text" data-k="cloud_asr_model" value="'+esc(setForm.cloud_asr_model)+'" style="width:190px">'))+
-      '</div>';
-  } else if(setTab==='models'){
-    function sec(t){return '<div style="font-size:11px;font-weight:600;color:var(--sub);margin:13px 0 2px">'+t+'</div>';}
-    /* 两列按流程分（获取 → 管理），布局不按模型分卡；行内仍标模型名。
-       推理服务是引擎配置而非模型文件，通栏放两列之下。 */
-    b='<div class="card"><h3>获取模型</h3>'+
+      '</div>'+
+      '<div class="card"><h3>获取模型</h3>'+
       sec('Whisper 系列（faster-whisper）')+
       '<div id="whGet"><div class="hint">加载中…</div></div>'+
       sec('Qwen3-ASR 系列（llama.cpp）· 无 GPU 也能跑')+
@@ -2032,6 +2024,15 @@ function renderSet(){
       sec('Qwen3-ASR 模型文件')+
       '<div id="ggufList" style="margin-top:4px"></div>'+
       '<div class="hintblk">存到 <span class="tok" id="ggufDir">–</span>，删除后可随时重新下载。换量化前先卸载现有文件（多个主模型并存时按体积取大者）。</div>'+
+      '</div>';
+  } else if(setTab==='ai'){
+    b='<div class="card"><h3>AI 助手</h3>'+
+      row('API 地址','OpenAI 兼容 /chat/completions','<input type="text" data-k="ai_base" value="'+esc(setForm.ai_base)+'" style="width:230px">')+
+      row('API Key',s.ai_key_set?'已配置（留空不更改）':'未配置','<input type="password" data-k="ai_key" placeholder="'+(s.ai_key_set?'••••••••••••':'sk-…')+'" style="width:190px">')+
+      row('模型','','<input type="text" data-k="ai_model" value="'+esc(setForm.ai_model)+'" style="width:150px">')+
+      '</div>'+
+      '<div class="card"><h3>MCP</h3>'+
+      '<div class="hintblk">MCP（Model Context Protocol）服务接入规划中：届时可把外部工具挂给 AI 助手，回答时直接调用；配置入口会出现在这里。</div>'+
       '</div>';
   } else {
     b='<div class="card"><h3>存储位置</h3>'+
@@ -2061,8 +2062,7 @@ function renderSet(){
       renderSet();   // 被停用引擎的设置行即时收起/展开
     };
   });
-  if(setTab==='models'){ wireLlama();loadModel();loadWhisperModels(); }
-  else if(setTab==='engine'&&!engOff('llama-local')){ wireLlama();loadModel(); }
+  if(setTab==='stt'){ wireLlama();loadModel();loadWhisperModels(); }
   if(setTab==='sys'){
     document.getElementById('btnCopyTok').onclick=function(){
       navigator.clipboard.writeText(s.sync_token).then(function(){toast('令牌已复制');});
@@ -2261,7 +2261,7 @@ var modelPoll=null;
 function scheduleModelPoll(){
   clearTimeout(modelPoll);
   modelPoll=setTimeout(function(){
-    if(cur!=='set'||setTab!=='models')return;
+    if(cur!=='set'||setTab!=='stt')return;
     loadWhisperModels();loadModel();
   },2000);
 }
