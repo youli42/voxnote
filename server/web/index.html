@@ -1974,14 +1974,16 @@ function renderSet(){
       row('模型','如 whisper-large-v3 / SenseVoiceLarge','<input type="text" data-k="cloud_asr_model" value="'+esc(setForm.cloud_asr_model)+'" style="width:190px">')+
       '</div>';
   } else if(setTab==='models'){
+    function sec(t){return '<div style="font-size:11px;font-weight:600;color:var(--sub);margin:13px 0 2px">'+t+'</div>';}
     b='<div class="card"><h3>Whisper 模型（faster-whisper）</h3>'+
       '<div id="whisperList"><div class="hint">加载中…</div></div>'+
       '<div class="hint" id="whDlTxt" style="font-size:10.5px;color:var(--dim);margin:6px 0 2px"></div>'+
       '<div class="hintblk">缓存位置 <span class="tok" id="whCache">–</span>。卸载当前使用的模型后，下一次转写会自动重新下载；下载默认走 hf-mirror 镜像。</div>'+
       '</div>'+
       '<div class="card"><h3>本地大模型 · Qwen3-ASR-1.7B</h3>'+
-      row('模型文件','q4_k 1.31 GB（2C/6G 推荐）· q5_k 1.82 GB','<span id="llamaStat" style="font-size:11px;color:var(--dim)">–</span>')+
-      row('下载模型','选量化自动填仓库，也可手动改','<span class="dlrow">'+
+      sec('① 下载 · 获取模型文件')+
+      row('当前状态','','<span id="llamaStat" style="font-size:11px;color:var(--dim)">–</span>')+
+      row('下载安装','<span id="llamaDlHint">选量化自动填仓库，也可手动改</span>','<span class="dlrow">'+
         '<select id="llamaQuant">'+
         '<option value="Q4_K_M">q4_k_m（推荐）</option>'+
         '<option value="Q8_0">q8_0（官方 ggml-org）</option>'+
@@ -1991,14 +1993,17 @@ function renderSet(){
         '<button class="btn sm" id="btnDlStop" style="display:none">取消</button></span>')+
       '<div class="pbar" id="llamaDlBar" style="width:100%;margin:8px 0 2px;display:none"><i></i></div>'+
       '<div class="hint" id="llamaDlTxt" style="font-size:10.5px;color:var(--dim);margin-bottom:6px"></div>'+
+      sec('② 使用 · 推理服务')+
       row('llama-server 路径','llama.cpp 发布包里的 llama-server(.exe) 完整路径','<input type="text" data-k="llama_server_path" value="'+esc(setForm.llama_server_path||'')+'" style="width:230px">')+
       row('服务端口','','<input type="text" data-k="llama_port" value="'+esc(setForm.llama_port||'8849')+'" style="width:80px">')+
       row('推理服务','转写时自动启动，也可手动预热','<span class="dlrow"><span id="llamaSrvHint" style="font-size:11px;color:var(--dim)">–</span>'+
         '<button class="btn sm" id="btnSrv">启动</button></span>')+
+      '<div class="hintblk">就绪后在「转写」分页把默认引擎切到「Qwen3-ASR（本地）」即可用于转写。</div>'+
+      sec('③ 管理 · 卸载')+
       '<div id="ggufList" style="margin-top:4px"></div>'+
-      '<div class="hintblk">模型与音频编码器（mmproj）存到 <span class="tok" id="ggufDir">–</span>，可逐个删除释放空间。'+
-      'Qwen3-ASR 不输出时间戳，转写稿为整段一句。llama.cpp 发布包见 '+
-      '<a href="https://github.com/ggml-org/llama.cpp/releases" target="_blank">github.com/ggml-org/llama.cpp/releases</a>。</div>'+
+      '<div class="hintblk">模型与音频编码器（mmproj）存到 <span class="tok" id="ggufDir">–</span>，删除后可随时重新下载。'+
+      '注意换量化前先卸载现有文件（多个主模型并存时按体积取大者）。Qwen3-ASR 不输出时间戳，转写稿为整段一句。'+
+      'llama.cpp 发布包见 <a href="https://github.com/ggml-org/llama.cpp/releases" target="_blank">github.com/ggml-org/llama.cpp/releases</a>。</div>'+
       '</div>';
   } else {
     b='<div class="card"><h3>存储位置</h3>'+
@@ -2087,17 +2092,20 @@ function loadModel(){
     var st=document.getElementById('llamaStat');if(!st)return;
     var mb=m.model;
     if(mb.ready){
-      st.innerHTML='<span style="color:var(--ok)">已就绪</span> · 主模型 '+fmtBytes(mb.main_bytes)+
+      st.innerHTML='<span style="color:var(--ok)">已就绪，可直接使用</span> · 主模型 '+fmtBytes(mb.main_bytes)+
         ' · 编码器 '+fmtBytes(mb.mmproj_bytes);
     }else{
       var got=[];
       if(mb.main)got.push('主模型 '+fmtBytes(mb.main_bytes));
       if(mb.mmproj)got.push('编码器 '+fmtBytes(mb.mmproj_bytes));
-      st.innerHTML='<span style="color:var(--warn)">'+(got.length?'缺编码器或主模型（已有 '+got.join(' + ')+'）':'未下载')+'</span>';
+      st.innerHTML='<span style="color:var(--warn)">'+(got.length?'不完整（已有 '+got.join(' + ')+'，还缺一部分，暂不可用）':'未下载')+'</span>';
     }
+    var dh=document.getElementById('llamaDlHint');
+    if(dh)dh.textContent=mb.ready?'模型已就绪，无需下载；如要换量化，先在「③ 管理」里卸载现有文件':'选量化自动填仓库，也可手动改';
     var dl=m.download;
     var bar=document.getElementById('llamaDlBar'),dt=document.getElementById('llamaDlTxt'),
         bd=document.getElementById('btnDl'),bs=document.getElementById('btnDlStop');
+    if(bd)bd.classList[mb.ready?'remove':'add']('accent');  /* 已就绪：下载按钮降为普通样式，不再暗示"还需要装" */
     if(dl.state==='downloading'){
       bar.style.display='block';bar.firstElementChild.style.width=((dl.progress||0)*100).toFixed(1)+'%';
       dt.textContent='下载中 '+dl.file+' · '+fmtBytes(dl.got)+(dl.total?' / '+fmtBytes(dl.total):'');
