@@ -19,7 +19,8 @@ def _rec_out(r, with_segs=False):
     o = {
         "id": r["id"], "sid": r["sid"], "title": r["title"], "cat": r["cat"],
         "mode": r["mode"], "dur_ms": r["dur_ms"], "status": r["status"],
-        "engine": r["engine"], "error": r["error"], "src": r["src"],
+        "engine": r["engine"], "error": r["error"], "error_detail": r["error_detail"],
+        "src": r["src"],
         "bytes": r["bytes"], "created_at": r["created_at"], "updated_at": r["updated_at"],
         "has_audio": bool(r["audio_path"] and os.path.isfile(r["audio_path"])),
         "audio_url": "/api/v1/records/%s/audio" % r["id"],
@@ -28,6 +29,7 @@ def _rec_out(r, with_segs=False):
         segs = db.effective_segments(r["id"])
         o["segments"] = [dict(s) for s in segs]
         o["edited"] = sum(1 for s in segs if s["edited"])
+        o["audio_path"] = r["audio_path"] or ""
     return o
 
 

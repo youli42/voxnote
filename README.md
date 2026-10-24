@@ -6,6 +6,13 @@
 在设备本地完成 **录音 → 转写 → 结构化入库 → 阅读/编辑 → 同步/自动化** 的完整工具，
 转写后端可插拔（自建云 API / 本地小模型 / 外部导入 / 人工），可移植到其他 Android 设备。
 
+三个部分：
+
+- **App（android/）**：手机上的原生录音与阅读端；
+- **服务端（server/）**：自托管 voxnote server——手机把录音同步上去，服务端排队转写，
+  Web 控制台负责阅读、逐句修订、任务管理与 AI 对接，转写稿自动回填手机；
+- **文档（docs/）**：需求、架构与数据契约。
+
 > 由 `Sogou_S1_transcript`（只做日志提取的 Magisk 脚本模块）演进而来：日志导入从"唯一功能"
 > 降级为"数据入口之一"，目标是替代设备自带的录音 App。
 >
@@ -31,6 +38,8 @@
   详情页逐行显示"发言人"色片；编号只在那一场会话内稳定。
 - **分离**：机器派生的内容可以无限重放，人写的内容（标题/分类/标记）单独保存、永不被覆盖。
 - **迁移**：从旧版界面升级时，一次性地把旧设置与分类搬过来。
+- **同步**：与自托管 voxnote server 配对后，录音自动上传排队转写，转写稿与控制台改的
+  分类自动回填手机（本地自己的转写稿永不被服务器覆盖）。
 
 ## 当前状态
 
@@ -43,9 +52,12 @@
 | 导入逐句说话人归属（读厂商日志的 `SpeakerMsg{tag,gender}`，句继承当前说话人） | ✅ 可用（S1 实测 2/3 人正确） |
 | 用户数据与机器派生数据分离落盘 | ✅ 可用 |
 | 旧版设置与分类迁移 | ✅ 可用 |
-| 可插拔转写后端 | ⬜ 未接入（"转文字"如实提示未接入） |
-| 逐句编辑 | ⬜ 未开始 |
-| 同步 / 自动化 | ⬜ 未开始 |
+| 可插拔转写后端（服务端） | ✅ Whisper 本地（GPU 优先/CPU 回退）· OpenAI 兼容云端 · llama.cpp Qwen3-ASR |
+| 自托管 voxnote server + Web 控制台 | ✅ 同步 / 转写队列 / 控制台阅读修订 / AI 问答入口 |
+| 转写实时可见 | ✅ 引擎逐句回调落库；控制台实时出稿（Whisper 逐字打字机，批量引擎有提示） |
+| 失败可诊断 | ✅ 常见错误归类为人类可读文案，原始异常可展开查看 |
+| App ↔ 服务器同步 | ✅ 推音频、拉转写稿与标签回填；录完自动上传；adb 一条命令配对 |
+| 逐句编辑 | ✅ 控制台逐句修订（人机分层，重转写不覆盖） |
 | 分区存储（Android 10+）真机验证 | ✅ Android 12（API 31）实测：安装、录音、MediaStore 落盘、列表/分类 |
 
 ## 构建与安装
@@ -66,6 +78,26 @@ pwsh -NoProfile -File android/build.ps1 -Toolchain <jdk根> -Sdk <android-sdk根
 `-Install` 安装后启动应用。签名用 `android/debug.keystore`（首次自动生成），
 反复构建不会换签名、可覆盖安装。
 
+## 服务端速览
+
+单进程 FastAPI + SQLite，无外部数据库依赖；详见 [server/README.md](server/README.md)。
+
+```powershell
+cd server
+python -m venv venv
+venv\Scripts\pip install -r requirements.txt
+venv\Scripts\python run.py            # 控制台 http://127.0.0.1:8787
+```
+
+- **转写队列**：DB 为真源，单 worker 顺序消费；引擎边转写边落库，控制台/手机端实时可见；
+- **Web 控制台**：记录库（分页/分类/搜索/预览）、逐句修订、任务管理、转写实时出稿、
+  播放器、AI 问答入口；hash 路由，刷新/前进/后退回到阅读位置；
+- **存储位置可配**：设置页可改音频目录与数据库文件（写 `data/config.json`；
+  数据库搬移需重启，界面上有说明）；
+- **与 App 配对**：控制台设置页复制令牌；`adb shell am start` 带
+  `--es server_url … --es server_token … --es sync_now 1` 一条命令完成配对并同步。
+- **安全**：默认只绑 127.0.0.1，设备 API 需令牌；暴露到局域网前自行加反代鉴权。
+
 ## 设备事实（S1 AI Recorder，实测）
 
 - Android 8.1 / API 27，无分区存储：普通 App 持存储权限即可读写 `/sdcard/**`，**不需要 root**；
@@ -76,6 +108,7 @@ pwsh -NoProfile -File android/build.ps1 -Toolchain <jdk根> -Sdk <android-sdk根
 
 ```
 android/   安卓应用（无 Gradle 的最小构建链；assets 里是旧版设置迁移用的一次性页面）
+server/    自托管服务端：同步 API、转写队列、Web 控制台（含独立 README）
 docs/      需求、架构、数据契约
 tools/     工具链获取脚本
 ```
@@ -89,4 +122,5 @@ tools/     工具链获取脚本
 ## 隐私边界
 
 设备日志、数据库、录音、抓包一律不进仓库（见 [.gitignore](.gitignore)）；
-解析产物只写设备本地 `/sdcard/s1rec/`。
+解析产物只写设备本地 `/sdcard/s1rec/`；自托管服务端的数据（音频、SQLite、
+可再生的导出镜像）全部落在本机 `data/` 目录，路径可在控制台设置页调整。

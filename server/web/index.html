@@ -203,6 +203,22 @@
   .livesegs{max-height:320px;overflow-y:auto;margin-top:12px;text-align:left;border-top:1px solid var(--line);padding-top:8px}
   .livesegs .seg .spk,.livesegs .seg .tx{cursor:default}
   .livesegs .seg .tx:hover{background:none}
+  /* 标签下拉菜单（详情页 chip） */
+  .catmenu{position:fixed;z-index:60;background:var(--card);border:1px solid var(--line);border-radius:10px;
+    box-shadow:0 10px 28px rgba(0,0,0,.5);padding:4px;min-width:150px;max-height:280px;overflow-y:auto}
+  .catmenu button{display:block;width:100%;text-align:left;background:none;border:0;color:var(--text);
+    font-size:12.5px;padding:7px 10px;border-radius:7px;cursor:pointer;white-space:nowrap}
+  .catmenu button:hover{background:#242833}
+  .catmenu button.on{color:var(--accent)}
+  .catmenu button.new{color:var(--accent)}
+  /* 失败详情展开 */
+  .errmore{font-size:11.5px;color:var(--dim);cursor:pointer;margin-top:10px}
+  .errmore:hover{color:var(--sub)}
+  .errdetail{font-size:11px;line-height:1.6;color:var(--sub);background:#14161c;border:1px solid var(--line);
+    border-radius:8px;padding:10px 12px;margin:10px auto 0;max-width:560px;max-height:220px;overflow:auto;
+    white-space:pre-wrap;word-break:break-all;text-align:left;font-family:Consolas,monospace}
+  .fpath{font-size:11px;color:var(--dim);margin-top:3px;cursor:pointer}
+  .fpath:hover{color:var(--sub)}
   .seg:hover .ops{display:flex}
   .op{background:var(--raise);border:1px solid var(--line2);color:var(--dim);font-size:10px;border-radius:6px;
       padding:3px 7px;cursor:pointer;white-space:nowrap}
@@ -453,6 +469,8 @@ function toast(s){
   clearTimeout(t._h); t._h=setTimeout(function(){t.style.display='none'},2600);
 }
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+/* 长路径掐头留尾显示（完整路径在 title/复制里） */
+function fpathShort(p){p=String(p);return p.length>64?p.slice(0,28)+' … '+p.slice(-32):p;}
 function fmtMs(ms){ms=Math.max(0,ms|0);var s=Math.floor(ms/1000);return (s/60|0)+':'+('0'+s%60).slice(-2);}
 function fmtDur(ms){var s=Math.round(ms/1000),m=s/60|0;return (m<100?('0'+m).slice(-2):m)+':'+('0'+s%60).slice(-2);}
 function fmtTime(ts){var d=new Date(ts);return (d.getMonth()+1)+'-'+('0'+d.getDate()).slice(-2)+' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);}
@@ -617,6 +635,10 @@ function refreshLive(rid){
     var box=document.getElementById('liveSegs');
     if(!box||!segs.length)return;
     if(liveType.rid!==rid){liveTypeReset();liveType.rid=rid;}
+    if(segs.length<liveType.n){ /* 句数变少 = 机器层被重转写结果替换，从头显示新稿 */
+      liveType.n=0;liveType.queue=[];
+      if(liveType.timer){clearInterval(liveType.timer);liveType.timer=0;}
+    }
     if(segs.length<=liveType.n)return; /* 没有新句子：不动 DOM，打字机继续 */
     var stick=box.scrollHeight-box.scrollTop-box.clientHeight<60;
     var html='';
@@ -785,7 +807,8 @@ function renderDetail(){
     '<div class="dm"><span>'+fmtTime(r.created_at)+'</span><span>'+fmtDur(r.dur_ms)+'</span>'+
     '<span class="chip" id="catChip" style="cursor:pointer">'+esc(r.cat||'未分类')+' ▾</span>'+
     '<span>来源 '+esc(r.src)+'</span>'+(r.engine?'<span>'+esc(r.engine)+'</span>':'')+
-    (r.error?'<span style="color:var(--err)">'+esc(r.error)+'</span>':'')+'</div>';
+    (r.error?'<span style="color:var(--err)" title="'+esc(r.error_detail||r.error)+'">'+esc(r.error)+'</span>':'')+'</div>'+
+    (r.audio_path?'<div class="fpath" title="点击复制完整路径" data-copy="'+esc(r.audio_path)+'">文件 '+esc(fpathShort(r.audio_path))+'</div>':'');
 
   if(r.has_audio){
     h+='<div class="player">'+
@@ -796,12 +819,9 @@ function renderDetail(){
       '<a class="btn sm ghost" style="text-decoration:none" href="'+r.audio_url+'" download="'+esc(r.id)+'.audio">下载</a></div></div>';
   }
 
-  if(r.segments && r.segments.length){
-    h+='<div class="tabs"><button class="tab on" data-t="segs">逐句稿</button><button class="tab" data-t="plain">纯文本</button></div>'+
-       '<div class="segbar"><span class="auto"><span class="dot"></span>修订即时保存</span>'+
-       '<span class="edmark">'+r.edited+' 处修订 · 重转写不覆盖</span><span class="grow"></span></div><div id="segs"></div>'+
-       '<div id="plain" style="display:none"></div>';
-  } else if(r.status==='asr'||r.status==='queued'){
+  /* 转写中卡片优先于逐句稿：重新转写已有稿的记录也要显示进度条，
+     旧稿先在实时出稿区只读展示，新结果边出边替换 */
+  if(r.status==='asr'||r.status==='queued'){
     var job=jobFor(r.id),p=job&&job.state==='running'?(job.progress*100|0):0;
     var segs=r.segments||[];
     var streamOk=!r.engine||STREAM_ENGINES[r.engine];
@@ -810,14 +830,16 @@ function renderDetail(){
        '<div class="pbar" style="width:200px;margin:14px auto 0"><i id="transPbar" style="width:'+p+'%"></i></div>';
     if(!streamOk){
       h+='<div style="font-size:11.5px;color:var(--warn);margin-top:12px">「'+esc(engineName(r.engine))+'」为批量转写，不支持逐字实时出稿，完成后一次性显示</div>';
-    }else if(segs.length){
-      h+='<div style="font-size:11.5px;color:var(--dim);margin-top:12px" id="liveCnt">实时出稿 · 已 '+segs.length+' 句 · 完成前为机器稿，暂不可修订</div>'+
-         '<div class="livesegs" id="liveSegs">'+liveSegsHTML(segs)+'</div>';
     }else{
-      h+='<div style="font-size:11.5px;color:var(--dim);margin-top:12px" id="liveCnt"></div>'+
-         '<div class="livesegs" id="liveSegs" style="display:none"></div>';
+      h+='<div style="font-size:11.5px;color:var(--dim);margin-top:12px" id="liveCnt">'+(segs.length?'实时出稿 · 已 '+segs.length+' 句 · 完成前为机器稿，暂不可修订':'')+'</div>'+
+         '<div class="livesegs" id="liveSegs"'+(segs.length?'':' style="display:none"')+'>'+liveSegsHTML(segs)+'</div>';
     }
     h+='</div>';
+  } else if(r.segments && r.segments.length){
+    h+='<div class="tabs"><button class="tab on" data-t="segs">逐句稿</button><button class="tab" data-t="plain">纯文本</button></div>'+
+       '<div class="segbar"><span class="auto"><span class="dot"></span>修订即时保存</span>'+
+       '<span class="edmark">'+r.edited+' 处修订 · 重转写不覆盖</span><span class="grow"></span></div><div id="segs"></div>'+
+       '<div id="plain" style="display:none"></div>';
   } else if(r.status==='raw'){
     h+='<div class="card" style="text-align:center;padding:44px 20px">'+
        '<div style="font-size:13px;color:var(--sub)">尚无转写稿</div>'+
@@ -825,6 +847,8 @@ function renderDetail(){
   } else if(r.status==='fail'){
     h+='<div class="card" style="text-align:center;padding:44px 20px">'+
        '<div style="font-size:13px;color:var(--err)">转写失败'+(r.error?' · '+esc(r.error):'')+'</div>'+
+       (r.error_detail?'<div class="errmore" id="errMore">▸ 错误详情</div>'+
+         '<pre class="errdetail" id="errDetail" style="display:none">'+esc(r.error_detail)+'</pre>':'')+
        '<button class="btn sm" style="margin-top:14px" id="btnTransNow">重试</button></div>';
   } else {
     h+='<div class="card emptybox">这场没有音频，也没有转写稿</div>';
@@ -858,6 +882,18 @@ function renderDetail(){
   if(retr)retr.onclick=function(){doTranscribe(r.id);};
   var tn=document.getElementById('btnTransNow');
   if(tn)tn.onclick=function(){doTranscribe(r.id);};
+  var em=document.getElementById('errMore');
+  if(em)em.onclick=function(){
+    var d=document.getElementById('errDetail');
+    var open=d.style.display==='none';
+    d.style.display=open?'block':'none';
+    this.textContent=(open?'▾ ':'▸ ')+'错误详情';
+  };
+  var fpe=document.querySelector('.fpath');
+  if(fpe)fpe.onclick=function(){
+    var v=this.dataset.copy;
+    navigator.clipboard.writeText(v).then(function(){toast('路径已复制');},function(){prompt('完整路径：',v);});
+  };
   var del=document.getElementById('btnDel');
   if(del)del.onclick=function(){
     if(!confirm('删除「'+(r.title||r.id)+'」？音频与转写稿一并删除，不可恢复。'))return;
@@ -865,7 +901,7 @@ function renderDetail(){
   };
 
   if(r.has_audio)setupPlayer(r);
-  if(r.segments&&r.segments.length)renderSegs(r);
+  if(r.segments&&r.segments.length&&r.status!=='asr'&&r.status!=='queued')renderSegs(r); /* 转写中渲染的是出稿卡片，没有 #segs */
   b.querySelectorAll('.tab').forEach(function(t){
     t.onclick=function(){
       b.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')});t.classList.add('on');
@@ -881,16 +917,47 @@ function doTranscribe(id){
 }
 /* 分类标签：候选 = 库内已有标签（安卓端自定义的可直接选），也可新建。
    列表上的标签 chips 由 loadList 的 cats 驱动，两端看到的是同一套。 */
+/* 标签选择：点 chip 弹下拉菜单（已有标签 + 新建），替代 prompt 手输。
+   服务器标签是自由字符串，安卓端拉取时会按名字对上/新建本地分类。 */
 function pickCat(r){
-  var names=(S.cats||[]).map(function(c){return c.cat;});
-  var cur=r.cat||'';
-  var opts=names.filter(function(n){return n&&n!==cur;});
-  var msg='输入标签（已有：'+(names.filter(Boolean).join('、')||'无')+'，留空清除）：';
-  var v=prompt(msg,cur);
-  if(v===null)return;
-  v=v.trim();
+  closeCatMenu();
+  var names=(S.cats||[]).map(function(c){return c.cat;}).filter(Boolean);
+  if(r.cat&&names.indexOf(r.cat)<0)names.unshift(r.cat);
+  var m=document.createElement('div');m.className='catmenu';m.id='catMenu';
+  function item(label,val){
+    var b=document.createElement('button');
+    b.textContent=label;
+    if(val&&val===r.cat)b.className='on';
+    b.onclick=function(){closeCatMenu();setCat(r,val);};
+    m.appendChild(b);
+  }
+  if(r.cat)item('未分类','');
+  names.forEach(function(n){item(n,n);});
+  var nb=document.createElement('button');nb.textContent='＋ 新建标签…';nb.className='new';
+  nb.onclick=function(){
+    closeCatMenu();
+    var v=prompt('新标签名：','');if(v===null)return;
+    v=v.trim();if(v)setCat(r,v);
+  };
+  m.appendChild(nb);
+  document.body.appendChild(m);
+  var rc=document.getElementById('catChip').getBoundingClientRect();
+  m.style.left=Math.max(8,Math.min(rc.left,window.innerWidth-m.offsetWidth-8))+'px';
+  m.style.top=Math.min(rc.bottom+6,window.innerHeight-m.offsetHeight-8)+'px';
+  document.addEventListener('mousedown',catMenuOutside);
+}
+function setCat(r,v){
   api('/records/'+r.id,{method:'PATCH',body:{cat:v}})
     .then(function(){r.cat=v;renderDetail();loadList();toast(v?'标签已设为 '+v:'标签已清除');});
+}
+function closeCatMenu(){
+  var m=document.getElementById('catMenu');
+  if(m)m.remove();
+  document.removeEventListener('mousedown',catMenuOutside);
+}
+function catMenuOutside(e){
+  var m=document.getElementById('catMenu');
+  if(m&&!m.contains(e.target))closeCatMenu();
 }
 function setupPlayer(r){
   if(window._curAudio){try{window._curAudio.pause();}catch(e){}}
@@ -984,7 +1051,9 @@ function renderWave(wave){
   paint(); /* 重建后立即恢复已播进度高亮 */
 }
 function renderSegs(r){
-  var box=document.getElementById('segs');box.innerHTML='';
+  var box=document.getElementById('segs');
+  if(!box)return; /* 转写中等场景没有逐句稿容器 */
+  box.innerHTML='';
   r.segments.forEach(function(s){
     var el=document.createElement('div');
     el.className='seg'+(s.edited?' ed':'');el.dataset.seg=s.id;
@@ -1058,7 +1127,7 @@ function loadAsr(){
       var stc;
       if(j.state==='running')stc='<div style="display:flex;gap:8px;align-items:center"><div class="pbar" style="width:80px"><i style="width:'+(j.progress*100|0)+'%"></i></div><span class="pnum">'+(j.progress*100|0)+'%</span></div>';
       else if(j.state==='done')stc='<span class="st done">完成</span>';
-      else if(j.state==='fail')stc='<span class="st fail">失败</span> <span class="errtxt">'+esc((j.error||'').slice(0,40))+'</span>';
+      else if(j.state==='fail')stc='<span class="st fail">失败</span> <span class="errtxt" title="'+esc(j.error||'')+'">'+esc((j.error||'').slice(0,60))+'</span>';
       else if(j.state==='cancel')stc='<span class="st raw">已取消</span>';
       else stc='<span class="st queued">排队</span>';
       var ops='';
@@ -1234,6 +1303,13 @@ function loadSettings(){
       '模型与音频编码器（mmproj）存到 <span class="tok">data/models/qwen3-asr/</span>。Qwen3-ASR 不输出时间戳，转写稿为整段一句。'+
       'llama.cpp 发布包见 <a href="https://github.com/ggml-org/llama.cpp/releases" target="_blank">github.com/ggml-org/llama.cpp/releases</a>。</div>'+
       '</div>'+
+      '<div class="card"><h3>存储位置</h3>'+
+      row('数据目录','启动参数/环境变量决定，改路径需改启动配置','<span class="tok">'+esc(st.data_dir)+'</span>')+
+      row('音频目录','新上传即时生效；相对路径基于数据目录；留空恢复默认','<input type="text" id="setAudioDir" value="'+esc(st.audio_dir||'')+'" style="width:260px">')+
+      row('数据库文件','改后需手动搬 voxnote.db 到新位置并重启服务','<input type="text" id="setDbPath" value="'+esc(st.db_path||'')+'" style="width:260px">')+
+      row('','','<button class="btn sm" id="btnSaveStorage">保存位置</button>'+
+        '<span class="hint" style="font-size:10.5px;color:var(--dim);margin-left:8px">配置写入 '+esc(st.config_file||'data/config.json')+'</span>')+
+      '</div>'+
       '<div class="card"><h3>设备与访问</h3>'+
       row('配对令牌','App 端「设置 → 服务器」中填入','<span class="tok">'+esc(s.sync_token)+'</span><button class="btn sm" id="btnCopyTok">复制</button>')+
       row('重置令牌','旧令牌立即失效，设备需更新','<button class="btn sm" id="btnResetTok">重置</button>')+
@@ -1250,6 +1326,13 @@ function loadSettings(){
     document.getElementById('btnResetTok').onclick=function(){
       if(!confirm('重置后旧令牌立即失效，已配对设备需要更新令牌。继续？'))return;
       api('/settings/reset-token',{method:'POST'}).then(function(r){toast('新令牌：'+r.sync_token);loadSettings();});
+    };
+    document.getElementById('btnSaveStorage').onclick=function(){
+      api('/storage',{method:'PATCH',body:{
+        audio_dir:document.getElementById('setAudioDir').value.trim(),
+        db_path:document.getElementById('setDbPath').value.trim()
+      }}).then(function(r){toast(r.note||'已保存');loadSettings();})
+        .catch(function(e){toast(e.message);});
     };
     wireLlama();
     loadModel();

@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS records(
   dur_ms INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'raw',  -- raw|queued|asr|done|fail
   engine TEXT NOT NULL DEFAULT '',
-  error TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',          -- 人类可读的失败原因（归类后）
+  error_detail TEXT NOT NULL DEFAULT '',   -- 原始异常串（控制台展开详情用）
   audio_path TEXT,
   audio_name TEXT NOT NULL DEFAULT '',
   bytes INTEGER NOT NULL DEFAULT 0,
@@ -117,11 +118,19 @@ PUBLIC_SETTING_KEYS = [
 def init():
     with conn() as c:
         c.executescript(SCHEMA)
+        _migrate(c)
         for k, v in SETTING_DEFAULTS.items():
             if get(k) is None:
                 set(k, v)
         if not get("sync_token"):
             set("sync_token", "vn-" + secrets.token_hex(8))
+
+
+def _migrate(c):
+    """轻量迁移：老库补列，幂等。"""
+    cols = {r["name"] for r in c.execute("PRAGMA table_info(records)").fetchall()}
+    if "error_detail" not in cols:
+        c.execute("ALTER TABLE records ADD COLUMN error_detail TEXT NOT NULL DEFAULT ''")
 
 
 # ------------------------------------------------------------ 设置

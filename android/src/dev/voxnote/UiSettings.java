@@ -133,6 +133,29 @@ public class UiSettings {
         return c == null ? "" : c.name;
     }
 
+    /** 服务器拉回的标签按名字对上本地分类；对不上由调用方用 {@link #newCatId()} 新建。 */
+    public String catIdByName(String name) {
+        if (name == null || name.length() == 0) return null;
+        for (int i = 0; i < categories.size(); i++) {
+            if (name.equals(categories.get(i).name)) return categories.get(i).id;
+        }
+        return null;
+    }
+
+    /** 下一个空闲的分类 id：cN 取现有最大 N+1（导入的分类可能有任意 id）。 */
+    public String newCatId() {
+        int max = 0;
+        for (int i = 0; i < categories.size(); i++) {
+            String id = categories.get(i).id;
+            if (id != null && id.startsWith("c") && id.length() > 1) {
+                try {
+                    max = Math.max(max, Integer.parseInt(id.substring(1)));
+                } catch (NumberFormatException ignore) { }
+            }
+        }
+        return "c" + (max + 1);
+    }
+
     public void save() {
         if (prefs == null) return;
         normalize();

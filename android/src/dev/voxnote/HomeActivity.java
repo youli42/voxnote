@@ -152,6 +152,32 @@ public class HomeActivity extends Activity implements Picker.Host {
         data = new DataCenter(this, state, storage);
         player = new Player(this);
         serverSync = new ServerSync(this, settings, storage);
+        serverSync.setCatApplier(new ServerSync.CatApplier() {
+            /** 服务器拉回的标签（[记录id, 标签名]）：按名字对上本地分类，
+             *  对不上就新建一个（服务端标签是自由字符串），再 patch 用户态。 */
+            public void apply(ArrayList<String[]> updates) {
+                for (int i = 0; i < updates.size(); i++) {
+                    final String[] u = updates.get(i);
+                    String catId = settings.catIdByName(u[1]);
+                    if (catId == null) {
+                        UiSettings.Cat c = new UiSettings.Cat(settings.newCatId(), u[1]);
+                        settings.categories.add(c);
+                        settings.save();
+                        catId = c.id;
+                    }
+                    try {
+                        JSONObject p = new JSONObject();
+                        p.put("cat", catId);
+                        final boolean last = i == updates.size() - 1;
+                        data.patch(u[0], p, last ? new DataCenter.DoneCallback() {
+                            public void onDone() {
+                                load(false, null, false);  // patch 异步落库，完成后重扫让列表亮出新分类
+                            }
+                        } : null);
+                    } catch (Throwable ignore) { }
+                }
+            }
+        });
 
         setContentView(buildRoot());
         // 冷启动别把键盘顶起来：搜索框/标题框默认都不抢焦点。

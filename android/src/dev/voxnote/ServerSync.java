@@ -53,6 +53,18 @@ public class ServerSync {
         void onResult(String err, String msg, boolean changed);
     }
 
+    /** 服务器拉回的标签差异（[记录id, 标签名]），宿主在主线程落库（按名对上/新建本地分类）。
+     *  传 null = 不关心标签同步。 */
+    public interface CatApplier {
+        void apply(ArrayList<String[]> updates);
+    }
+
+    private CatApplier catApplier;
+
+    public void setCatApplier(CatApplier applier) {
+        catApplier = applier;
+    }
+
     private static final SimpleDateFormat FMT = new SimpleDateFormat("MM-dd HH:mm", Locale.US);
     private static final String[] AUDIO_EXTS = {
             ".m4a", ".mp4", ".aac", ".wav", ".mp3", ".amr", ".ogg", ".3gp"};
@@ -133,14 +145,17 @@ public class ServerSync {
         io.execute(new Runnable() {
             public void run() {
                 String err = null;
-                int pushed = 0, pulled = 0;
+                int pushed = 0, pulled = 0, cats = 0;
+                ArrayList<String[]> catUpdates = new ArrayList<String[]>();
                 try {
                     lastPushError = "";
                     int[] p = push(snapshot);
                     pushed = p[0];
                     if (p[1] > 0) err = "上传失败 " + p[1] + " 场" + (lastPushError.length() > 0 ? "：" + lastPushError : "");
                     try {
-                        pulled = pull(snapshot);
+                        int[] r = pull(snapshot, catUpdates);
+                        pulled = r[0];
+                        cats = r[1];
                     } catch (Throwable t) {
                         err = err == null ? readable(t) : err;
                     }
@@ -156,8 +171,10 @@ public class ServerSync {
                 } finally {
                     running.set(false);
                 }
-                String msg = "上传 " + pushed + " 场 · 回填 " + pulled + " 场";
-                deliver(cb, err, msg, pushed + pulled > 0);
+                if (cats > 0) applyCats(catUpdates);
+                String msg = "上传 " + pushed + " 场 · 回填 " + pulled + " 场"
+                        + (cats > 0 ? " · 标签 " + cats + " 场" : "");
+                deliver(cb, err, msg, pushed + pulled + cats > 0);
             }
         });
     }
@@ -253,23 +270,26 @@ public class ServerSync {
         return null;
     }
 
-    // ------------------------------------------------------------ 拉：转写稿回填
+    // ------------------------------------------------------------ 拉：转写稿回填 + 标签回填
 
     /** 服务器有稿（done）或正在转写（asr，内容边长边推）的场次：
      *  本地没有文稿就回填；上次就是服务器回填过的（tr 标记存在）且服务器有更新则覆盖重写。
-     *  本地自己转出来的稿子（无 tr 标记）绝不动。返回回填场次数。 */
-    private int pull(ArrayList<RecordVm> items) throws Exception {
+     *  本地自己转出来的稿子（无 tr 标记）绝不动。
+     *  同时收集标签差异（服务器标签名 ≠ 本地标签名）到 catUpdates，由宿主落库——
+     *  只应用服务器的非空标签；空标签不清本地（可能是服务器侧从没打过的）。
+     *  返回 {回填场次数, 标签变化场次数}。 */
+    private int[] pull(ArrayList<RecordVm> items, ArrayList<String[]> catUpdates) throws Exception {
         long since = prefs.getLong("cursor", 0);
         JSONObject root = new JSONObject(httpGet(api() + "/records?since=" + since));
         JSONArray recs = root.optJSONArray("records");
-        if (recs == null) return 0;
+        if (recs == null) return new int[]{0, 0};
 
         Map<String, RecordVm> byId = new HashMap<String, RecordVm>();
         for (int i = 0; i < items.size(); i++) byId.put(items.get(i).id, items.get(i));
 
         long cursor = since;
         long processed = since;   // 游标只推进到"已处理完"的记录：
-        int n = 0;                // 被本地稿子保护跳过的场次仍留在窗口里，
+        int n = 0, nCat = 0;      // 被本地稿子保护跳过的场次仍留在窗口里，
         File mdDir = storage.privateRecords();  // 本地稿子被删后下一轮还能补拉。
         SharedPreferences.Editor ed = prefs.edit();
         for (int i = 0; i < recs.length(); i++) {
@@ -278,13 +298,19 @@ public class ServerSync {
             String id = o.optString("id", "");
             long upd = o.optLong("updated_at", 0);
             String status = o.optString("status", "");
-            if (!"done".equals(status) && !"asr".equals(status)) {
-                // raw/queued/fail：出不了稿，不用再看
+            RecordVm vm = byId.get(id);
+            if (vm == null) {                      // 本地没有这场（可能已删）
                 if (upd > processed) processed = upd;
                 continue;
             }
-            RecordVm vm = byId.get(id);
-            if (vm == null) {                      // 本地没有这场（可能已删）
+            // 标签回填：与转写回填独立，本地稿子受保护也不影响
+            String srvCat = o.optString("cat", "");
+            if (srvCat.length() > 0 && !srvCat.equals(vm.cat == null ? "" : s.catName(vm.cat))) {
+                catUpdates.add(new String[]{id, srvCat});
+                nCat++;
+            }
+            if (!"done".equals(status) && !"asr".equals(status)) {
+                // raw/queued/fail：出不了稿，不用再看
                 if (upd > processed) processed = upd;
                 continue;
             }
@@ -304,7 +330,19 @@ public class ServerSync {
         }
         ed.apply();
         if (processed > since) prefs.edit().putLong("cursor", processed).apply();
-        return n;
+        return new int[]{n, nCat};
+    }
+
+    /** 标签差异交给宿主（主线程）落库；宿主负责对上/新建本地分类并 patch 用户态。 */
+    private void applyCats(final ArrayList<String[]> updates) {
+        if (catApplier == null || updates.isEmpty()) return;
+        ui.post(new Runnable() {
+            public void run() {
+                try {
+                    catApplier.apply(updates);
+                } catch (Throwable ignore) { }
+            }
+        });
     }
 
     /** 轻量轮询：只拉转写稿（不推音频），供前台定时刷新 —— 服务端转写进行中时
@@ -316,17 +354,25 @@ public class ServerSync {
                 items == null ? new ArrayList<RecordVm>() : new ArrayList<RecordVm>(items);
         io.execute(new Runnable() {
             public void run() {
-                int pulled = 0;
+                int pulled = 0, cats = 0;
                 String err = null;
+                ArrayList<String[]> catUpdates = new ArrayList<String[]>();
                 try {
-                    pulled = pull(snapshot);
+                    int[] r = pull(snapshot, catUpdates);
+                    pulled = r[0];
+                    cats = r[1];
                 } catch (Throwable t) {
                     err = readable(t);
                 } finally {
                     running.set(false);
                 }
+                if (cats > 0) applyCats(catUpdates);
                 if (err != null) deliver(cb, err, "", false);
-                else if (pulled > 0) deliver(cb, null, "转写更新 " + pulled + " 场", true);
+                else if (pulled > 0 || cats > 0)
+                    deliver(cb, null,
+                            (pulled > 0 ? "转写更新 " + pulled + " 场" : "")
+                                    + (pulled > 0 && cats > 0 ? " · " : "")
+                                    + (cats > 0 ? "标签更新 " + cats + " 场" : ""), true);
             }
         });
     }
