@@ -34,9 +34,14 @@ docker compose --profile gpu up -d   # NVIDIA GPU（需 nvidia-container-toolkit
 1. 控制台 → 设置 → 设备与访问，复制**配对令牌**；
 2. App 端「设置 → 服务器」填入服务器地址与令牌；
 3. 同步协议（`/api/v1/sync`）：
-   - `POST /upload`：multipart 音频 + `meta`（JSON：stamp/title/cat/mode/sid/recorded_at/dur_ms）
-   - `GET /records?since=<ms>`：增量枚举（游标 = updated_at）
+   - `POST /upload`：multipart 音频 + `meta`（JSON：stamp/title/cat/mode/sid/device/recorded_at/dur_ms；
+     `device` 是上传设备名，控制台按它显示来源标签）
+   - `GET /records?since=<ms>`：增量枚举（游标 = updated_at，返回含 device 字段）
    - `GET /records/{id}/audio`、`GET /records/{id}/transcript`：下载音频 / 生效转写稿（JSONL）
+
+多台设备可以同时连同一台服务器：各设备推自己的录音、按各自游标拉回填；
+同秒撞车时服务端给记录 id 加 `-N` 后缀，App 端按上传响应里的真实 id 对回。
+App 的「云端」页可浏览全库（含其他设备的记录）、阅读转写稿并按需取回文稿/音频。
 
 ## 数据契约（与 App 端一致）
 
