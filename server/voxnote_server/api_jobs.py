@@ -45,6 +45,8 @@ def retry(job_id: int):
     e = es.get(row["engine"])
     if e is None or not e.available():
         raise HTTPException(400, "引擎不可用：%s" % row["engine"])
+    if not es.enabled(row["engine"]):
+        raise HTTPException(400, "引擎已停用：%s（设置 → 转写可重新启用）" % e.name)
     new_id = jq.enqueue(row["record_id"], row["engine"])
     return {"ok": True, "job": new_id}
 

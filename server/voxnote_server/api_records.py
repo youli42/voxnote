@@ -233,6 +233,8 @@ def transcribe(rid: str, req: TranscribeReq):
     e = engines.get(engine_id)
     if e is None:
         raise HTTPException(400, "未知引擎：%s" % engine_id)
+    if not engines.enabled(engine_id):
+        raise HTTPException(400, "引擎已停用：%s（设置 → 转写可重新启用）" % e.name)
     if not e.available():
         raise HTTPException(400, "引擎不可用：%s" % e.name)
     job_id = jobs.enqueue(rid, engine_id)

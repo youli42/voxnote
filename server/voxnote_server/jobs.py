@@ -100,8 +100,8 @@ def enqueue_default(record_id: str) -> int:
     engine_id = db.get("default_engine", "whisper-local")
     from . import engines
     e = engines.get(engine_id)
-    if e is None or not e.available():
-        # 默认引擎不可用：记录停在 raw，控制台可手动换引擎重试
+    if e is None or not e.available() or not engines.enabled(engine_id):
+        # 默认引擎不可用或已被停用：记录停在 raw，控制台可手动换引擎重试
         return 0
     return enqueue(record_id, engine_id)
 

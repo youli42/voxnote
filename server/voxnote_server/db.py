@@ -111,13 +111,14 @@ SETTING_DEFAULTS = {
     "llama_repo": "foryoung365/Qwen3-ASR-1.7B-Q4_K_M-GGUF",  # 下载仓库（q4_k，2C/6G 推荐）
     "hf_mirror": "https://hf-mirror.com",  # HuggingFace 镜像（直连不可达时用）
     "retention_audio": "keep",   # keep|compact（预留）
+    "disabled_engines": "",      # 控制台停用的引擎 id（逗号分隔），如 llama-local
 }
 
 PUBLIC_SETTING_KEYS = [
     "default_engine", "auto_transcribe", "whisper_model", "whisper_device",
     "whisper_compute", "whisper_language", "cloud_asr_base", "cloud_asr_model",
     "ai_base", "ai_model", "llama_server_path", "llama_port", "llama_repo",
-    "hf_mirror",
+    "hf_mirror", "disabled_engines",
 ]
 
 

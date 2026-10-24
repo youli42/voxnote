@@ -7,6 +7,7 @@
 """
 import datetime
 import os
+import re
 import secrets
 import time
 
@@ -97,6 +98,7 @@ class SettingsPatch(BaseModel):
     llama_port: Optional[str] = None
     llama_repo: Optional[str] = None
     hf_mirror: Optional[str] = None
+    disabled_engines: Optional[str] = None
     # 密钥与令牌：传非空才写（掩码回传不算更改）
     cloud_asr_key: Optional[str] = None
     ai_key: Optional[str] = None
@@ -110,6 +112,12 @@ def patch_settings(p: SettingsPatch):
             continue  # 掩码原样回传，忽略
         if k == "auto_transcribe":
             v = "1" if v else "0"
+        if k == "disabled_engines":
+            ids = [x.strip() for x in v.split(",") if x.strip()]
+            bad = [x for x in ids if not re.fullmatch(r"[a-z0-9_.-]{1,40}", x)]
+            if bad:
+                raise HTTPException(400, "非法引擎 id：%s" % ",".join(bad))
+            v = ",".join(ids)
         db.set(k, v)
     return {"ok": True}
 

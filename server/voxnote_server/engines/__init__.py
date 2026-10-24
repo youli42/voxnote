@@ -41,6 +41,18 @@ def get(engine_id: str) -> Engine:
     return ENGINES.get(engine_id)
 
 
+def disabled_ids() -> list:
+    """控制台里被停用的引擎（disabled_engines 设置，逗号分隔的引擎 id）。"""
+    from .. import db
+    raw = db.get("disabled_engines") or ""
+    return [x.strip() for x in raw.split(",") if x.strip()]
+
+
+def enabled(engine_id: str) -> bool:
+    """控制台停用的引擎不参与自动入队与手动转写；文件可用性另由 available() 管。"""
+    return engine_id not in disabled_ids()
+
+
 def all_infos() -> list:
     return [e.info() for e in ENGINES.values()]
 
