@@ -588,6 +588,9 @@ function stChip(st){var m=STMAP[st]||STMAP.raw;return '<span class="st '+m[0]+'"
 var STREAM_ENGINES={'whisper-local':1};
 function engineName(id){var e=(engines||[]).filter(function(x){return x.id===id;})[0];return e?e.name:(id||'');}
 var SPKC=['var(--s1)','var(--s2)','var(--s3)','var(--s4)'];
+/* 流卡片播放/暂停图标：初始渲染、播放切换、停止归位三处共用，避免各写一份走样 */
+var SVG_PLAY='<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg>';
+var SVG_PAUSE='<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
 function spkName(s){return s>=0?'发言人 '+(s+1):'未标注';}
 
 var cur='home';
@@ -1501,7 +1504,7 @@ function renderStream(){
     el.dataset.id=r.id;
     var st=r.edited?'<span class="st ed">修订</span>':stChip(r.status);
     el.innerHTML='<div class="hd">'+
-      (r.has_audio?'<button class="pbtn" data-play title="播放"></button>':'')+
+      (r.has_audio?'<button class="pbtn" data-play title="播放">'+(ST.playingId===r.id?SVG_PAUSE:SVG_PLAY)+'</button>':'')+
       '<span class="tt" title="到记录库打开">'+esc(r.title||r.id)+'</span>'+
       '<span class="mt2">'+st+'<span>'+fmtTime(r.created_at)+'</span><span>'+fmtDur(r.dur_ms)+'</span>'+
       '<span class="catchip" data-cat style="cursor:pointer">'+esc(r.cat||'未分类')+' ▾</span></span>'+
@@ -1515,6 +1518,10 @@ function renderStream(){
       '<div class="ft"><button class="op" data-more style="display:none">展开</button></div>';
     b.appendChild(el);
     wireStreamCard(el,r);
+    /* 占位波形先铺上（与峰值条同数量）：滚入视口由观察器触发解码后重绘，
+       已有缓存的重渲染卡片由 paintStreamWave 按 dataset.ph 直接换真波形 */
+    var wv=el.querySelector('[data-wave]');
+    if(wv){for(var i=0;i<STWAVE_N;i++){var bi=document.createElement('i');bi.style.height='15%';wv.appendChild(bi);}wv.dataset.ph='1';}
   });
   observeStreamWaves();
 }
@@ -1533,7 +1540,8 @@ function observeStreamWaves(){
   },{root:document.getElementById('p-stream'),rootMargin:'200px'});
   document.querySelectorAll('.sc [data-wave]').forEach(function(w){
     var rid=w.closest('.sc').dataset.id,c=WAVES[rid];
-    if(!c||!c.peaks)_waveObs.observe(w);
+    if(c&&c.peaks)paintStreamWave(rid,c); /* 峰值已在缓存（重渲染场景）：不等观察器，直接画 */
+    else _waveObs.observe(w);
   });
 }
 /* 卡片内交互：播放（全局单实例+ended 连播）、进度条 seek、重转写、标签、删除、展开 */
@@ -1576,14 +1584,13 @@ function wireStreamCard(el,r){
     };
   }
 }
-/* 流卡片波形：卡片滚入视口即解码（analyzeAudio 共享缓存），静音段压暗方便定位；
-   解码前先铺平条占位，解码失败退化为装饰波形（仍可 seek）。 */
+/* 流卡片波形：占位条在 renderStream 就铺好，这里只负责触发解码与重绘；
+   解码失败退化为装饰波形（仍可 seek）。 */
 function streamWaveBars(rec,el){
   var wave=el.querySelector('[data-wave]');
-  if(!wave||wave.children.length)return;
+  if(!wave||!wave.dataset.ph)return; /* 无占位条（无音频）或已是真波形 */
   var w=analyzeAudio(rec);
   if(w.peaks){paintStreamWave(rec.id,w);return;}
-  for(var i=0;i<STWAVE_N;i++){var b=document.createElement('i');b.style.height='15%';wave.appendChild(b);}
   w.promise.then(function(){paintStreamWave(rec.id,w);});
 }
 function paintStreamWave(id,w){
@@ -1591,12 +1598,13 @@ function paintStreamWave(id,w){
   var wave=el&&el.querySelector('[data-wave]');
   if(!wave)return;
   var bars=wave.children;
-  /* 占位条与峰值条同数量，用 drawn 标记保证真波形首次必重绘 */
-  if(w.peaks&&!w.drawn&&bars.length){
-    wave.innerHTML='';bars=null;
+  /* 容器还是占位条（dataset.ph）或条数与峰值对不上（重渲染后的空/旧容器）就整体重绘。
+     drawn 标记不能挂在缓存条目上：缓存跨卡片重建存活，会让新容器永远等不到重绘。 */
+  if(w.peaks&&(wave.dataset.ph||bars.length!==w.peaks.length)){
+    wave.innerHTML='';delete wave.dataset.ph;
     w.peaks.forEach(function(p){var b=document.createElement('i');
       b.style.height=Math.round(p*100)+'%';wave.appendChild(b);});
-    w.drawn=true;bars=wave.children;
+    bars=wave.children;
   }
   if(!w.peaks)return;
   var sil=w.sil||[],dur=0;
@@ -1624,14 +1632,14 @@ function paintStreamCard(){
     if(!ST.audio.paused)skipSilence(ST.list.filter(function(x){return x.id===ST.playingId;})[0],ST.audio);
   }
   var pb=el.querySelector('[data-play]');
-  if(pb)pb.innerHTML=ST.audio.paused
-    ?'<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg>'
-    :'<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
+  if(pb)pb.innerHTML=ST.audio.paused?SVG_PLAY:SVG_PAUSE;
 }
 function stopStreamAudio(){
   if(ST.audio){try{ST.audio.pause();}catch(e){}}
   ST.audio=null;ST.playingId=null;paintStreamN=0;
   document.querySelectorAll('.sc.playing').forEach(function(x){x.classList.remove('playing')});
+  /* pause 事件回调里 playingId 已清空、paintStreamCard 会提前返回，图标在这里统一归位 */
+  document.querySelectorAll('.sc [data-play]').forEach(function(pb){pb.innerHTML=SVG_PLAY;});
 }
 function playStreamCard(id){
   var rec=ST.list.filter(function(x){return x.id===id;})[0];
@@ -1954,7 +1962,6 @@ function saveLlamaSettings(cb){
   p.llama_repo=document.getElementById('llamaRepo').value;
   api('/settings',{method:'PATCH',body:p}).then(cb).catch(function(e){toast(e.message)});
 }
-var _dlSig='';
 function loadModel(){
   api('/models/asr').then(function(m){
     var st=document.getElementById('llamaStat');if(!st)return;
