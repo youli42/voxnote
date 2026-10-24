@@ -1984,6 +1984,11 @@ function renderSet(){
       row('Whisper 模型','tiny / base / small / medium / large-v3 · 本地模型页可安装/卸载','<input type="text" data-k="whisper_model" value="'+esc(setForm.whisper_model)+'" style="width:120px">')+
       row('设备','auto / cpu / cuda','<select data-k="whisper_device">'+['auto','cpu','cuda'].map(function(x){return '<option'+(x===setForm.whisper_device?' selected':'')+'>'+x+'</option>';}).join('')+'</select>')+
       row('语言','auto = 自动检测（短音频易判错）','<select data-k="whisper_language">'+['zh','auto','en','ja'].map(function(x){return '<option'+(x===setForm.whisper_language?' selected':'')+'>'+x+'</option>';}).join('')+'</select>'))+
+      (engOff('llama-local')?'':
+      row('Qwen3 推理服务','模型在「本地模型」页获取；转写时自动启动，也可手动预热','<span class="dlrow"><span id="llamaSrvHint" style="font-size:11px;color:var(--dim)">–</span>'+
+        '<button class="btn sm" id="btnSrv">启动</button></span>')+
+      row('llama-server 路径','llama.cpp 发布包里的 llama-server(.exe) 完整路径','<input type="text" data-k="llama_server_path" value="'+esc(setForm.llama_server_path||'')+'" style="width:230px">')+
+      row('服务端口','','<input type="text" data-k="llama_port" value="'+esc(setForm.llama_port||'8849')+'" style="width:80px">'))+
       '</div>';
   } else if(setTab==='ai'){
     b='<div class="card"><h3>AI</h3>'+
@@ -2027,13 +2032,6 @@ function renderSet(){
       sec('Qwen3-ASR 模型文件')+
       '<div id="ggufList" style="margin-top:4px"></div>'+
       '<div class="hintblk">存到 <span class="tok" id="ggufDir">–</span>，删除后可随时重新下载。换量化前先卸载现有文件（多个主模型并存时按体积取大者）。</div>'+
-      '</div>'+
-      '<div class="card" style="grid-column:1/-1"><h3>使用 · Qwen3 推理服务</h3>'+
-      row('llama-server 路径','llama.cpp 发布包里的 llama-server(.exe) 完整路径','<input type="text" data-k="llama_server_path" value="'+esc(setForm.llama_server_path||'')+'" style="width:230px">')+
-      row('服务端口','','<input type="text" data-k="llama_port" value="'+esc(setForm.llama_port||'8849')+'" style="width:80px">')+
-      row('推理服务','转写时自动启动，也可手动预热','<span class="dlrow"><span id="llamaSrvHint" style="font-size:11px;color:var(--dim)">–</span>'+
-        '<button class="btn sm" id="btnSrv">启动</button></span>')+
-      '<div class="hintblk">就绪后在「转写」分页把默认引擎切到「Qwen3-ASR（本地）」即可用于转写。</div>'+
       '</div>';
   } else {
     b='<div class="card"><h3>存储位置</h3>'+
@@ -2064,6 +2062,7 @@ function renderSet(){
     };
   });
   if(setTab==='models'){ wireLlama();loadModel();loadWhisperModels(); }
+  else if(setTab==='engine'&&!engOff('llama-local')){ wireLlama();loadModel(); }
   if(setTab==='sys'){
     document.getElementById('btnCopyTok').onclick=function(){
       navigator.clipboard.writeText(s.sync_token).then(function(){toast('令牌已复制');});
@@ -2085,29 +2084,32 @@ function renderSet(){
 /* ================= 本地大模型（Qwen3-ASR · llama.cpp） ================= */
 var QUANT_REPO={'Q4_K_M':'foryoung365/Qwen3-ASR-1.7B-Q4_K_M-GGUF','Q8_0':'ggml-org/Qwen3-ASR-1.7B-GGUF'};
 function wireLlama(){
+  /* 下载控件在「本地模型」页，启停按钮在「转写」页：各按存在与否接线 */
   var q=document.getElementById('llamaQuant'),repo=document.getElementById('llamaRepo');
-  if(!q||!repo)return;
-  q.onchange=function(){if(QUANT_REPO[q.value])repo.value=QUANT_REPO[q.value];};
-  if(!repo.value)repo.value=QUANT_REPO.Q4_K_M;
-  document.getElementById('btnDl').onclick=function(){
-    var r=repo.value.trim();
-    if(!r){toast('请填写模型仓库');return;}
-    saveLlamaSettings(function(){
-      api('/models/asr/download',{method:'POST',body:{repo:r,quant:q.value}})
-        .then(function(){toast('开始下载（走 hf-mirror 镜像）');loadModel();})
-        .catch(function(e){toast(e.message)});
-    });
-  };
-  document.getElementById('btnDlStop').onclick=function(){
-    api('/models/asr/download/stop',{method:'POST'}).then(function(){toast('正在取消…');});
-  };
-  document.getElementById('btnSrv').onclick=function(){
+  if(q&&repo){
+    q.onchange=function(){if(QUANT_REPO[q.value])repo.value=QUANT_REPO[q.value];};
+    if(!repo.value)repo.value=QUANT_REPO.Q4_K_M;
+    document.getElementById('btnDl').onclick=function(){
+      var r=repo.value.trim();
+      if(!r){toast('请填写模型仓库');return;}
+      saveLlamaSettings(function(){
+        api('/models/asr/download',{method:'POST',body:{repo:r,quant:q.value}})
+          .then(function(){toast('开始下载（走 hf-mirror 镜像）');loadModel();})
+          .catch(function(e){toast(e.message)});
+      });
+    };
+    document.getElementById('btnDlStop').onclick=function(){
+      api('/models/asr/download/stop',{method:'POST'}).then(function(){toast('正在取消…');});
+    };
+  }
+  var sb=document.getElementById('btnSrv');
+  if(sb)sb.onclick=function(){
     if(this.dataset.stop){
       api('/models/asr/server',{method:'POST',body:{action:'stop'}}).then(function(){loadModel();});
       return;
     }
     saveLlamaSettings(function(){
-      var b=document.getElementById('btnSrv');b.disabled=true;
+      var b=document.getElementById('btnSrv');if(b)b.disabled=true;
       api('/models/asr/server',{method:'POST',body:{action:'start'}})
         .then(function(){toast('llama-server 已就绪');loadModel();})
         .catch(function(e){toast(e.message);loadModel();});
@@ -2125,16 +2127,19 @@ function saveLlamaSettings(cb){
 }
 function loadModel(){
   api('/models/asr').then(function(m){
-    var st=document.getElementById('llamaStat');if(!st)return;
+    /* 状态区在「本地模型」页、启停区在「转写」页：本函数两个页都会跑，全部按存在与否更新 */
+    var st=document.getElementById('llamaStat');
     var mb=m.model;
-    if(mb.ready){
-      st.innerHTML='<span style="color:var(--ok)">已就绪，可直接使用</span> · 主模型 '+fmtBytes(mb.main_bytes)+
-        ' · 编码器 '+fmtBytes(mb.mmproj_bytes);
-    }else{
-      var got=[];
-      if(mb.main)got.push('主模型 '+fmtBytes(mb.main_bytes));
-      if(mb.mmproj)got.push('编码器 '+fmtBytes(mb.mmproj_bytes));
-      st.innerHTML='<span style="color:var(--warn)">'+(got.length?'不完整（已有 '+got.join(' + ')+'，还缺一部分，暂不可用）':'未下载')+'</span>';
+    if(st){
+      if(mb.ready){
+        st.innerHTML='<span style="color:var(--ok)">已就绪，可直接使用</span> · 主模型 '+fmtBytes(mb.main_bytes)+
+          ' · 编码器 '+fmtBytes(mb.mmproj_bytes);
+      }else{
+        var got=[];
+        if(mb.main)got.push('主模型 '+fmtBytes(mb.main_bytes));
+        if(mb.mmproj)got.push('编码器 '+fmtBytes(mb.mmproj_bytes));
+        st.innerHTML='<span style="color:var(--warn)">'+(got.length?'不完整（已有 '+got.join(' + ')+'，还缺一部分，暂不可用）':'未下载')+'</span>';
+      }
     }
     var dh=document.getElementById('llamaDlHint');
     if(dh)dh.textContent=mb.ready?'模型已就绪，无需下载；如要换量化，先在「③ 管理」里卸载现有文件':'选量化自动填仓库，也可手动改';
@@ -2142,20 +2147,30 @@ function loadModel(){
     var bar=document.getElementById('llamaDlBar'),dt=document.getElementById('llamaDlTxt'),
         bd=document.getElementById('btnDl'),bs=document.getElementById('btnDlStop');
     if(bd)bd.classList[mb.ready?'remove':'add']('accent');  /* 已就绪：下载按钮降为普通样式，不再暗示"还需要装" */
-    if(dl.state==='downloading'){
-      bar.style.display='block';bar.firstElementChild.style.width=((dl.progress||0)*100).toFixed(1)+'%';
-      dt.textContent='下载中 '+dl.file+' · '+fmtBytes(dl.got)+(dl.total?' / '+fmtBytes(dl.total):'');
-      bd.style.display='none';bs.style.display='';
-    }else{
-      bar.style.display='none';
-      dt.textContent=dl.state==='fail'?('下载失败：'+dl.error):(dl.state==='done'?'下载完成':'');
-      bd.style.display='';bs.style.display='none';
+    /* 状态区可能在「本地模型」页，启停区在「转写」页：都按存在与否更新 */
+    if(bar){
+      if(dl.state==='downloading'){
+        bar.style.display='block';bar.firstElementChild.style.width=((dl.progress||0)*100).toFixed(1)+'%';
+      }else bar.style.display='none';
     }
+    if(dt){
+      if(dl.state==='downloading')dt.textContent='下载中 '+dl.file+' · '+fmtBytes(dl.got)+(dl.total?' / '+fmtBytes(dl.total):'');
+      else dt.textContent=dl.state==='fail'?('下载失败：'+dl.error):(dl.state==='done'?'下载完成':'');
+    }
+    if(bd)bd.style.display=dl.state==='downloading'?'none':'';
+    if(bs)bs.style.display=dl.state==='downloading'?'':'none';
     var srv=m.server,sb=document.getElementById('btnSrv'),sh=document.getElementById('llamaSrvHint');
-    sb.disabled=false;
-    if(srv.healthy){sb.textContent='停止';sb.dataset.stop='1';sh.innerHTML='<span style="color:var(--ok)">运行中</span> · 端口 '+srv.port;}
-    else if(srv.running){sb.textContent='停止';sb.dataset.stop='1';sh.innerHTML='进程存在 · 端口 '+srv.port+'（模型加载中）';}
-    else{sb.textContent='启动';delete sb.dataset.stop;sh.innerHTML='未运行';}
+    if(sb){
+      sb.disabled=false;
+      if(srv.healthy){sb.textContent='停止';sb.dataset.stop='1';}
+      else if(srv.running){sb.textContent='停止';sb.dataset.stop='1';}
+      else{sb.textContent='启动';delete sb.dataset.stop;}
+    }
+    if(sh){
+      if(srv.healthy)sh.innerHTML='<span style="color:var(--ok)">运行中</span> · 端口 '+srv.port;
+      else if(srv.running)sh.innerHTML='进程存在 · 端口 '+srv.port+'（模型加载中）';
+      else sh.innerHTML='未运行';
+    }
     /* GGUF 文件清单：逐个显示位置与大小，可卸载 */
     var gf=document.getElementById('ggufList');
     if(gf){
