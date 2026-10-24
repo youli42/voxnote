@@ -870,6 +870,7 @@ function loadSettings(){
       row('默认引擎','', '<select data-k="default_engine">'+engines.map(function(e){return '<option value="'+e.id+'"'+(e.id===s.default_engine?' selected':'')+'>'+esc(e.name)+(e.available?'':'（不可用）')+'</option>';}).join('')+'</select>')+
       row('Whisper 模型','tiny / base / small / medium / large-v3','<input type="text" data-k="whisper_model" value="'+esc(s.whisper_model)+'" style="width:120px">')+
       row('设备','auto / cpu / cuda','<select data-k="whisper_device">'+['auto','cpu','cuda'].map(function(x){return '<option'+(x===s.whisper_device?' selected':'')+'>'+x+'</option>';}).join('')+'</select>')+
+      row('语言','auto = 自动检测（短音频易判错）','<select data-k="whisper_language">'+['zh','auto','en','ja'].map(function(x){return '<option'+(x===s.whisper_language?' selected':'')+'>'+x+'</option>';}).join('')+'</select>')+
       '</div>'+
       '<div class="card"><h3>AI</h3>'+
       row('API 地址','OpenAI 兼容 /chat/completions','<input type="text" data-k="ai_base" value="'+esc(s.ai_base)+'" style="width:230px">')+
@@ -902,7 +903,7 @@ function loadSettings(){
 }
 document.getElementById('btnSave').onclick=function(){
   var p={};
-  ['default_engine','whisper_model','whisper_device','ai_base','ai_model','cloud_asr_base','cloud_asr_model'].forEach(function(k){
+  ['default_engine','whisper_model','whisper_device','whisper_language','ai_base','ai_model','cloud_asr_base','cloud_asr_model'].forEach(function(k){
     if(typeof setForm[k]==='string')p[k]=setForm[k];
   });
   ['cloud_asr_key','ai_key'].forEach(function(k){

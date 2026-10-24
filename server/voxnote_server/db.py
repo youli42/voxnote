@@ -91,6 +91,7 @@ SETTING_DEFAULTS = {
     "whisper_model": "small",    # tiny/base/small/medium/large-v3
     "whisper_device": "auto",    # auto|cpu|cuda
     "whisper_compute": "auto",   # auto|int8|float16
+    "whisper_language": "zh",    # auto|zh|en|ja|…（auto 会先检测语种，短音频易判错）
     "cloud_asr_base": "",        # OpenAI 兼容 /audio/transcriptions 地址
     "cloud_asr_key": "",
     "cloud_asr_model": "",
@@ -102,7 +103,8 @@ SETTING_DEFAULTS = {
 
 PUBLIC_SETTING_KEYS = [
     "default_engine", "auto_transcribe", "whisper_model", "whisper_device",
-    "whisper_compute", "cloud_asr_base", "cloud_asr_model", "ai_base", "ai_model",
+    "whisper_compute", "whisper_language", "cloud_asr_base", "cloud_asr_model",
+    "ai_base", "ai_model",
 ]
 
 

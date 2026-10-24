@@ -80,6 +80,7 @@ class SettingsPatch(BaseModel):
     whisper_model: Optional[str] = None
     whisper_device: Optional[str] = None
     whisper_compute: Optional[str] = None
+    whisper_language: Optional[str] = None
     cloud_asr_base: Optional[str] = None
     cloud_asr_model: Optional[str] = None
     ai_base: Optional[str] = None

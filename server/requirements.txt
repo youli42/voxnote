@@ -4,7 +4,11 @@ python-multipart>=0.0.9
 httpx>=0.27
 
 # 本地转写引擎（可选：不装则该引擎显示不可用，队列任务不会分给它）
+# huggingface_hub 必须锁 <1.0（faster-whisper 1.x 下载路径不兼容 hub 1/2）；
+# av 必须锁 <17（17+ 移除了 metadata_errors 参数，faster-whisper 解码会崩）
 faster-whisper>=1.0
+huggingface_hub<1.0
+av>=14.1,<17
 
 # Windows 桌面壳（可选）：python -m voxnote_server.desktop
 # pywebview>=5.0
