@@ -19,6 +19,7 @@ import java.util.ArrayList;
 public class CardRow extends LinearLayout {
 
     private final TextView title;
+    private final TextView relTag;
     private final TextView reason;
     private final TextView more;
     private final TextView summary;
@@ -63,6 +64,10 @@ public class CardRow extends LinearLayout {
         title.setSingleLine(true);
         title.setEllipsize(TextUtils.TruncateAt.END);
         top.addView(title, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        // 默认标题（「录音 HH:MM」）换显完整日期时间后的相对日标记（今天/昨天/…），与 Web 控制台一致
+        relTag = tagText(c);
+        top.addView(relTag, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
 
         reason = Ui.text(c, "", 9.5f, Ui.DANGER);
         reason.setSingleLine(true);
@@ -168,7 +173,14 @@ public class CardRow extends LinearLayout {
     }
 
     public void bind(RecordVm vm, UiSettings s, String catName, String sourceLabel) {
-        title.setText(vm.title.length() == 0 ? "未命名录音" : vm.title);
+        boolean defT = vm.isDefaultTitle();
+        title.setText(defT ? vm.displayTitle()
+                : (vm.title.length() == 0 ? "未命名录音" : vm.title));
+        relTag.setVisibility(defT ? VISIBLE : GONE);
+        if (defT) {
+            relTag.setText(RecordVm.relDay(vm.startMs));
+            styleTag(relTag, false);
+        }
         String why = vm.reason();
         if (why.length() > 0) {
             reason.setText(why);

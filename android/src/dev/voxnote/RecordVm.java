@@ -126,6 +126,44 @@ public class RecordVm {
         return FMT.format(t);
     }
 
+    /** 与 Web 控制台同一判定：安卓端生成的默认标题（「录音 HH:MM」）或空标题。 */
+    private static final java.util.regex.Pattern DEFAULT_TITLE =
+            java.util.regex.Pattern.compile("^录音 \\d{1,2}:\\d{2}$");
+
+    public boolean isDefaultTitle() {
+        String t = title == null ? "" : title.trim();
+        return t.length() == 0 || DEFAULT_TITLE.matcher(t).matches();
+    }
+
+    /** 默认标题在列表里显示成完整日期时间（配 relDay 标记），与 Web 控制台一致；库内标题不变。 */
+    public String displayTitle() {
+        long t = startMs > 0 ? startMs : System.currentTimeMillis();
+        synchronized (FULL_DT_FMT) { return FULL_DT_FMT.format(t); }
+    }
+
+    /** 相对日标记：今天/昨天/前天/一周内/一周前/两周前/一月前，按自然日算。 */
+    public static String relDay(long ms) {
+        if (ms <= 0) ms = System.currentTimeMillis();
+        int n = (int) Math.round((midnight(System.currentTimeMillis()) - midnight(ms)) / 86400000.0);
+        if (n <= 0) return "今天";
+        if (n == 1) return "昨天";
+        if (n == 2) return "前天";
+        if (n <= 7) return "一周内";
+        if (n <= 14) return "一周前";
+        if (n <= 30) return "两周前";
+        return "一月前";
+    }
+
+    private static long midnight(long ms) {
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        c.setTimeInMillis(ms);
+        c.set(java.util.Calendar.HOUR_OF_DAY, 0);
+        c.set(java.util.Calendar.MINUTE, 0);
+        c.set(java.util.Calendar.SECOND, 0);
+        c.set(java.util.Calendar.MILLISECOND, 0);
+        return c.getTimeInMillis();
+    }
+
     public String fmtDur() {
         return fmtDur(durMs / 1000.0);
     }
@@ -194,4 +232,7 @@ public class RecordVm {
 
     private static final java.text.SimpleDateFormat FMT =
             new java.text.SimpleDateFormat("MM-dd HH:mm", Locale.CHINA);
+
+    private static final java.text.SimpleDateFormat FULL_DT_FMT =
+            new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA);
 }
