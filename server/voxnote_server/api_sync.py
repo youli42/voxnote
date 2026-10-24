@@ -12,7 +12,7 @@ import datetime
 import os
 import re
 
-from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, Form, Header, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
@@ -48,7 +48,7 @@ class UploadMeta(BaseModel):
 
 
 @router.post("/upload")
-async def upload(meta: str = "", file: UploadFile = File(...), _: None = Depends(auth)):
+async def upload(meta: str = Form(default=""), file: UploadFile = File(...), _: None = Depends(auth)):
     import json
     try:
         m = UploadMeta(**(json.loads(meta) if meta else {}))
@@ -64,7 +64,7 @@ async def upload(meta: str = "", file: UploadFile = File(...), _: None = Depends
     rid = db.unique_record_id(stamp)
 
     ym = datetime.datetime.fromtimestamp(
-        m.recorded_at / 1000 if m.recorded_at else _stamp_ms(stamp)).strftime("%Y.%m")
+        (m.recorded_at or _stamp_ms(stamp)) / 1000.0).strftime("%Y.%m")
     dest_dir = config.audio_dir(ym)
     os.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, "%s%s" % (rid, ext))

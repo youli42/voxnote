@@ -193,7 +193,7 @@ async def console_upload(file: UploadFile = File(...), title: str = "", mode: st
     stamp = stamp_m.group(1) if stamp_m else datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     rid = db.unique_record_id(stamp)
 
-    ym = datetime.datetime.fromtimestamp(_stamp_ms(stamp)).strftime("%Y.%m")
+    ym = datetime.datetime.fromtimestamp(_stamp_ms(stamp) / 1000.0).strftime("%Y.%m")
     dest_dir = config.audio_dir(ym)
     os.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, rid + ext)
