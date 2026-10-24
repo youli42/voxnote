@@ -46,8 +46,10 @@ docker compose --profile gpu up -d   # NVIDIA GPU（需 nvidia-container-toolkit
 
 ## 安全注意
 
-默认只监听 `127.0.0.1`；设备 API 需要令牌，控制台 API 本机免鉴权。
-用 `--host 0.0.0.0` 暴露到局域网前，请自行加反代鉴权（如 caddy/nginx basic auth + TLS）。
+默认监听 `0.0.0.0`（局域网设备可连，手机同步即用此通道）；设备同步 API 始终需要配对令牌。
+建议设置环境变量 `VOXNOTE_API_KEY` 开启控制台全站密钥（控制台收到 401 会提示输入）；
+只在本机使用可 `--host 127.0.0.1`。首次绑 0.0.0.0 时 Windows 防火墙会弹允许提示，记得放行
+专用网络。
 
 ## API 文档
 

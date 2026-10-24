@@ -96,7 +96,8 @@ venv\Scripts\python run.py            # 控制台 http://127.0.0.1:8787
   数据库搬移需重启，界面上有说明）；
 - **与 App 配对**：控制台设置页复制令牌；`adb shell am start` 带
   `--es server_url … --es server_token … --es sync_now 1` 一条命令完成配对并同步。
-- **安全**：默认只绑 127.0.0.1，设备 API 需令牌；暴露到局域网前自行加反代鉴权。
+- **安全**：默认绑 0.0.0.0（局域网可连，手机同步即用此通道），设备 API 需配对令牌；
+  建议设置 `VOXNOTE_API_KEY` 开启控制台密钥，只本机用可 `--host 127.0.0.1`。
 
 ## 设备事实（S1 AI Recorder，实测）
 

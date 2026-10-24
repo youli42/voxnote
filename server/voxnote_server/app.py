@@ -1,10 +1,10 @@
 """FastAPI 应用工厂：路由装配、静态控制台、启动初始化。
 
 安全模型（当前阶段，v0.1）：
-  - 默认只绑 127.0.0.1，控制台 API 本机免鉴权；
-  - 设备同步 API（/api/v1/sync/*）始终要求 Bearer 配对令牌；
-  - 绑 0.0.0.0 前请自行加反代鉴权，或设置环境变量 VOXNOTE_API_KEY
-    开启全站访问密钥（README 有说明）。
+  - 默认绑 0.0.0.0（局域网设备可连，手机同步/控制台都能用）；
+    建议设置环境变量 VOXNOTE_API_KEY 开启全站密钥（控制台收到 401 会提示输入，
+    README 有说明）；只本机用可 --host 127.0.0.1；
+  - 设备同步 API（/api/v1/sync/*）始终要求 Bearer 配对令牌。
 """
 import importlib
 import importlib.util
