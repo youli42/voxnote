@@ -7,7 +7,7 @@ import os
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 
 from . import db, config
 
@@ -44,8 +44,12 @@ def list_records(status: str = "", q: str = "", cat: str = "",
         where.append("status=?")
         args.append(status)
     if cat:
-        where.append("cat=?")
-        args.append(cat)
+        if cat == "__none__":
+            # 未分类筛选（控制台批量归类入口）；__none__ 是哨兵值，别当普通标签查
+            where.append("(cat IS NULL OR cat='')")
+        else:
+            where.append("cat=?")
+            args.append(cat)
     if q:
         # 标题/全文（FTS 句级召回出 record_id 集合）
         hits = db.search_sentences(q, limit=50)
@@ -60,6 +64,8 @@ def list_records(status: str = "", q: str = "", cat: str = "",
     c = db.conn()
     cond = (" WHERE " + " AND ".join(where)) if where else ""
     total = c.execute("SELECT COUNT(*) FROM records" + cond, args).fetchone()[0]
+    untagged = c.execute(
+        "SELECT COUNT(*) FROM records WHERE cat IS NULL OR cat=''").fetchone()[0]
 
     sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
     rows = c.execute(sql, args + [limit, max(0, offset)]).fetchall()
@@ -72,7 +78,7 @@ def list_records(status: str = "", q: str = "", cat: str = "",
         if pv:
             o["preview"] = pv[:80]
         out.append(o)
-    return {"records": out, "total": total,
+    return {"records": out, "total": total, "untagged": untagged,
             "cats": [dict(x) for x in db.distinct_cats()]}
 
 
@@ -102,6 +108,24 @@ def patch_record(rid: str, p: RecordPatch):
     if kw:
         db.update_record(rid, **kw)
     return {"ok": True}
+
+
+class BatchCatReq(BaseModel):
+    ids: List[str]
+    cat: str = ""   # 空 = 批量清除标签
+
+
+@router.post("/records/batch-cat")
+def batch_cat(req: BatchCatReq):
+    """批量设标签：控制台筛出"未分类"后批量归类的落点。逐条 update_record
+    （每条都触碰 updated_at），App 端增量拉取会按名字对上/新建本地分类自动跟上。"""
+    n = 0
+    for rid in req.ids:
+        if db.record_row(rid) is None:
+            continue
+        db.update_record(rid, cat=req.cat or None)
+        n += 1
+    return {"ok": True, "updated": n}
 
 
 class SegmentPatch(BaseModel):

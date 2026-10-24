@@ -154,6 +154,13 @@
   .ritem .m{font-size:10.5px;color:var(--dim);margin-top:5px;display:flex;gap:8px;align-items:center}
   .ritem .pv{font-size:10.5px;color:var(--sub);margin-top:4px;line-height:1.55;
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+  /* 批量归类 */
+  .batchbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px dashed #413b66;border-radius:10px;
+    padding:8px 10px;margin-bottom:8px;font-size:11.5px;color:var(--sub)}
+  .batchbar select{background:var(--raise);border:1px solid var(--line2);color:var(--text);border-radius:7px;
+    font-size:11.5px;padding:4px 8px;max-width:180px}
+  .ritem .pickbox{width:14px;flex:none;color:var(--dim)}
+  .ritem.picked{background:var(--accent-dim);border-color:#4a4376}
   .dlrow{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
   .hintblk{font-size:10.5px;color:var(--dim);line-height:1.8;margin-top:9px}
   .hintblk a{color:var(--info);text-decoration:none}
@@ -382,6 +389,7 @@
               <span class="chip" data-f="edited">已修订</span>
             </div>
             <div class="chips" id="catChips" style="display:none"></div>
+            <div class="batchbar" id="batchBar" style="display:none"></div>
             <div id="rlist"></div>
             <div class="pager" id="rPager"></div>
           </div>
@@ -718,7 +726,8 @@ function syncTrans(){
 }
 
 /* ================= 记录库 ================= */
-var S={list:[],sel:null,rec:null,filter:'',cat:'',q:'',page:0,limit:50,total:0,cats:[]};
+var S={list:[],sel:null,rec:null,filter:'',cat:'',q:'',page:0,limit:50,total:0,cats:[],
+  untagged:0,batch:false,picks:{}};
 document.getElementById('globalSearch').addEventListener('keydown',function(e){
   if(e.key==='Enter'){go('lib');document.getElementById('libSearch').value=this.value;S.q=this.value;loadList();}
 });
@@ -734,20 +743,59 @@ document.querySelectorAll('#fchips .chip').forEach(function(c){
 function renderCats(){
   var box=document.getElementById('catChips');
   var cats=(S.cats||[]).filter(function(c){return c.cat;});
-  if(!cats.length){box.style.display='none';return;}
+  if(!cats.length&&!S.untagged){box.style.display='none';return;}
   box.style.display='flex';
   var h='<span class="chip'+(S.cat?'':' on')+'" data-c="">全部标签</span>';
+  if(S.untagged)h+='<span class="chip'+(S.cat==='__none__'?' on':'')+'" data-c="__none__">未分类 <span style="opacity:.6">'+S.untagged+'</span></span>';
   cats.forEach(function(c){
     h+='<span class="chip'+(S.cat===c.cat?' on':'')+'" data-c="'+esc(c.cat)+'">'+esc(c.cat)+' <span style="opacity:.6">'+c.n+'</span></span>';
   });
+  h+='<span class="chip'+(S.batch?' on':'')+'" id="chipBatch" title="勾选多条记录后批量设标签">批量</span>';
   box.innerHTML=h;
-  box.querySelectorAll('.chip').forEach(function(ch){
+  box.querySelectorAll('.chip[data-c]').forEach(function(ch){
     ch.onclick=function(){
       S.cat=ch.dataset.c;S.page=0;
-      box.querySelectorAll('.chip').forEach(function(x){x.classList.toggle('on',x===ch)});
+      box.querySelectorAll('.chip[data-c]').forEach(function(x){x.classList.toggle('on',x===ch)});
       loadList();
     };
   });
+  var bc=document.getElementById('chipBatch');
+  if(bc)bc.onclick=toggleBatch;
+}
+/* ================= 批量归类（配"未分类"筛选：先筛出来再批量打标签） ================= */
+function toggleBatch(){
+  S.batch=!S.batch;S.picks={};
+  renderCats();renderList();renderBatchBar();
+}
+function renderBatchBar(){
+  var bar=document.getElementById('batchBar');
+  if(!bar)return;
+  if(!S.batch){bar.style.display='none';return;}
+  var n=0;for(var k in S.picks)n++;
+  var opts=(S.cats||[]).filter(function(c){return c.cat;})
+    .map(function(c){return '<option value="'+esc(c.cat)+'">'+esc(c.cat)+'</option>';}).join('');
+  bar.style.display='flex';
+  bar.innerHTML='已选 <b>'+n+'</b> 条'+
+    '<select id="batchCat">'+opts+'<option value="">— 清除标签 —</option><option value="__new__">＋ 新建标签…</option></select>'+
+    '<button class="btn sm accent" id="batchApply">设为</button>'+
+    '<button class="btn sm ghost" id="batchAll">全选本页</button>'+
+    '<button class="btn sm ghost" id="batchExit">退出</button>';
+  document.getElementById('batchApply').onclick=function(){
+    var ids=Object.keys(S.picks);
+    if(!ids.length){toast('先勾选记录');return;}
+    var v=document.getElementById('batchCat').value;
+    if(v==='__new__'){v=prompt('新标签名：','');if(v===null)return;v=v.trim();if(!v)return;}
+    api('/records/batch-cat',{method:'POST',body:{ids:ids,cat:v}})
+      .then(function(r){toast('已把 '+r.updated+' 条设为'+(v?'「'+v+'」':'未分类'));
+        S.batch=false;S.picks={};loadList();})
+      .catch(function(e){toast('批量设置失败：'+e.message);});
+  };
+  document.getElementById('batchAll').onclick=function(){
+    var allPicked=S.list.every(function(x){return S.picks[x.id];});
+    S.list.forEach(function(x){ if(allPicked)delete S.picks[x.id]; else S.picks[x.id]=1; });
+    renderList();renderBatchBar();
+  };
+  document.getElementById('batchExit').onclick=toggleBatch;
 }
 function renderPager(el,page,limit,total,goPage){
   var pages=Math.max(1,Math.ceil(total/limit));
@@ -764,7 +812,7 @@ function loadList(){
     (S.filter?'&status='+S.filter:'')+(S.cat?'&cat='+encodeURIComponent(S.cat):'')+
     (S.q?'&q='+encodeURIComponent(S.q):'');
   api(p).then(function(r){
-    S.list=r.records;S.total=r.total||0;S.cats=r.cats||[];
+    S.list=r.records;S.total=r.total||0;S.cats=r.cats||[];S.untagged=r.untagged||0;
     if(S.page>0&&!S.list.length){S.page=Math.max(0,Math.ceil(S.total/S.limit)-1);return loadList();}
     if(S.sel && !r.records.some(function(x){return x.id===S.sel}))S.sel=null;
     if(!S.sel && r.records.length)S.sel=r.records[0].id;
@@ -775,17 +823,22 @@ function loadList(){
 }
 function renderList(){
   var b=document.getElementById('rlist');b.innerHTML='';
+  renderBatchBar(); /* 与 S.batch 同步：批量应用后 loadList 重渲染列表，操作条要跟着收起 */
   if(!S.list.length){b.innerHTML='<div class="emptybox">没有记录<br>从 App 同步，或在「转写任务」页导入音频</div>';return;}
   S.list.forEach(function(r){
     var el=document.createElement('div');
-    el.className='ritem'+(r.id===S.sel?' on':'');
+    el.className='ritem'+(S.batch?(S.picks[r.id]?' picked':''):(r.id===S.sel?' on':''));
     el.dataset.id=r.id; /* 供 syncTrans 就地更新转写进度 chip */
     var st=r.edited?'<span class="st ed">修订</span>':stChip(r.status);
-    el.innerHTML='<div class="t">'+esc(r.title||r.id)+st+'</div>'+
+    el.innerHTML='<div class="t">'+(S.batch?'<span class="pickbox">'+(S.picks[r.id]?'☑':'☐')+'</span>':'')+
+      esc(r.title||r.id)+st+'</div>'+
       '<div class="m"><span>'+fmtTime(r.created_at)+'</span><span>'+fmtDur(r.dur_ms)+'</span>'+
-      (r.cat?'<span>'+esc(r.cat)+'</span>':'')+(r.has_audio?'':'<span>无音频</span>')+'</div>'+
+      (r.cat?'<span>'+esc(r.cat)+'</span>':'<span style="opacity:.55">未分类</span>')+(r.has_audio?'':'<span>无音频</span>')+'</div>'+
       (r.preview?'<div class="pv">'+esc(r.preview)+'</div>':'');
-    el.onclick=function(){S.sel=r.id;renderList();loadDetail(r.id);};
+    el.onclick=function(){
+      if(S.batch){ if(S.picks[r.id])delete S.picks[r.id];else S.picks[r.id]=1; renderList();renderBatchBar(); return; }
+      S.sel=r.id;renderList();loadDetail(r.id);
+    };
     b.appendChild(el);
   });
 }
