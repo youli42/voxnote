@@ -2001,17 +2001,12 @@ function renderSet(){
       '</div>';
   } else if(setTab==='models'){
     function sec(t){return '<div style="font-size:11px;font-weight:600;color:var(--sub);margin:13px 0 2px">'+t+'</div>';}
-    b=(engOff('whisper-local')?'':
-      '<div class="card"><h3>Whisper 模型（faster-whisper）</h3>'+
-      '<div class="hintblk" style="margin-top:6px">简介：'+esc(engDesc('whisper-local'))+'。小的跑得快、占得少，大的更准；转写用哪个由「转写」分页的 Whisper 模型决定。</div>'+
-      '<div id="whisperList"><div class="hint">加载中…</div></div>'+
-      '<div class="hint" id="whDlTxt" style="font-size:10.5px;color:var(--dim);margin:6px 0 2px"></div>'+
-      '<div class="hintblk">缓存位置 <span class="tok" id="whCache">–</span>。卸载当前使用的模型后，下一次转写会自动重新下载；下载默认走 hf-mirror 镜像。</div>'+
-      '</div>')+
-      (engOff('llama-local')?'':
-      '<div class="card"><h3>本地大模型 · Qwen3-ASR-1.7B</h3>'+
-      '<div class="hintblk" style="margin-top:6px">简介：'+esc(engDesc('llama-local'))+' · 无 GPU 也能跑，适合轻量机器。</div>'+
-      sec('① 下载 · 获取模型文件')+
+    /* 两列按流程分（获取 → 管理），布局不按模型分卡；行内仍标模型名。
+       推理服务是引擎配置而非模型文件，通栏放两列之下。 */
+    b='<div class="card"><h3>获取模型</h3>'+
+      sec('Whisper 系列（faster-whisper）')+
+      '<div id="whGet"><div class="hint">加载中…</div></div>'+
+      sec('Qwen3-ASR 系列（llama.cpp）· 无 GPU 也能跑')+
       row('当前状态','','<span id="llamaStat" style="font-size:11px;color:var(--dim)">–</span>')+
       row('下载安装','<span id="llamaDlHint">选量化自动填仓库，也可手动改</span>','<span class="dlrow">'+
         '<select id="llamaQuant">'+
@@ -2023,19 +2018,23 @@ function renderSet(){
         '<button class="btn sm" id="btnDlStop" style="display:none">取消</button></span>')+
       '<div class="pbar" id="llamaDlBar" style="width:100%;margin:8px 0 2px;display:none"><i></i></div>'+
       '<div class="hint" id="llamaDlTxt" style="font-size:10.5px;color:var(--dim);margin-bottom:6px"></div>'+
-      sec('② 使用 · 推理服务')+
+      '<div class="hint" id="whDlTxt" style="font-size:10.5px;color:var(--dim)"></div>'+
+      '</div>'+
+      '<div class="card"><h3>管理模型</h3>'+
+      sec('Whisper 已装模型 · 小的跑得快、占得少，大的更准')+
+      '<div id="whManage"><div class="hint">加载中…</div></div>'+
+      '<div class="hintblk">缓存位置 <span class="tok" id="whCache">–</span>。卸载当前使用的模型后，下一次转写会自动重新下载；下载走 hf-mirror 镜像。</div>'+
+      sec('Qwen3-ASR 模型文件')+
+      '<div id="ggufList" style="margin-top:4px"></div>'+
+      '<div class="hintblk">存到 <span class="tok" id="ggufDir">–</span>，删除后可随时重新下载。换量化前先卸载现有文件（多个主模型并存时按体积取大者）。</div>'+
+      '</div>'+
+      '<div class="card" style="grid-column:1/-1"><h3>使用 · Qwen3 推理服务</h3>'+
       row('llama-server 路径','llama.cpp 发布包里的 llama-server(.exe) 完整路径','<input type="text" data-k="llama_server_path" value="'+esc(setForm.llama_server_path||'')+'" style="width:230px">')+
       row('服务端口','','<input type="text" data-k="llama_port" value="'+esc(setForm.llama_port||'8849')+'" style="width:80px">')+
       row('推理服务','转写时自动启动，也可手动预热','<span class="dlrow"><span id="llamaSrvHint" style="font-size:11px;color:var(--dim)">–</span>'+
         '<button class="btn sm" id="btnSrv">启动</button></span>')+
       '<div class="hintblk">就绪后在「转写」分页把默认引擎切到「Qwen3-ASR（本地）」即可用于转写。</div>'+
-      sec('③ 管理 · 卸载')+
-      '<div id="ggufList" style="margin-top:4px"></div>'+
-      '<div class="hintblk">模型与音频编码器（mmproj）存到 <span class="tok" id="ggufDir">–</span>，删除后可随时重新下载。'+
-      '注意换量化前先卸载现有文件（多个主模型并存时按体积取大者）。Qwen3-ASR 不输出时间戳，转写稿为整段一句。'+
-      'llama.cpp 发布包见 <a href="https://github.com/ggml-org/llama.cpp/releases" target="_blank">github.com/ggml-org/llama.cpp/releases</a>。</div>'+
-      '</div>');
-    if(!b)b='<div class="card emptybox">本地引擎均已停用 · 在「转写」分页可重新启用</div>';
+      '</div>';
   } else {
     b='<div class="card"><h3>存储位置</h3>'+
       row('数据目录','启动参数/环境变量决定，改路径需改启动配置','<span class="tok">'+esc(st.data_dir)+'</span>')+
@@ -2188,48 +2187,57 @@ var WH_DESC={tiny:'最快 · 显存/内存占用最低 · 适合先跑通流程'
   medium:'更准 · 速度明显变慢',
   'large-v2':'高准确率 · 资源要求高',
   'large-v3':'最新 · 准确率最高 · 资源要求高'};
+/* Whisper 模型管理：未装的进「获取模型」列，已装的进「管理模型」列；
+   下载中每 2 秒刷新状态 */
 function loadWhisperModels(){
   api('/models/whisper').then(function(d){
-    var box=document.getElementById('whisperList');if(!box)return;
+    var getBox=document.getElementById('whGet'),mgrBox=document.getElementById('whManage');
+    if(!getBox||!mgrBox)return;
     document.getElementById('whCache').textContent=d.cache;
     var dl=d.download,dt=document.getElementById('whDlTxt');
     if(dl.state==='downloading')dt.textContent='正在下载 '+dl.name+' …（视网络可能需要几分钟，可离开本页）';
     else dt.textContent=dl.state==='fail'?('下载失败：'+dl.error):(dl.state==='done'?'下载完成':'');
-    var h='';
+    var get='',mgr='';
     d.models.forEach(function(m){
       var act=d.active===m.name;
-      var btns=m.installed
-        ?'<button class="btn sm" data-whuse="'+esc(m.name)+'">使用</button>'+
-         '<button class="btn sm danger" data-whdel="'+esc(m.name)+'">卸载</button>'
-        :'<button class="btn sm accent" data-whdl="'+esc(m.name)+'">下载</button>';
-      h+='<div class="srow"><div><div class="lb">'+esc(m.name)+(act?' <span style="color:var(--ok)">· 当前使用</span>':'')+'</div>'+
-        '<div class="hint">'+(m.installed?('已下载 · '+fmtBytes(m.bytes)):(m.size_hint?'未下载 · '+esc(m.size_hint):'未下载'))+
-        (WH_DESC[m.name]?' · '+WH_DESC[m.name]:'')+'</div></div>'+
-        '<div class="rt">'+btns+'</div></div>';
+      var desc=WH_DESC[m.name]?' · '+WH_DESC[m.name]:'';
+      if(!m.installed){
+        get+='<div class="srow"><div><div class="lb">'+esc(m.name)+'</div>'+
+          '<div class="hint">未下载'+(m.size_hint?' · '+esc(m.size_hint):'')+desc+'</div></div>'+
+          '<div class="rt"><button class="btn sm accent" data-whdl="'+esc(m.name)+'">下载</button></div></div>';
+      }else{
+        mgr+='<div class="srow"><div><div class="lb">'+esc(m.name)+(act?' <span style="color:var(--ok)">· 当前使用</span>':'')+'</div>'+
+          '<div class="hint">已下载 · '+fmtBytes(m.bytes)+desc+'</div></div>'+
+          '<div class="rt"><button class="btn sm" data-whuse="'+esc(m.name)+'">使用</button>'+
+          '<button class="btn sm danger" data-whdel="'+esc(m.name)+'">卸载</button></div></div>';
+      }
     });
-    box.innerHTML=h||'<div class="hint">缓存目录为空</div>';
-    box.querySelectorAll('[data-whuse]').forEach(function(x){
-      x.onclick=function(){
-        setForm.whisper_model=x.dataset.whuse;
-        var inp=document.querySelector('[data-k="whisper_model"]');if(inp)inp.value=x.dataset.whuse;
-        toast('转写将使用 '+x.dataset.whuse+'（保存设置后生效）');
-        loadWhisperModels();
-      };
-    });
-    box.querySelectorAll('[data-whdl]').forEach(function(x){
-      x.onclick=function(){
-        api('/models/whisper/download',{method:'POST',body:{name:x.dataset.whdl}})
-          .then(function(r){toast(r.note||'开始下载（走 hf-mirror 镜像）');loadWhisperModels();})
-          .catch(function(e){toast(e.message);});
-      };
-    });
-    box.querySelectorAll('[data-whdel]').forEach(function(x){
-      x.onclick=function(){
-        if(!confirm('卸载 '+x.dataset.whdel+'？将删除缓存目录，不可恢复。'))return;
-        api('/models/whisper/'+x.dataset.whdel,{method:'DELETE'})
-          .then(function(){toast('已卸载');loadWhisperModels();})
-          .catch(function(e){toast(e.message);});
-      };
+    getBox.innerHTML=get||'<div class="hint">Whisper 各模型都已下载</div>';
+    mgrBox.innerHTML=mgr||'<div class="hint">还没有已下载的 Whisper 模型</div>';
+    [getBox,mgrBox].forEach(function(box){
+      box.querySelectorAll('[data-whuse]').forEach(function(x){
+        x.onclick=function(){
+          setForm.whisper_model=x.dataset.whuse;
+          var inp=document.querySelector('[data-k="whisper_model"]');if(inp)inp.value=x.dataset.whuse;
+          toast('转写将使用 '+x.dataset.whuse+'（保存设置后生效）');
+          loadWhisperModels();
+        };
+      });
+      box.querySelectorAll('[data-whdl]').forEach(function(x){
+        x.onclick=function(){
+          api('/models/whisper/download',{method:'POST',body:{name:x.dataset.whdl}})
+            .then(function(r){toast(r.note||'开始下载（走 hf-mirror 镜像）');loadWhisperModels();})
+            .catch(function(e){toast(e.message);});
+        };
+      });
+      box.querySelectorAll('[data-whdel]').forEach(function(x){
+        x.onclick=function(){
+          if(!confirm('卸载 '+x.dataset.whdel+'？将删除缓存目录，不可恢复。'))return;
+          api('/models/whisper/'+x.dataset.whdel,{method:'DELETE'})
+            .then(function(){toast('已卸载');loadWhisperModels();})
+            .catch(function(e){toast(e.message);});
+        };
+      });
     });
     if(dl.state==='downloading')scheduleModelPoll();
   }).catch(function(){});
