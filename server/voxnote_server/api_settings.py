@@ -6,7 +6,6 @@
 写 data/config.json，由 config 模块在每次取路径时应用。
 """
 import datetime
-import json
 import os
 import secrets
 import time
@@ -124,7 +123,7 @@ def reset_token():
 
 @router.get("/storage")
 def storage():
-    total = used = 0
+    total = 0
     for root, _, files in os.walk(config.audio_base()):
         for f in files:
             try:
@@ -132,8 +131,13 @@ def storage():
             except OSError:
                 pass
     db_bytes = os.path.getsize(config.db_path()) if os.path.isfile(config.db_path()) else 0
+    ov = config.overrides()
     return {"audio_bytes": total, "db_bytes": db_bytes, "data_dir": config.data_dir(),
             "audio_dir": config.audio_base(), "db_path": config.db_path(),
+            # 原始覆盖值（表单用）：空 = 未覆盖（默认）；解析后的绝对路径别回填表单，
+            # 否则保存会把绝对路径固化进 config.json，数据目录搬家后就指错地方了。
+            "audio_dir_set": ov.get("audio_dir") or "",
+            "db_path_set": ov.get("db_path") or "",
             "config_file": config.config_file()}
 
 
@@ -148,10 +152,10 @@ def patch_storage(p: StoragePatch):
 
     音频目录：保存后即时生效（只影响之后的上传/导出，旧文件留在原处仍可播放，
     records 里存的是绝对路径）；留空恢复默认。
-    数据库路径：保存后需手动把 voxnote.db 移到新位置并重启服务——运行中切库
-    会新旧分叉，服务端不做在线迁移。
+    数据库路径：db_path 进程启动时固化，改完需手动把 voxnote.db 搬到新位置并
+    重启服务——运行中切库会新旧分叉，服务端不做在线迁移。
     """
-    cur = config._overrides()
+    cur = config.overrides()
     notes = []
     if p.audio_dir is not None:
         v = p.audio_dir.strip()
@@ -177,6 +181,5 @@ def patch_storage(p: StoragePatch):
         else:
             cur.pop("db_path", None)
             notes.append("数据库路径已恢复默认（重启后生效）")
-    with open(config.config_file(), "w", encoding="utf-8") as f:
-        json.dump(cur, f, ensure_ascii=False, indent=2)
+    config.write_overrides(cur)
     return {"ok": True, "note": "；".join(notes) or "无改动"}

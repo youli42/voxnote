@@ -33,6 +33,20 @@ def _overrides() -> dict:
         return {}
 
 
+def overrides() -> dict:
+    """覆盖配置的浅拷贝（控制台读写用）。"""
+    return dict(_overrides())
+
+
+def write_overrides(ov: dict):
+    """原子写覆盖配置：临时文件 + os.replace，并发读者不会看到半截 JSON
+    （读方解析失败会静默回退默认路径，半截文件会把上传带去错误目录）。"""
+    tmp = config_file() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(ov, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, config_file())
+
+
 def _resolve(p: str) -> str:
     """覆盖路径支持相对写法，基于默认数据目录解析。"""
     return p if os.path.isabs(p) else os.path.join(data_dir(), p)
@@ -54,9 +68,16 @@ def transcript_dir(record_id: str) -> str:
     return os.path.join(data_dir(), "transcripts", record_id)
 
 
+_db_path = [None]  # 进程内固化：连接是每线程缓存的，热切换会让各线程在新旧库间分叉
+
+
 def db_path() -> str:
-    ov = _overrides().get("db_path")
-    return _resolve(ov) if ov else os.path.join(data_dir(), "voxnote.db")
+    """数据库文件路径。首次调用（启动时 db.init）后固化——PATCH /storage 只写
+    配置、重启才生效；音频目录不受此限（audio_base 每次实时读覆盖值）。"""
+    if _db_path[0] is None:
+        ov = _overrides().get("db_path")
+        _db_path[0] = _resolve(ov) if ov else os.path.join(data_dir(), "voxnote.db")
+    return _db_path[0]
 
 
 def web_dir() -> str:
