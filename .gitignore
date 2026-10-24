@@ -49,4 +49,5 @@ $tmp/
 # 服务端：虚拟环境与运行数据（音频/索引库不入库，隐私红线同样适用）
 server/venv/
 server/.venv/
+venv/
 server/data/
