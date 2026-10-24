@@ -125,8 +125,27 @@ def _run(job, engines):
         with db.conn() as c:
             c.execute("UPDATE jobs SET progress=? WHERE id=?", (f, job_id))
 
+    # 增量落盘：引擎边转写边回调，节流 3 秒写一次机器层 + 导出镜像。
+    # 手机端轮询 /sync/records?since= 即可看到"转写中"的场次内容实时增长。
+    last_flush = [0.0]
+
+    def on_partial(segs_partial):
+        if not segs_partial:
+            return
+        now = time.time()
+        if now - last_flush[0] < 3.0:
+            return
+        last_flush[0] = now
+        try:
+            db.replace_machine_segments(rid, segs_partial)
+            db.update_record(rid, status="asr",
+                             dur_ms=segs_partial[-1]["e_ms"] or rec["dur_ms"])
+            db.export_mirror(rid)
+        except Exception:
+            traceback.print_exc()
+
     try:
-        segs = e.transcribe(rec["audio_path"], rec, on_progress)
+        segs = e.transcribe(rec["audio_path"], rec, on_progress, on_partial)
     except Exception as t:
         traceback.print_exc()
         _finish(job, "fail", str(t)[:300], None)

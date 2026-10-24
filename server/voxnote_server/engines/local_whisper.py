@@ -62,11 +62,11 @@ class WhisperLocal(Engine):
             self._key = key
             return self._model
 
-    def transcribe(self, audio_path, record, on_progress=None):
+    def transcribe(self, audio_path, record, on_progress=None, on_partial=None):
         # cublas/cudnn 缺失在 Windows 上常发生在首次 encode 而不是模型加载，
         # 所以整个转写调用都要包在回退逻辑里：失败一次 → 降 CPU 重试。
         try:
-            return self._run(audio_path, record, on_progress)
+            return self._run(audio_path, record, on_progress, on_partial)
         except Exception as t:
             low = str(t).lower()
             if not self._cpu_fallback and ("cublas" in low or "cudnn" in low or "cuda" in low):
@@ -74,10 +74,10 @@ class WhisperLocal(Engine):
                 with self._lock:
                     self._model = None
                     self._key = None
-                return self._run(audio_path, record, on_progress)
+                return self._run(audio_path, record, on_progress, on_partial)
             raise
 
-    def _run(self, audio_path, record, on_progress=None):
+    def _run(self, audio_path, record, on_progress=None, on_partial=None):
         from .. import db
         model = self._get_model()
         lang = db.get("whisper_language", "zh")
@@ -86,6 +86,7 @@ class WhisperLocal(Engine):
             vad_filter=True, vad_parameters={"min_silence_duration_ms": 500})
         total = float(info.duration) or 0.0
         out = []
+        n = 0
         for s in segments:
             text = (s.text or "").strip()
             if not text:
@@ -94,6 +95,12 @@ class WhisperLocal(Engine):
                         "text": text, "spk": -1})
             if on_progress and total > 0:
                 on_progress(min(0.99, s.end / total))
+            n += 1
+            # 每 8 句回调一次增量结果，队列侧节流落库（手机端实时可见）
+            if on_partial and n % 8 == 0:
+                on_partial(list(out))
+        if on_partial and out:
+            on_partial(list(out))
         if on_progress:
             on_progress(1.0)
         return out

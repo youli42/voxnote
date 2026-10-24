@@ -17,7 +17,7 @@ class CloudOpenAI(Engine):
         from .. import db
         return bool(db.get("cloud_asr_base") and db.get("cloud_asr_key"))
 
-    def transcribe(self, audio_path, record, on_progress=None):
+    def transcribe(self, audio_path, record, on_progress=None, on_partial=None):
         from .. import db
         import os
         import httpx

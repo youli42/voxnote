@@ -20,10 +20,12 @@ class Engine:
         return {"id": self.id, "name": self.name, "desc": self.desc,
                 "available": self.available()}
 
-    def transcribe(self, audio_path: str, record, on_progress=None):
+    def transcribe(self, audio_path: str, record, on_progress=None, on_partial=None):
         """返回 [{'t_ms','e_ms','text','spk'}]；失败抛异常。
 
         on_progress(fraction 0..1) 尽力而为，不要求精确。
+        on_partial(部分结果列表) 边转写边回调（实现方可忽略）；队列侧
+        负责节流落库，手机端轮询即可实时看到内容增长。
         """
         raise NotImplementedError
 
