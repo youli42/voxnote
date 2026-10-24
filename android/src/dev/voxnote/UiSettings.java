@@ -38,6 +38,10 @@ public class UiSettings {
     public boolean sortDesc = true;
     public String swipeRightCat = "c1";
     public String swipeLeftCat = "c2";
+    /** 自托管服务器（voxnote server）：地址形如 http://192.168.1.10:8787，令牌在控制台设置页可见。 */
+    public String serverUrl = "";
+    public String serverToken = "";
+    public boolean autoSync = false;
     public ArrayList<Cat> categories = new ArrayList<Cat>();
 
     private SharedPreferences prefs;
@@ -74,6 +78,9 @@ public class UiSettings {
         sortDesc = prefs.getBoolean("sortDesc", true);
         swipeRightCat = prefs.getString("swipeRightCat", "c1");
         swipeLeftCat = prefs.getString("swipeLeftCat", "c2");
+        serverUrl = prefs.getString("serverUrl", "");
+        serverToken = prefs.getString("serverToken", "");
+        autoSync = prefs.getBoolean("autoSync", false);
 
         categories = new ArrayList<Cat>();
         String raw = prefs.getString(KEY_CATS, "");
@@ -153,6 +160,9 @@ public class UiSettings {
                 .putBoolean("sortDesc", sortDesc)
                 .putString("swipeRightCat", swipeRightCat)
                 .putString("swipeLeftCat", swipeLeftCat)
+                .putString("serverUrl", nz(serverUrl))
+                .putString("serverToken", nz(serverToken))
+                .putBoolean("autoSync", autoSync)
                 .putString(KEY_CATS, a.toString())
                 .apply();
     }

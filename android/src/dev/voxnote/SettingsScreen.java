@@ -49,6 +49,15 @@ public class SettingsScreen {
 
         void onBeginKeyCapture();
 
+        /** 服务器同步状态一行字（ServerSync.statusLine()）。 */
+        String serverStatus();
+
+        /** 测试服务器连通（异步，结果由宿主 toast）。 */
+        void onServerTest();
+
+        /** 立即同步一轮（推音频 + 拉转写稿）。 */
+        void onSyncNow();
+
         /** 被"删除"（屏蔽）的场次数。 */
         int ignoredCount();
 
@@ -260,6 +269,58 @@ public class SettingsScreen {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 10));
         content.addView(apiGroup, groupLp());
 
+        // ---------------- 服务器（自托管 voxnote server：推音频、拉转写稿）
+        LinearLayout srvGroup = Ui.group(act, "服务器");
+        srvGroup.addView(inputBlock("服务器地址", s.serverUrl, InputType.TYPE_TEXT_VARIATION_URI, true, new OnText() {
+            public void onText(String v) {
+                s.serverUrl = v;
+                s.save();
+            }
+        }));
+        srvGroup.addView(Ui.divider(act));
+        srvGroup.addView(inputBlock("配对令牌", s.serverToken,
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, true, new OnText() {
+                    public void onText(String v) {
+                        s.serverToken = v;
+                        s.save();
+                    }
+                }));
+        srvGroup.addView(Ui.divider(act));
+        LinearLayout srvStatusRow = Ui.row(act);
+        Ui.pad(srvStatusRow, 0, 8, 0, 8);
+        srvStatusRow.addView(Ui.text(act, "状态", 12.5f, Ui.TEXT), Ui.lp(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        serverStatusValue = Ui.text(act, "", 11.5f, Ui.FAINT);
+        serverStatusValue.setMaxWidth(Ui.dp(220));
+        srvStatusRow.addView(serverStatusValue);
+        srvGroup.addView(srvStatusRow);
+        LinearLayout srvBtns = Ui.row(act);
+        Ui.pad(srvBtns, 0, 8, 0, 8);
+        TextView srvTest = Ui.button(act, "测试连接", 12.5f, false);
+        srvTest.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                host.onServerTest();
+            }
+        });
+        srvBtns.addView(srvTest);
+        TextView srvSync = Ui.button(act, "立即同步", 12.5f, false);
+        srvSync.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                host.onSyncNow();
+            }
+        });
+        srvBtns.addView(srvSync, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 8, 0, 0, 0));
+        srvGroup.addView(srvBtns, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 2, 0, 4));
+        srvGroup.addView(toggleRow("录完自动上传", s.autoSync, new ToggleListener() {
+            public void onChanged(boolean v) {
+                s.autoSync = v;
+                s.save();
+            }
+        }));
+        content.addView(srvGroup, groupLp());
+
         // ---------------- 存储位置
         storageGroup = Ui.group(act, "存储位置");
         TextView modeValue = valueButton();
@@ -417,6 +478,7 @@ public class SettingsScreen {
         registerSection("分类", catGroup);
         registerSection("按键", keyGroup);
         registerSection("转写 API", apiGroup);
+        registerSection("服务器", srvGroup);
         registerSection("存储位置", storageGroup);
         registerSection("录音", recGroup);
         registerSection("数据", dataGroup);
@@ -431,6 +493,7 @@ public class SettingsScreen {
     private TextView providerValue;
     private TextView langValue;
     private TextView storageModeValue;
+    private TextView serverStatusValue;
 
     public View view() {
         return page;
@@ -452,6 +515,7 @@ public class SettingsScreen {
         keyConflict.setVisibility(conflict ? View.VISIBLE : View.GONE);
         providerValue.setText(providerLabel(s.provider));
         langValue.setText(langLabel(s.lang));
+        serverStatusValue.setText(host.serverStatus());
         storageModeValue.setText(storageModeLabel(storage.mode()));
         safLabel.setText(storage.safTree().length() > 0 ? storage.safTree() : "未选择");
         storageTarget.setText(storage.describe());

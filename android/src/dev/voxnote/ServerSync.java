@@ -1,0 +1,541 @@
+package dev.voxnote;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.OpenableColumns;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/**
+ * App ↔ voxnote server 同步客户端（协议见 server/README.md「与 App / S1 配对」）：
+ *
+ *   GET  /api/v1/sync/ping                     连通性（Bearer 配对令牌）
+ *   POST /api/v1/sync/upload                   音频 + meta（multipart），幂等键 stamp
+ *   GET  /api/v1/sync/records?since=           增量枚举（游标 = updated_at）
+ *   GET  /api/v1/sync/records/{id}/transcript  生效转写稿（JSONL）
+ *
+ * 方向：推（把本地音频传上服务器）+ 拉（把服务器转好的稿子回填成本地 <stamp>.md）。
+ * 回填规则：本地没有文稿的直接写；服务器回填过的场次有更新（含转写进行中的增量）就覆盖重写；
+ * 本地自己转出来的稿子可能是用户改过的，绝不覆盖。
+ *
+ * 全部请求是阻塞式 HTTP（java.net，无第三方依赖），跑在自己的单线程 executor 上，
+ * 回调切回主线程。文件大小/改动时间没变过的场次跳过，不重复上传。
+ */
+public class ServerSync {
+
+    /** err 非空 = 失败原因；msg = 人类可读结果；changed = 数据有变化（调用方需要重扫）。 */
+    public interface ResultCallback {
+        void onResult(String err, String msg, boolean changed);
+    }
+
+    private static final SimpleDateFormat FMT = new SimpleDateFormat("MM-dd HH:mm", Locale.US);
+    private static final String[] AUDIO_EXTS = {
+            ".m4a", ".mp4", ".aac", ".wav", ".mp3", ".amr", ".ogg", ".3gp"};
+
+    private final Context ctx;
+    private final UiSettings s;
+    private final Storage storage;
+    private final SharedPreferences prefs;
+    private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private final AtomicBoolean running = new AtomicBoolean(false);
+
+    public ServerSync(Context c, UiSettings settings, Storage storage) {
+        this.ctx = c.getApplicationContext();
+        this.s = settings;
+        this.storage = storage;
+        this.prefs = ctx.getSharedPreferences("voxnote.sync", Context.MODE_PRIVATE);
+    }
+
+    public boolean configured() {
+        return normalizeBase(s.serverUrl).length() > 0;
+    }
+
+    /** 设置页的一行状态：未配置 / 上次同步时间 / 上次失败原因。 */
+    public String statusLine() {
+        if (!configured()) return "未配置";
+        String err = prefs.getString("lastError", "");
+        if (err.length() > 0) return "上次同步失败：" + err;
+        long last = prefs.getLong("lastSyncAt", 0);
+        if (last == 0) return "已配置 · 尚未同步";
+        synchronized (FMT) {
+            return "上次同步 " + FMT.format(new Date(last));
+        }
+    }
+
+    public void shutdown() {
+        try {
+            io.shutdownNow();
+        } catch (Throwable ignore) { }
+        ui.removeCallbacksAndMessages(null);
+    }
+
+    // ------------------------------------------------------------ 对外（异步）
+
+    /** 测试连通性；msg = "xxx ms"。 */
+    public void ping(final ResultCallback cb) {
+        if (!configured()) {
+            deliver(cb, "未配置服务器地址", "", false);
+            return;
+        }
+        io.execute(new Runnable() {
+            public void run() {
+                try {
+                    doPing();
+                    deliver(cb, null, "服务正常", true);
+                } catch (Throwable t) {
+                    deliver(cb, readable(t), "", false);
+                }
+            }
+        });
+    }
+
+    /**
+     * 同步一轮：先推（本地音频 → 服务器），再拉（服务器转写稿 → 本地 md）。
+     * items 传当前列表快照（录完自动上传时由重扫后的 applyResult 触发，快照里就有新场次）。
+     */
+    public void syncNow(final ArrayList<RecordVm> items, final ResultCallback cb) {
+        if (!configured()) {
+            deliver(cb, "未配置服务器地址", "", false);
+            return;
+        }
+        if (!running.compareAndSet(false, true)) {
+            deliver(cb, "上一次同步还没跑完", "", false);
+            return;
+        }
+        final ArrayList<RecordVm> snapshot =
+                items == null ? new ArrayList<RecordVm>() : new ArrayList<RecordVm>(items);
+        io.execute(new Runnable() {
+            public void run() {
+                String err = null;
+                int pushed = 0, pulled = 0;
+                try {
+                    lastPushError = "";
+                    int[] p = push(snapshot);
+                    pushed = p[0];
+                    if (p[1] > 0) err = "上传失败 " + p[1] + " 场" + (lastPushError.length() > 0 ? "：" + lastPushError : "");
+                    try {
+                        pulled = pull(snapshot);
+                    } catch (Throwable t) {
+                        err = err == null ? readable(t) : err;
+                    }
+                    if (err == null) {
+                        prefs.edit().putLong("lastSyncAt", System.currentTimeMillis())
+                                .putString("lastError", "").apply();
+                    } else {
+                        prefs.edit().putString("lastError", err).apply();
+                    }
+                } catch (Throwable t) {
+                    err = readable(t);
+                    prefs.edit().putString("lastError", err).apply();
+                } finally {
+                    running.set(false);
+                }
+                String msg = "上传 " + pushed + " 场 · 回填 " + pulled + " 场";
+                deliver(cb, err, msg, pushed + pulled > 0);
+            }
+        });
+    }
+
+    // ------------------------------------------------------------ 推：上传音频
+
+    /** 返回 {成功数, 失败数}；单个失败不中断整轮，原因记在 lastPushError。 */
+    private int[] push(ArrayList<RecordVm> items) {
+        int ok = 0, fail = 0;
+        String url = api() + "/upload";
+        for (int i = 0; i < items.size(); i++) {
+            RecordVm vm = items.get(i);
+            if (!vm.hasAudio()) continue;
+            String ext = extOf(vm);
+            if (ext.length() == 0) continue;
+            String marker = markerOf(vm);
+            if (marker.equals(prefs.getString("up." + vm.id, ""))) continue;
+            InputStream in = openAudio(vm);
+            if (in == null) continue;
+            try {
+                JSONObject meta = new JSONObject();
+                meta.put("stamp", vm.id);
+                meta.put("title", vm.title == null ? "" : vm.title);
+                meta.put("cat", vm.cat == null ? "" : s.catName(vm.cat));
+                meta.put("mode", vm.mode == null ? "" : vm.mode);
+                meta.put("sid", vm.sid);
+                meta.put("recorded_at", vm.startMs);
+                meta.put("dur_ms", vm.durMs);
+                postMultipart(url, meta.toString(), vm.id + ext, in);
+                prefs.edit().putString("up." + vm.id, marker).apply();
+                ok++;
+            } catch (Throwable t) {
+                fail++;
+                lastPushError = readable(t);
+            } finally {
+                try { in.close(); } catch (Throwable ignore) { }
+            }
+        }
+        return new int[]{ok, fail};
+    }
+
+    private String lastPushError = "";
+
+    private InputStream openAudio(RecordVm vm) {
+        try {
+            if (vm.audioUri != null && vm.audioUri.length() > 0) {
+                return ctx.getContentResolver().openInputStream(Uri.parse(vm.audioUri));
+            }
+            return new FileInputStream(vm.audioPath);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 上传去重标记：文件看 size+mtime，content:// 记 uri。 */
+    private static String markerOf(RecordVm vm) {
+        if (vm.audioPath != null && vm.audioPath.length() > 0) {
+            File f = new File(vm.audioPath);
+            return f.length() + ":" + f.lastModified();
+        }
+        return String.valueOf(vm.audioUri);
+    }
+
+    private String extOf(RecordVm vm) {
+        String name = null;
+        if (vm.audioPath != null && vm.audioPath.length() > 0) {
+            name = new File(vm.audioPath).getName();
+        } else if (vm.audioUri != null && vm.audioUri.length() > 0) {
+            name = queryDisplayName(vm.audioUri);
+        }
+        if (name == null) return "";
+        String ln = name.toLowerCase(Locale.US);
+        for (int i = 0; i < AUDIO_EXTS.length; i++) {
+            if (ln.endsWith(AUDIO_EXTS[i])) return AUDIO_EXTS[i];
+        }
+        return "";
+    }
+
+    private String queryDisplayName(String uri) {
+        try {
+            android.database.Cursor c = ctx.getContentResolver()
+                    .query(Uri.parse(uri), null, null, null, null);
+            if (c == null) return null;
+            try {
+                if (c.moveToFirst()) {
+                    int i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    if (i >= 0) return c.getString(i);
+                }
+            } finally {
+                c.close();
+            }
+        } catch (Throwable ignore) { }
+        return null;
+    }
+
+    // ------------------------------------------------------------ 拉：转写稿回填
+
+    /** 服务器有稿（done）或正在转写（asr，内容边长边推）的场次：
+     *  本地没有文稿就回填；上次就是服务器回填过的（tr 标记存在）且服务器有更新则覆盖重写。
+     *  本地自己转出来的稿子（无 tr 标记）绝不动。返回回填场次数。 */
+    private int pull(ArrayList<RecordVm> items) throws Exception {
+        long since = prefs.getLong("cursor", 0);
+        JSONObject root = new JSONObject(httpGet(api() + "/records?since=" + since));
+        JSONArray recs = root.optJSONArray("records");
+        if (recs == null) return 0;
+
+        Map<String, RecordVm> byId = new HashMap<String, RecordVm>();
+        for (int i = 0; i < items.size(); i++) byId.put(items.get(i).id, items.get(i));
+
+        long cursor = since;
+        long processed = since;   // 游标只推进到"已处理完"的记录：
+        int n = 0;                // 被本地稿子保护跳过的场次仍留在窗口里，
+        File mdDir = storage.privateRecords();  // 本地稿子被删后下一轮还能补拉。
+        SharedPreferences.Editor ed = prefs.edit();
+        for (int i = 0; i < recs.length(); i++) {
+            JSONObject o = recs.optJSONObject(i);
+            if (o == null) continue;
+            String id = o.optString("id", "");
+            long upd = o.optLong("updated_at", 0);
+            String status = o.optString("status", "");
+            if (!"done".equals(status) && !"asr".equals(status)) {
+                // raw/queued/fail：出不了稿，不用再看
+                if (upd > processed) processed = upd;
+                continue;
+            }
+            RecordVm vm = byId.get(id);
+            if (vm == null) {                      // 本地没有这场（可能已删）
+                if (upd > processed) processed = upd;
+                continue;
+            }
+            long lastTr = prefs.getLong("tr." + id, 0);
+            if (lastTr >= upd) {                   // 转写没有新变化
+                if (upd > processed) processed = upd;
+                continue;
+            }
+            if (vm.hasMd() && !fromServerMd(vm.mdPath)) continue; // 本地自己的稿子不动
+            File md = new File(mdDir, id + ".md");
+            if (writeTranscriptMd(md, o.optString("title", ""),
+                    httpGet(api() + "/records/" + id + "/transcript"))) {
+                ed.putLong("tr." + id, upd);       // 写成功才记，空结果下轮再来
+                if (upd > processed) processed = upd;
+                n++;
+            }
+        }
+        ed.apply();
+        if (processed > since) prefs.edit().putLong("cursor", processed).apply();
+        return n;
+    }
+
+    /** 轻量轮询：只拉转写稿（不推音频），供前台定时刷新 —— 服务端转写进行中时
+     *  手机端能看到内容逐段长出来。返回是否回填了新内容。 */
+    public void pollLive(final ArrayList<RecordVm> items, final ResultCallback cb) {
+        if (!configured()) return;
+        if (!running.compareAndSet(false, true)) return;   // 全量同步进行中就跳过这轮
+        final ArrayList<RecordVm> snapshot =
+                items == null ? new ArrayList<RecordVm>() : new ArrayList<RecordVm>(items);
+        io.execute(new Runnable() {
+            public void run() {
+                int pulled = 0;
+                String err = null;
+                try {
+                    pulled = pull(snapshot);
+                } catch (Throwable t) {
+                    err = readable(t);
+                } finally {
+                    running.set(false);
+                }
+                if (err != null) deliver(cb, err, "", false);
+                else if (pulled > 0) deliver(cb, null, "转写更新 " + pulled + " 场", true);
+            }
+        });
+    }
+
+    /** 服务器回填的稿子都落在应用私有 records 目录；厂商会话目录里的是本机转写产物。 */
+    private boolean fromServerMd(String mdPath) {
+        return mdPath != null && mdPath.startsWith(storage.privateRecords().getAbsolutePath());
+    }
+
+    /** JSONL（t/e 毫秒、spk、text）→ 本机 md 版式（MdParser 认识的那套）。
+     *  返回是否写了文件（内容为空不落空文件）。 */
+    private static boolean writeTranscriptMd(File f, String title, String jsonl) throws Exception {
+        StringBuilder body = new StringBuilder();
+        StringBuilder plain = new StringBuilder();
+        BufferedReader r = new BufferedReader(new InputStreamReader(
+                new ByteArrayInputStream(jsonl.getBytes("UTF-8")), "UTF-8"));
+        int lastSpk = Integer.MIN_VALUE;
+        long lastEnd = 0;
+        String line;
+        try {
+            while ((line = r.readLine()) != null) {
+                line = line.trim();
+                if (line.length() == 0) continue;
+                JSONObject o;
+                try {
+                    o = new JSONObject(line);
+                } catch (Throwable ignore) {
+                    continue;
+                }
+                long t = o.optLong("t", 0);
+                long e = o.optLong("e", t);
+                int spk = o.optInt("spk", -1);
+                String text = o.optString("text", "").trim();
+                if (text.length() == 0) continue;
+                if (spk >= 0 && spk != lastSpk) {
+                    body.append("**发言人 ").append(spk + 1).append("**\n");
+                    lastSpk = spk;
+                }
+                body.append("`[").append(ms(t)).append(" → ").append(ms(Math.max(e, t)))
+                        .append("]` ").append(text).append('\n');
+                plain.append(text).append('\n');
+                if (e > lastEnd) lastEnd = e;
+            }
+        } finally {
+            try { r.close(); } catch (Throwable ignore) { }
+        }
+        if (body.length() == 0) return false;   // 没内容就不落空文件（转写刚起步）
+        StringBuilder md = new StringBuilder();
+        md.append("# ").append(title.length() > 0 ? title : f.getName().replace(".md", "")).append("\n\n");
+        md.append("- 时长 ").append(RecordVm.fmtDur(lastEnd / 1000.0)).append("\n\n");
+        md.append("## 正文\n\n").append(body).append("\n");
+        md.append("## 纯文本\n\n```\n").append(plain).append("```\n");
+        f.getParentFile().mkdirs();
+        java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+        try {
+            out.write(md.toString().getBytes("UTF-8"));
+        } finally {
+            try { out.close(); } catch (Throwable ignore) { }
+        }
+        return true;
+    }
+
+    /** 毫秒 → m:ss.SSS（MdParser 的时间戳正则认识的形态）。 */
+    private static String ms(long v) {
+        long s = Math.max(0, v) / 1000;
+        long frac = Math.max(0, v) % 1000;
+        return (s / 60) + ":" + String.format(Locale.US, "%02d.%03d", s % 60, frac);
+    }
+
+    // ------------------------------------------------------------ HTTP
+
+    private String base() {
+        return normalizeBase(s.serverUrl);
+    }
+
+    /** 同步 API 根：主机根 + /api/v1/sync（normalizeBase 只留主机根）。 */
+    private String api() {
+        return base() + "/api/v1/sync";
+    }
+
+    /** 允许填 http://host:8787、host:8787、带 /api/v1 或 /api/v1/sync 尾巴的都归一成主机根。 */
+    public static String normalizeBase(String raw) {
+        String u = raw == null ? "" : raw.trim();
+        if (u.length() == 0) return "";
+        while (u.endsWith("/")) u = u.substring(0, u.length() - 1);
+        if (u.endsWith("/api/v1/sync")) {
+            u = u.substring(0, u.length() - "/api/v1/sync".length());
+        } else if (u.endsWith("/api/v1")) {
+            u = u.substring(0, u.length() - "/api/v1".length());
+        }
+        if (u.length() == 0) return "";
+        if (!u.startsWith("http://") && !u.startsWith("https://")) u = "http://" + u;
+        return u;
+    }
+
+    private HttpURLConnection open(String url, int readTimeout) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(readTimeout);
+        String token = s.serverToken == null ? "" : s.serverToken.trim();
+        if (token.length() > 0) c.setRequestProperty("Authorization", "Bearer " + token);
+        return c;
+    }
+
+    private void doPing() throws Exception {
+        HttpURLConnection c = open(api() + "/ping", 15000);
+        try {
+            check(c, 200);
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    private String httpGet(String url) throws Exception {
+        HttpURLConnection c = open(url, 30000);
+        try {
+            check(c, 200);
+            return readAll(c);
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    private void postMultipart(String url, String metaJson, String filename, InputStream in) throws Exception {
+        String boundary = "----voxnote" + System.currentTimeMillis();
+        HttpURLConnection c = open(url, 120000);
+        try {
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+            OutputStream out = c.getOutputStream();
+            write(out, "--" + boundary + "\r\n");
+            write(out, "Content-Disposition: form-data; name=\"meta\"\r\n\r\n");
+            write(out, metaJson + "\r\n");
+            write(out, "--" + boundary + "\r\n");
+            write(out, "Content-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"\r\n");
+            write(out, "Content-Type: application/octet-stream\r\n\r\n");
+            byte[] buf = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            write(out, "\r\n--" + boundary + "--\r\n");
+            out.close();
+            check(c, 200);
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    private static void write(OutputStream out, String s) throws Exception {
+        out.write(s.getBytes("UTF-8"));
+    }
+
+    /** 非 2xx 抛 IOException，401/403 给出令牌提示，400 带上服务端 detail。 */
+    private static void check(HttpURLConnection c, int expect) throws Exception {
+        int code = c.getResponseCode();
+        if (code >= 200 && code < 300) return;
+        String body = readAll(c);
+        String detail = body;
+        try {
+            detail = new JSONObject(body).optString("detail", body);
+        } catch (Throwable ignore) { }
+        if (code == 401 || code == 403) {
+            throw new java.io.IOException("配对令牌无效");
+        }
+        throw new java.io.IOException("HTTP " + code
+                + (detail == null || detail.length() == 0 ? "" : "：" + abbreviate(detail, 120)));
+    }
+
+    private static String readAll(HttpURLConnection c) {
+        try {
+            InputStream in = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream();
+            if (in == null) return "";
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8 * 1024];
+            int n;
+            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+            in.close();
+            return new String(bo.toByteArray(), "UTF-8");
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private static String abbreviate(String s, int max) {
+        String t = s == null ? "" : s.trim().replace('\n', ' ');
+        return t.length() <= max ? t : t.substring(0, max) + "…";
+    }
+
+    /** 把底层异常翻成人话。 */
+    private static String readable(Throwable t) {
+        if (t instanceof UnknownHostException) return "无法解析主机名";
+        if (t instanceof SocketTimeoutException) return "连接超时";
+        if (t instanceof java.net.ConnectException) return "连接不上（检查地址 / 是否同一网络）";
+        if (t instanceof java.io.IOException) {
+            String m = String.valueOf(t.getMessage());
+            if (m.indexOf("Cleartext") >= 0) return "系统拦截了明文 http 请求";
+            return m;
+        }
+        String m = String.valueOf(t.getMessage());
+        return m.length() == 0 ? String.valueOf(t) : m;
+    }
+
+    private void deliver(final ResultCallback cb, final String err, final String msg, final boolean changed) {
+        android.util.Log.i("voxnote.sync", err == null ? msg : "失败：" + err);
+        if (cb == null) return;
+        ui.post(new Runnable() {
+            public void run() {
+                cb.onResult(err, msg, changed);
+            }
+        });
+    }
+}

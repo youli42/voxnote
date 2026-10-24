@@ -59,6 +59,7 @@ public class HomeActivity extends Activity implements Picker.Host {
     private Storage storage;
     private DataCenter data;
     private Player player;
+    private ServerSync serverSync;
     private final Recorder recorder = new Recorder();
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -115,6 +116,8 @@ public class HomeActivity extends Activity implements Picker.Host {
     private String pendingTitle = "";
     /** 设置了"录完自动转写"时，保存后等扫描结果出现该场次再触发（替代固定 400ms 延时）。 */
     private String pendingTranscribe;
+    /** 设置了"录完自动上传"时，保存后等重扫把新场次进列表再同步（快照里才有它）。 */
+    private boolean pendingSync;
     private final Runnable recTimerTick = new Runnable() {
         public void run() {
             if (!recording) return;
@@ -148,6 +151,7 @@ public class HomeActivity extends Activity implements Picker.Host {
         storage = new Storage(this);
         data = new DataCenter(this, state, storage);
         player = new Player(this);
+        serverSync = new ServerSync(this, settings, storage);
 
         setContentView(buildRoot());
         // 冷启动别把键盘顶起来：搜索框/标题框默认都不抢焦点。
@@ -171,6 +175,46 @@ public class HomeActivity extends Activity implements Picker.Host {
         askPerms();
         load(false, null, false);
         cleanTmpOrphans();
+        applyPairingIntent();
+    }
+
+    /**
+     * 配对入口：am start --es server_url http://… --es server_token vn-… [--es sync_now 1]
+     * 给 adb / 桌面端一条命令完成配对。地址与令牌只在还没配置过服务器时生效 ——
+     * 已配置的机器不允许被任何外部应用改写上传目标（否则等于给了个偷传录音的口子）；
+     * sync_now 只是用既有配置跑一轮同步，随时允许。
+     */
+    private void applyPairingIntent() {
+        try {
+            Intent i = getIntent();
+            if (i == null) return;
+            String url = i.getStringExtra("server_url");
+            String token = i.getStringExtra("server_token");
+            String syncNow = i.getStringExtra("sync_now");
+            if (url == null && token == null && syncNow == null) return;
+            if ((url != null || token != null) && serverSync.configured()) {
+                toast("服务器已配置，忽略配对参数");
+            } else {
+                boolean dirty = false;
+                if (url != null && url.trim().length() > 0) {
+                    settings.serverUrl = url.trim();
+                    dirty = true;
+                }
+                if (token != null && token.trim().length() > 0) {
+                    settings.serverToken = token.trim();
+                    dirty = true;
+                }
+                if (dirty) {
+                    settings.save();
+                    toast("已配对服务器");
+                    if (settingsPage != null) settingsPage.refresh();
+                }
+            }
+            if ("1".equals(syncNow) && serverSync.configured()) {
+                pendingSync = true;
+                load(false, null, false);
+            }
+        } catch (Throwable ignore) { }
     }
 
     /** 启动时清掉上次进程被杀 / 中断残留的临时录音（此刻不可能有正在发布的文件）。 */
@@ -636,6 +680,40 @@ public class HomeActivity extends Activity implements Picker.Host {
             toast("请按一个键（返回键取消）");
         }
 
+        public String serverStatus() {
+            return serverSync.statusLine();
+        }
+
+        public void onServerTest() {
+            if (!serverSync.configured()) {
+                toast("先填服务器地址");
+                return;
+            }
+            toast("正在连接…");
+            serverSync.ping(new ServerSync.ResultCallback() {
+                public void onResult(String err, String msg, boolean changed) {
+                    toast(err == null ? "连接成功 · " + msg : "连接失败：" + err);
+                    if (settingsPage != null) settingsPage.refresh();
+                }
+            });
+        }
+
+        public void onSyncNow() {
+            if (!serverSync.configured()) {
+                toast("先填服务器地址和配对令牌");
+                return;
+            }
+            toast("正在同步…");
+            serverSync.syncNow(new ArrayList<RecordVm>(all), new ServerSync.ResultCallback() {
+                public void onResult(String err, String msg, boolean changed) {
+                    if (err != null) toast("同步失败：" + err);
+                    else toast("同步完成 · " + msg);
+                    if (changed) load(false, null, false);   // 回填的文稿要重扫才进列表
+                    if (settingsPage != null) settingsPage.refresh();
+                }
+            });
+        }
+
         public int ignoredCount() {
             return state.ignoredCount();
         }
@@ -707,6 +785,18 @@ public class HomeActivity extends Activity implements Picker.Host {
             if (vm != null) {
                 pendingTranscribe = null;
                 transcribe(vm);
+            }
+        }
+        // 录完自动上传：等重扫完新场次进列表再推，否则快照里没有它
+        if (pendingSync) {
+            pendingSync = false;
+            if (serverSync.configured()) {
+                serverSync.syncNow(new ArrayList<RecordVm>(all), new ServerSync.ResultCallback() {
+                    public void onResult(String err, String msg, boolean changed) {
+                        if (err != null) toast("自动上传失败：" + err);
+                        if (changed && err == null) load(false, null, false);
+                    }
+                });
             }
         }
         if (toastResult) toast("已扫描 " + r.total + " 场");
@@ -1138,6 +1228,10 @@ public class HomeActivity extends Activity implements Picker.Host {
                             // 不再用固定延时等扫描：存下待转写场次，applyResult 里触发
                             pendingTranscribe = stamp;
                         }
+                        if (settings.autoSync) {
+                            // 上面已经 load() 重扫，applyResult 里会带着新场次触发上传
+                            pendingSync = true;
+                        }
                     }
                 });
             }
@@ -1214,12 +1308,52 @@ public class HomeActivity extends Activity implements Picker.Host {
     }
 
     @Override
+    protected void onNewIntent(Intent i) {
+        super.onNewIntent(i);
+        setIntent(i);
+        applyPairingIntent();
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         if (settingsScreen != null && loadedAt > 0
                 && System.currentTimeMillis() - loadedAt > 1500 && !loading) {
             load(false, null, false);
         }
+        startLivePoll();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        pollHandler.removeCallbacks(livePoll);
+    }
+
+    // ------------------------------------------------------------ 服务端转写实时回显
+    // 前台期间每 6 秒只拉一次转写稿（不推音频）。服务端转写进行中时，
+    // 稿子边生成边落库，这里拉回来重写 md 并重扫，列表/详情就能看到内容长出来。
+
+    private final Handler pollHandler = new Handler(Looper.getMainLooper());
+    private final Runnable livePoll = new Runnable() {
+        public void run() {
+            try {
+                if (serverSync != null && serverSync.configured() && !loading && !isFinishing()) {
+                    serverSync.pollLive(new ArrayList<RecordVm>(all),
+                            new ServerSync.ResultCallback() {
+                                public void onResult(String err, String msg, boolean changed) {
+                                    if (changed && err == null) load(false, null, false);
+                                }
+                            });
+                }
+            } catch (Throwable ignore) { }
+            pollHandler.postDelayed(this, 6000);
+        }
+    };
+
+    private void startLivePoll() {
+        pollHandler.removeCallbacks(livePoll);
+        pollHandler.postDelayed(livePoll, 1500);
     }
 
     @Override
@@ -1337,6 +1471,9 @@ public class HomeActivity extends Activity implements Picker.Host {
         } catch (Throwable ignore) { }
         try {
             player.release();
+        } catch (Throwable ignore) { }
+        try {
+            serverSync.shutdown();
         } catch (Throwable ignore) { }
         try {
             data.shutdown();
