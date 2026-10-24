@@ -431,6 +431,195 @@ public class ServerSync {
         prefs.edit().remove("cat." + recordId).apply();
     }
 
+    // ------------------------------------------------------------ 云端页：服务器库浏览与取回
+
+    /** 服务器记录库里的一条（/sync/records 的全量枚举）。 */
+    public static class ServerRec {
+        public String id;
+        public String title = "";
+        public String cat = "";
+        public String device = "";
+        public String status = "";
+        public String audioName = "";
+        public long durMs;
+        public long bytes;
+        public long updatedAt;
+
+        /** 记录 id 前 15 位是 yyyyMMdd_HHmmss，可当录音开始时间。 */
+        public long startMs() {
+            try {
+                synchronized (FMT) {
+                    java.text.SimpleDateFormat key =
+                            new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US);
+                    java.util.Date d = key.parse(id);
+                    return d == null ? 0 : d.getTime();
+                }
+            } catch (Throwable t) {
+                return 0;
+            }
+        }
+    }
+
+    public interface LibraryListCallback {
+        void onDone(String err, ArrayList<ServerRec> recs);
+    }
+
+    public interface TextCallback {
+        void onDone(String err, String text);
+    }
+
+    /** 拉服务器全库列表（增量端点的 since=0 形态，500 条上限，云端页够用）。 */
+    public void fetchLibrary(final LibraryListCallback cb) {
+        if (!configured()) {
+            ui.post(new Runnable() { public void run() { cb.onDone("未配置服务器地址", null); } });
+            return;
+        }
+        io.execute(new Runnable() {
+            public void run() {
+                try {
+                    JSONObject root = new JSONObject(httpGet(api() + "/records?since=0"));
+                    JSONArray recs = root.optJSONArray("records");
+                    ArrayList<ServerRec> out = new ArrayList<ServerRec>();
+                    if (recs != null) {
+                        for (int i = 0; i < recs.length(); i++) {
+                            JSONObject o = recs.optJSONObject(i);
+                            if (o == null) continue;
+                            ServerRec r = new ServerRec();
+                            r.id = o.optString("id", "");
+                            if (r.id.length() == 0) continue;
+                            r.title = o.optString("title", "");
+                            r.cat = o.optString("cat", "");
+                            r.device = o.optString("device", "");
+                            r.status = o.optString("status", "");
+                            r.audioName = o.optString("audio_name", "");
+                            r.durMs = o.optLong("dur_ms", 0);
+                            r.bytes = o.optLong("bytes", 0);
+                            r.updatedAt = o.optLong("updated_at", 0);
+                            out.add(r);
+                        }
+                    }
+                    ui.post(new Runnable() {
+                        public void run() { cb.onDone(null, out); }
+                    });
+                } catch (final Throwable t) {
+                    ui.post(new Runnable() { public void run() { cb.onDone(readable(t), null); } });
+                }
+            }
+        });
+    }
+
+    /** 拉一场的生效转写稿（JSONL 原文，云端页查看用）。 */
+    public void fetchTranscript(final String srvId, final TextCallback cb) {
+        if (!configured()) {
+            ui.post(new Runnable() { public void run() { cb.onDone("未配置服务器地址", null); } });
+            return;
+        }
+        io.execute(new Runnable() {
+            public void run() {
+                try {
+                    final String text = httpGet(api() + "/records/" + srvId + "/transcript");
+                    ui.post(new Runnable() { public void run() { cb.onDone(null, text); } });
+                } catch (final Throwable t) {
+                    ui.post(new Runnable() { public void run() { cb.onDone(readable(t), null); } });
+                }
+            }
+        });
+    }
+
+    /** 从服务器取回一场记录到本机：写文稿 md（<服务器id>.md，与同步回填同一目录），
+     *  可选下载音频。下载的音频会被记成"已上传"（up.<id> 标记），同步时不会再推回去。
+     *  本地 id = 服务器 id（含 -2 后缀，Library 认这种文件名）。 */
+    public void importFromServer(final ServerRec rec, final boolean withAudio,
+                                 final ResultCallback cb) {
+        if (!configured()) {
+            deliver(cb, "未配置服务器地址", "", false);
+            return;
+        }
+        if (!running.compareAndSet(false, true)) {
+            deliver(cb, "上一次同步还没跑完", "", false);
+            return;
+        }
+        io.execute(new Runnable() {
+            public void run() {
+                String err = null;
+                try {
+                    File mdDir = storage.privateRecords();
+                    String jsonl = httpGet(api() + "/records/" + rec.id + "/transcript");
+                    if (jsonl.trim().length() > 0) {
+                        writeTranscriptMd(new File(mdDir, rec.id + ".md"), rec.title, jsonl);
+                    } else if (!withAudio) {
+                        err = "服务器还没有转写稿";
+                    }
+                    if (err == null && withAudio) {
+                        String ext = extOfName(rec.audioName);
+                        if (ext.length() == 0) ext = ".m4a";
+                        File dest = new File(mdDir, rec.id + ext);
+                        File tmp = new File(mdDir, "." + rec.id + ext + ".part");
+                        httpDownload(api() + "/records/" + rec.id + "/audio", tmp);
+                        if (dest.exists()) dest.delete();
+                        if (!tmp.renameTo(dest)) {
+                            tmp.delete();
+                            throw new java.io.IOException("音频文件保存失败");
+                        }
+                        // 与 push 的 markerOf 同格式：size:mtime —— 有这个标记就不再推回服务器
+                        prefs.edit().putString("up." + rec.id,
+                                dest.length() + ":" + dest.lastModified()).apply();
+                    }
+                    if (err == null) {
+                        prefs.edit().putLong("tr." + rec.id, rec.updatedAt).apply();
+                    }
+                } catch (Throwable t) {
+                    err = readable(t);
+                } finally {
+                    running.set(false);
+                }
+                deliver(cb, err, err == null ? (withAudio ? "已下载音频和文稿" : "已保存文稿")
+                        : "", err == null);
+            }
+        });
+    }
+
+    /** 云端页判断：这条服务器记录是否已在本机（同名 id，或 push 时被映射过）。 */
+    public boolean isLocalCopy(String srvId, java.util.Set<String> localIds) {
+        if (localIds != null && localIds.contains(srvId)) return true;
+        for (Map.Entry<String, ?> en : prefs.getAll().entrySet()) {
+            if (en.getKey().startsWith("srvid.") && srvId.equals(String.valueOf(en.getValue()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String extOfName(String name) {
+        String n = name == null ? "" : name.toLowerCase(Locale.US);
+        int dot = n.lastIndexOf('.');
+        if (dot < 0) return "";
+        String ext = n.substring(dot);
+        for (int i = 0; i < AUDIO_EXTS.length; i++) {
+            if (AUDIO_EXTS[i].equals(ext)) return ext;
+        }
+        return "";
+    }
+
+    private void httpDownload(String url, File dest) throws Exception {
+        HttpURLConnection c = open(url, 600000);
+        try {
+            check(c, 200);
+            InputStream in = c.getInputStream();
+            java.io.FileOutputStream out = new java.io.FileOutputStream(dest);
+            try {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            } finally {
+                try { out.close(); } catch (Throwable ignore) { }
+                try { in.close(); } catch (Throwable ignore) { }
+            }
+        } finally {
+            c.disconnect();
+        }
+    }
+
     /** 标签差异交给宿主（主线程）落库；宿主负责对上/新建本地分类并 patch 用户态。 */
     private void applyCats(final ArrayList<String[]> updates) {
         if (catApplier == null || updates.isEmpty()) return;

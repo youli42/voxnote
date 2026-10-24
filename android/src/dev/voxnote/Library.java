@@ -27,7 +27,9 @@ import java.util.regex.Pattern;
  */
 public class Library {
 
-    private static final Pattern P_KEY = Pattern.compile("^(\\d{8}_\\d{6})");
+    /** 记录键 = 文件名开头的 yyyyMMdd_HHmmss，可带 -N 后缀（从服务器取回的
+     *  同秒撞车记录，服务端给过 -2/-3 后缀，要与本机同秒的那场分开出卡片）。 */
+    private static final Pattern P_KEY = Pattern.compile("^(\\d{8}_\\d{6}(?:-\\d+)?)");
     private static final Pattern P_SID_IN_NAME = Pattern.compile("_(\\d{10})\\.[A-Za-z0-9]+$");
     private static final Pattern P_SUFFIX = Pattern.compile("_([A-Za-z]+)\\.[A-Za-z0-9]+$");
 

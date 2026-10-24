@@ -85,8 +85,10 @@ public class HomeActivity extends Activity implements Picker.Host {
     private TextView emptyText;
     private TabItem tabRecord;
     private TabItem tabStream;
+    private TabItem tabCloud;
     private TabItem tabSettings;
     private StreamScreen streamScreen;
+    private ServerScreen serverScreen;
 
     private EditText recTitle;
     private TextView recTimer;
@@ -151,6 +153,33 @@ public class HomeActivity extends Activity implements Picker.Host {
 
         public void openDetail(RecordVm vm) {
             HomeActivity.this.openDetail(vm);
+        }
+    };
+
+    private final ServerScreen.Host cloudHost = new ServerScreen.Host() {
+        public boolean configured() {
+            return serverSync.configured();
+        }
+
+        public ServerSync sync() {
+            return serverSync;
+        }
+
+        public java.util.Set<String> localIds() {
+            java.util.HashSet<String> ids = new java.util.HashSet<String>();
+            for (int i = 0; i < all.size(); i++) ids.add(all.get(i).id);
+            return ids;
+        }
+
+        public void onImported() {
+            load(false, null, false);
+            if (serverScreen != null) serverScreen.refreshPresence();
+        }
+
+        public void open(ServerSync.ServerRec rec) {
+            ServerRecordSheet sheet =
+                    new ServerRecordSheet(HomeActivity.this, serverSync, this, HomeActivity.this, rec);
+            sheet.show();   // show 内部会 pushOverlay
         }
     };
 
@@ -290,11 +319,14 @@ public class HomeActivity extends Activity implements Picker.Host {
         settingsPage = new SettingsScreen(this, settings, storage, settingsHost);
         settingsScreen = settingsPage.view();
         streamScreen = new StreamScreen(this, player, settings, streamHost);
+        serverScreen = new ServerScreen(this, cloudHost);
         content.addView(listScreen);
         content.addView(settingsScreen);
         content.addView(streamScreen);
+        content.addView(serverScreen);
         settingsScreen.setVisibility(View.GONE);
         streamScreen.setVisibility(View.GONE);
+        serverScreen.setVisibility(View.GONE);
         // 批量操作栏在 buildListScreen 里建好后加进来的，这里把它提到最上层，
         // 否则会被后加入的列表页整个盖住。
         if (batchBar != null) content.bringChildToFront(batchBar);
@@ -308,9 +340,11 @@ public class HomeActivity extends Activity implements Picker.Host {
         Ui.TabBar bar = new Ui.TabBar(this, Ui.LINE2);
         tabRecord = new TabItem(this, TabItem.ICON_RECORD, "录音");
         tabStream = new TabItem(this, TabItem.ICON_STREAM, "流");
+        tabCloud = new TabItem(this, TabItem.ICON_CLOUD, "云端");
         tabSettings = new TabItem(this, TabItem.ICON_SETTINGS, "设置");
         bar.addView(tabRecord, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         bar.addView(tabStream, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        bar.addView(tabCloud, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         bar.addView(tabSettings, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         tabRecord.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
@@ -320,6 +354,11 @@ public class HomeActivity extends Activity implements Picker.Host {
         tabStream.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 switchTab("stream");
+            }
+        });
+        tabCloud.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                switchTab("cloud");
             }
         });
         tabSettings.setOnClickListener(new View.OnClickListener() {
@@ -337,7 +376,9 @@ public class HomeActivity extends Activity implements Picker.Host {
         listScreen.setVisibility("record".equals(name) ? View.VISIBLE : View.GONE);
         settingsScreen.setVisibility("settings".equals(name) ? View.VISIBLE : View.GONE);
         streamScreen.setVisibility("stream".equals(name) ? View.VISIBLE : View.GONE);
+        serverScreen.setVisibility("cloud".equals(name) ? View.VISIBLE : View.GONE);
         if ("stream".equals(name)) streamScreen.refresh();
+        if ("cloud".equals(name)) serverScreen.refresh();
         if ("settings".equals(name)) {
             settingsPage.refresh();
             settingsPage.refreshSources(data.sourceInfoBlocking());
@@ -348,6 +389,7 @@ public class HomeActivity extends Activity implements Picker.Host {
     private void setTabActive(String name) {
         tabRecord.setActive("record".equals(name));
         tabStream.setActive("stream".equals(name));
+        tabCloud.setActive("cloud".equals(name));
         tabSettings.setActive("settings".equals(name));
     }
 
@@ -915,6 +957,7 @@ public class HomeActivity extends Activity implements Picker.Host {
         }
         rebuildFilters();
         if (streamScreen != null) streamScreen.refresh(); // 流页与列表同源，数据变了同步重建
+        if (serverScreen != null) serverScreen.refreshPresence(); // 云端页只重算"已在本机"，不重新请求
         if (keepScroll && keepPos >= 0) {
             list.setSelectionFromTop(keepPos, keepTop);
         } else {
@@ -1505,7 +1548,7 @@ public class HomeActivity extends Activity implements Picker.Host {
             }
             overlays.remove(o);
         }
-        if ("settings".equals(tab)) {
+        if ("settings".equals(tab) || "cloud".equals(tab)) {
             switchTab("record");
             return;
         }

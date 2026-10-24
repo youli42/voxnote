@@ -137,8 +137,12 @@ public class RecordVm {
 
     /** 默认标题在列表里显示成完整日期时间（配 relDay 标记），与 Web 控制台一致；库内标题不变。 */
     public String displayTitle() {
-        long t = startMs > 0 ? startMs : System.currentTimeMillis();
-        synchronized (FULL_DT_FMT) { return FULL_DT_FMT.format(t); }
+        return fmtDate(startMs > 0 ? startMs : System.currentTimeMillis());
+    }
+
+    /** 毫秒 → yyyy-MM-dd HH:mm（默认标题与云端页共用）。 */
+    public static String fmtDate(long ms) {
+        synchronized (FULL_DT_FMT) { return FULL_DT_FMT.format(new java.util.Date(ms)); }
     }
 
     /** 相对日标记：今天/昨天/前天/一周内/一周前/两周前/一月前，按自然日算。 */

@@ -16,6 +16,7 @@ public class TabItem extends LinearLayout {
     public static final int ICON_RECORD = 0;
     public static final int ICON_STREAM = 1;
     public static final int ICON_SETTINGS = 2;
+    public static final int ICON_CLOUD = 3;
 
     private final Icon icon;
     private final TextView label;
@@ -85,6 +86,18 @@ public class TabItem extends LinearLayout {
                 canvas.drawLine(cx - r * 0.75f, cy - gap, cx + r * 0.75f, cy - gap, paint);
                 canvas.drawLine(cx - r * 0.55f, cy, cx + r * 0.55f, cy, paint);
                 canvas.drawLine(cx - r * 0.35f, cy + gap, cx + r * 0.35f, cy + gap, paint);
+            } else if (type == ICON_CLOUD) {
+                // 云端：服务器机架——两个圆角矩形叠放，各带一枚指示点
+                paint.setStyle(Paint.Style.STROKE);
+                android.graphics.RectF top = new android.graphics.RectF(
+                        cx - r * 0.7f, cy - r * 0.66f, cx + r * 0.7f, cy - r * 0.1f);
+                canvas.drawRoundRect(top, Ui.dp(2.5f), Ui.dp(2.5f), paint);
+                android.graphics.RectF bot = new android.graphics.RectF(
+                        cx - r * 0.7f, cy + r * 0.1f, cx + r * 0.7f, cy + r * 0.66f);
+                canvas.drawRoundRect(bot, Ui.dp(2.5f), Ui.dp(2.5f), paint);
+                paint.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(cx - r * 0.42f, cy - r * 0.38f, Ui.dp(1.3f), paint);
+                canvas.drawCircle(cx - r * 0.42f, cy + r * 0.38f, Ui.dp(1.3f), paint);
             } else {
                 paint.setStyle(Paint.Style.STROKE);
                 canvas.drawCircle(cx, cy, r * 0.28f, paint);
