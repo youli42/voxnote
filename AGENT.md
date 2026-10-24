@@ -24,6 +24,8 @@ pwsh -NoProfile -File android/build.ps1 -Toolchain <jdk> -Sdk <sdk>   # 构建�
 
 - FastAPI + SQLite 单进程；Web 控制台是单文件 `server/web/index.html`
   （原生 JS，无框架、无构建，改完刷新即生效）。页面切换用 hash 路由。
+  Web 端允许第三方库：以源码形式 vendor 进 `server/web/vendor/`（不走 CDN，
+  保持自托管离线可用）；Android 端仍维持无第三方依赖。
 - 两层分离在控制台同样成立：逐句修订只写人工层（e_*），重转写只替换机器层；
   控制台的转写稿/波形/静音分析都是可再生的派生数据，不落契约。
 - 记录库（lib）与录音流（stream）两页共用筛选状态语义（status/cat/q）；

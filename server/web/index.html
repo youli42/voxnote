@@ -69,8 +69,15 @@
   .btn.sm{padding:5px 10px;font-size:11.5px;border-radius:8px}
   .btn.ghost{background:none;border-color:transparent}
   .btn.ghost:hover{background:var(--card)}
+  /* ghost 按钮的开启态（跳过静音）：描边 + 淡紫底，明确区别于未开启 */
+  .btn.ghost.accent{background:var(--accent-dim);border-color:var(--accent);color:var(--accent-h)}
+  .btn.ghost.accent:hover{border-color:var(--accent-h);color:#fff}
   .btn.danger{color:var(--err)}
   .btn[disabled]{opacity:.5;cursor:default}
+  /* 按下反馈：可点按钮轻微缩放 */
+  .btn:active{transform:scale(.94)}
+  .op:active{transform:scale(.9)}
+  .pbtn:active{transform:scale(.92)}
   .avatar{width:30px;height:30px;border-radius:99px;background:#2a2f3c;color:var(--sub);font-size:12px;font-weight:700;
           display:flex;align-items:center;justify-content:center;cursor:pointer}
 
@@ -192,12 +199,10 @@
   .sc .acts .op{font-size:10px;padding:3px 8px}
   .sc .bar{height:4px;background:#22252e;border-radius:99px;margin-top:8px;cursor:pointer;overflow:hidden}
   .sc .bar i{display:block;height:100%;width:0;background:var(--accent);border-radius:99px}
-  /* 流卡片精简波形：细条 16px 高，静音段压暗，播放进度逐条点亮 */
-  .sc .wave{height:16px;margin-top:8px;cursor:pointer;overflow:hidden}
-  .sc .wave i{background:#2b303b;border-radius:1px}
-  .sc .wave i.past{background:var(--accent)}
-  .sc .wave i.sil{background:#1d2027}
-  .sc .wave i.sil.past{background:#3a3565}
+  /* 流卡片波形：只在播放这张卡片时出现（.playing 才展开）省面板空间，
+     暂停时保持显示，方便拖动调进度 */
+  .sc .wave{display:none;flex:none;margin-top:8px}
+  .sc.playing .wave{display:block}
   /* 默认收起 3 行；.open 时换回块级布局解除行数钳制（-webkit-box 的 clamp 即失效） */
   .sc .txt{font-size:12.5px;line-height:1.8;color:#ccd1da;margin-top:8px;overflow-wrap:anywhere;white-space:pre-wrap;
     display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
@@ -219,9 +224,10 @@
   .pbtn{width:38px;height:38px;border-radius:99px;background:var(--accent);border:0;color:#fff;cursor:pointer;
         display:flex;align-items:center;justify-content:center;flex:none}
   .pbtn:hover{background:var(--accent-h)}
-  .wave{flex:1;min-width:0;display:flex;align-items:center;gap:2px;height:40px;cursor:pointer;overflow:hidden}
-  .wave i{flex:1 1 0;min-width:1px;background:#2b303b;border-radius:2px}
-  .wave i.past{background:var(--accent)}
+  /* 波形容器（记录库播放器 + 流卡片共用）：内部由 WaveSurfer 逐像素绘制精确波形，
+     静音段铺半透明压暗层，点击/拖拽 seek 交给 WS 自带交互 */
+  .wave{flex:1;min-width:0;position:relative;height:44px;cursor:pointer;overflow:hidden}
+  .wave .silov{position:absolute;top:0;bottom:0;background:rgba(10,11,15,.55);pointer-events:none}
   .ptime{font-size:11px;color:var(--sub);white-space:nowrap;font-variant-numeric:tabular-nums}
   .pside{display:flex;gap:6px;flex:none}
 
@@ -465,7 +471,8 @@
             <label style="font-size:11.5px;color:var(--sub);display:flex;align-items:center;gap:6px;cursor:pointer">
               <span class="toggle" id="stAuto"></span>自动连播</label>
             <label style="font-size:11.5px;color:var(--sub);display:flex;align-items:center;gap:6px;cursor:pointer" title="播放时自动越过波形里的静音段">
-              <span class="toggle" id="stSkip"></span>跳过静音</label></div>
+              <span class="toggle" id="stSkip"></span>跳过静音</label>
+            <button class="btn sm ghost" id="stRate" title="播放倍速（与记录库播放器共用）">1×</button></div>
           <div class="search">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
             <input id="stSearch" placeholder="在记录中搜索…">
@@ -541,6 +548,7 @@
 <div id="toast"></div>
 <input type="file" id="fileInput" accept=".m4a,.mp4,.aac,.wav,.mp3,.amr,.ogg,.3gp" multiple style="display:none">
 
+<script src="vendor/wavesurfer.min.js"></script>
 <script>
 /* ================= 基础 ================= */
 var API = '/api/v1';
@@ -975,7 +983,11 @@ function renderList(){
     b.appendChild(el);
   });
 }
-var audio=null;
+var audio=null,LBWS=null; /* LBWS：记录库播放器的 WaveSurfer 实例 */
+function unmountLibWave(){
+  if(LBWS){try{LBWS.destroy();}catch(e){}}
+  LBWS=null;
+}
 function loadDetail(id){
   api('/records/'+id).then(function(r){
     S.rec=r;renderDetail();
@@ -1014,7 +1026,7 @@ function renderDetail(){
       '<div class="wave" id="wave"></div>'+
       '<span class="ptime" id="ptime">0:00 / '+fmtDur(r.dur_ms)+'</span>'+
       '<div class="pside"><button class="btn sm ghost" id="skipBtn" title="播放时自动越过静音段">跳静音</button>'+
-      '<button class="btn sm ghost" id="rateBtn">1.0×</button>'+
+      '<button class="btn sm ghost" id="rateBtn">1×</button>'+
       '<a class="btn sm ghost" style="text-decoration:none" href="'+r.audio_url+'" download="'+esc(r.id)+'.audio">下载</a></div></div>';
   }
 
@@ -1233,10 +1245,22 @@ function closeMeta(){
 }
 function setupPlayer(r){
   if(window._curAudio){try{window._curAudio.pause();}catch(e){}}
+  unmountLibWave();
   audio=new Audio(r.audio_url);audio.preload='metadata';
+  audio.defaultPlaybackRate=RATE.vals[RATE.i]; /* load 会把 playbackRate 回退到 default，两处都设 */
+  audio.playbackRate=RATE.vals[RATE.i];
   window._curAudio=audio;
   var wave=document.getElementById('wave');
-  buildWave(wave,r);
+  /* 精确波形（与录音流统一）：挂载即解码绘制，常驻显示方便播放前定位；
+     WS 不可用/解码失败时退化为装饰波形（点击 seek 仍由下方 wave.onclick 兜底） */
+  LBWS=createWave(wave,audio,r.audio_url);
+  if(LBWS)LBWS.on('ready',function(){paintSilCached(r,wave,LBWS.getDuration());});
+  else{
+    var n=Math.max(24,Math.min(120,Math.floor(wave.clientWidth/5)))||72;
+    waveHeights(r.id,n).forEach(function(p){var i=document.createElement('i');
+      i.style.cssText='flex:1 1 0;min-width:1px;height:'+p+'%;background:#2b303b;border-radius:2px';
+      wave.appendChild(i);});
+  }
   var btn=document.getElementById('pbtn');
   function paintBtn(){
     btn.innerHTML=audio.paused
@@ -1263,7 +1287,7 @@ function setupPlayer(r){
     var st=document.getElementById('stSkip');
     if(st)st.classList.toggle('on',SKIP.on); /* 两处开关UI保持一致 */
     if(SKIP.on&&!audio.paused)
-      analyzeAudio(r).then(function(){skipSilence(r,audio,true);});
+      analyzeAudio(r).promise.then(function(){skipSilence(r,audio,true);});
     toast(SKIP.on?'已开启跳过静音（所有播放器生效）':'已关闭跳过静音');
   };
   paintSkip();
@@ -1294,53 +1318,18 @@ function setupPlayer(r){
     seek((e.clientX-rect.left)/rect.width*dur());
     if(SKIP.on)skipSilence(r,audio); /* seek 落进静音段也直接跳出去 */
   };
-  var rate=document.getElementById('rateBtn'),rates=[1,1.25,1.5,2],ri=0;
-  rate.onclick=function(){ri=(ri+1)%rates.length;audio.playbackRate=rates[ri];this.textContent=rates[ri]+'×';};
+  var rate=document.getElementById('rateBtn');
+  rate.textContent=RATE.vals[RATE.i]+'×'; /* 与录音流共用全局档位，回来时同步显示 */
+  rate.onclick=function(){this.textContent=cycleRate()+'×';toast('倍速 '+this.textContent);};
 }
-/* 进度高亮 + 时间显示。挂在全局以便波形条重建（缩放）后立即恢复，不必等下一次 timeupdate。
-   高亮条按上次位置增量更新，rAF 每帧调用时不整表重写 className。 */
-var paintLastN=-1;
+/* 时间显示。进度着色由 WaveSurfer 自理，这里只刷 ptime 文本。 */
 function paint(){
-  var r=S.rec,wave=document.getElementById('wave');
-  if(!r||!wave||!wave.children.length||audio!==window._curAudio)return;
+  var r=S.rec;
+  if(!r||audio!==window._curAudio)return;
   var d=audio.duration;
   if(!isFinite(d)||d<=0)d=r.dur_ms>0?r.dur_ms/1000:0;
-  var pos=d>0?Math.min(1,audio.currentTime/d):0;
-  var n=Math.floor(pos*wave.children.length);
-  if(n!==paintLastN){
-    var ch=wave.children,lo=Math.max(0,Math.min(n,paintLastN)),hi=Math.max(n,paintLastN);
-    for(var i=lo;i<hi;i++)ch[i].className=i<n?'past':'';
-    paintLastN=n;
-  }
   var pt=document.getElementById('ptime');
   if(pt)pt.textContent=fmtDur(audio.currentTime*1000)+' / '+fmtDur(d*1000);
-}
-/* 波形条数量按容器实际宽度生成（约 5px 一根），窗口缩放时防抖重建。
-   固定 96 根在窄视口下会把最小内容宽度撑到 ~382px，把详情列挤溢出。 */
-var waveCtx={id:null,rec:null};
-function buildWave(wave,r){
-  waveCtx={id:r.id,rec:r};
-  renderWave(wave);
-  if(!window._waveResizeFn){
-    window._waveResizeFn=function(){
-      clearTimeout(window._waveResize);
-      window._waveResize=setTimeout(function(){
-        var w=document.getElementById('wave');
-        if(w&&S.rec&&S.rec.id===waveCtx.id&&w.clientWidth>0)renderWave(w);
-      },150);
-    };
-    window.addEventListener('resize',window._waveResizeFn);
-  }
-}
-function renderWave(wave){
-  var r=waveCtx.rec;if(!r)return;
-  var cw=wave.clientWidth;
-  if(cw<=0)return; /* 页面隐藏时宽度为 0，避免生成一套假条；回到本页会整体重建 */
-  var n=Math.max(24,Math.min(120,Math.floor(cw/5)));
-  wave.innerHTML='';
-  paintLastN=-1; /* 条已重建，paint 的增量游标作废 */
-  waveHeights(r.id,n).forEach(function(p){var i=document.createElement('i');i.style.height=p+'%';wave.appendChild(i);});
-  paint(); /* 重建后立即恢复已播进度高亮 */
 }
 function renderSegs(r){
   var box=document.getElementById('segs');
@@ -1393,37 +1382,50 @@ function openRecord(id,segId){
 }
 
 /* ================= 波形/静音分析（所有播放器共用） =================
-   按记录解码一次缓存：真实振幅 peaks（波形用）与静音区间 sil。
+   按记录解码一次缓存静音区间 sil：跳静音逻辑与流卡片的静音压暗层共用。
+   波形绘制本身交给 WaveSurfer（vendor/ 本地库），逐像素算 min/max 包络。
    跳过静音开关是全局状态，记录库播放器与录音流卡片读写同一份。 */
-var WAVES={},SKIP={on:false},STWAVE_N=72,_actx=null;
+var WAVES={},SKIP={on:false},_actx=null;
 try{SKIP.on=localStorage.getItem('vn.stskip')==='1';}catch(e){}
+/* 播放倍速：全局状态，记录库与录音流的倍速按钮读写同一份，localStorage 记忆 */
+var RATE={vals:[1,1.25,1.5,2],i:0};
+try{
+  var si=RATE.vals.indexOf(parseFloat(localStorage.getItem('vn.rate')));
+  if(si>=0)RATE.i=si;
+}catch(e){}
+function cycleRate(){
+  RATE.i=(RATE.i+1)%RATE.vals.length;
+  try{localStorage.setItem('vn.rate',RATE.vals[RATE.i]);}catch(e){}
+  if(window._curAudio){
+    /* defaultPlaybackRate 也要设：WS 挂载会重设 src 触发 load，playbackRate 会回退到它 */
+    window._curAudio.defaultPlaybackRate=RATE.vals[RATE.i];
+    window._curAudio.playbackRate=RATE.vals[RATE.i];
+  }
+  /* 两处倍速按钮同步显示 */
+  ['stRate','rateBtn'].forEach(function(id){
+    var b=document.getElementById(id);
+    if(b)b.textContent=RATE.vals[RATE.i]+'×';
+  });
+  return RATE.vals[RATE.i];
+}
 function analyzeAudio(rec){
   var w=WAVES[rec.id];
   if(w)return w;
-  w=WAVES[rec.id]={pending:true,peaks:null,sil:[]};
+  w=WAVES[rec.id]={pending:true,sil:[]};
   w.promise=fetch(rec.audio_url).then(function(r){return r.arrayBuffer();}).then(function(buf){
     if(!_actx)_actx=new (window.AudioContext||window.webkitAudioContext)();
     return _actx.decodeAudioData(buf);
   }).then(function(ab){
-    var d=ab.getChannelData(0),n=d.length,per=Math.floor(n/STWAVE_N)||1,
-        peaks=[],mx=0,i,j;
-    for(i=0;i<STWAVE_N;i++){
-      var pk=0,off=i*per;
-      for(j=0;j<per;j+=16){var v=Math.abs(d[off+j]||0);if(v>pk)pk=v;}
-      peaks.push(pk);if(pk>mx)mx=pk;
-    }
-    if(mx>0)for(i=0;i<STWAVE_N;i++)peaks[i]=Math.max(0.06,peaks[i]/mx);
     /* 静音段：50ms 窗 RMS，阈值取自适应底线；连片 >=0.35s 记为静音 */
-    var win=Math.floor(ab.sampleRate*0.05)||1,sil=[],run=null,thr=0,
-        sams=[];
+    var d=ab.getChannelData(0),n=d.length,i,j,off,
+        win=Math.floor(ab.sampleRate*0.05)||1,sams=[];
     for(off=0;off<n;off+=win){
       var sum=0,cnt=0;
       for(j=off;j<Math.min(off+win,n);j+=8){sum+=d[j]*d[j];cnt++;}
       sams.push(Math.sqrt(sum/(cnt||1)));
     }
     var sorted=sams.slice().sort(function(a,b){return a-b;});
-    thr=Math.max(0.012,sorted[Math.floor(sorted.length*0.08)]*1.6);
-    var t=0;
+    var thr=Math.max(0.012,sorted[Math.floor(sorted.length*0.08)]*1.6),sil=[],run=null,t=0;
     for(i=0;i<sams.length;i++){
       var ts=(i*win)/ab.sampleRate;
       if(sams[i]<=thr){ if(!run)run={s:ts}; }
@@ -1431,10 +1433,9 @@ function analyzeAudio(rec){
       t=ts;
     }
     if(run&&t-run.s>=0.35)sil.push([run.s,t]);
-    w.peaks=peaks;w.sil=sil;w.pending=false;
+    w.sil=sil;w.pending=false;
     return w;
   }).catch(function(){
-    w.peaks=waveHeights(rec.id,STWAVE_N).map(function(p){return p/100;});
     w.sil=[];w.pending=false;
     return w;
   });
@@ -1451,6 +1452,51 @@ function skipSilence(rec,audio,force){
     if(t>=s[0]+(force?0:0.12)&&t<s[1]){audio.currentTime=s[1];return;}
   }
 }
+/* 在波形容器上铺静音压暗层（记录库与录音流共用） */
+function paintSilOverlays(box,sil,dur){
+  if(!box||!dur)return;
+  box.querySelectorAll('.silov').forEach(function(x){x.remove();});
+  (sil||[]).forEach(function(s){
+    if(s[0]>=dur)return;
+    var ov=document.createElement('div');ov.className='silov';
+    ov.style.left=(s[0]/dur*100)+'%';
+    ov.style.width=((Math.min(s[1],dur)-s[0])/dur*100)+'%';
+    box.appendChild(ov);
+  });
+}
+/* 静音层取自 analyzeAudio 缓存（未解析完就等 promise），时长用 WS 解码出的真实值 */
+function paintSilCached(rec,box,dur){
+  var w=WAVES[rec.id];
+  if(w&&!w.pending){paintSilOverlays(box,w.sil,dur);return;}
+  analyzeAudio(rec).promise.then(function(){
+    paintSilOverlays(box,WAVES[rec.id]?WAVES[rec.id].sil:[],dur);
+  });
+}
+/* 创建 WaveSurfer 精确波形（记录库播放器与录音流卡片共用样式与参数）。
+   注意 WS 拿到 url 会重设 media.src，打断进行中的 play()：
+   录音流在 ready 后才起播；记录库挂载时未在播放，无此问题。 */
+function createWave(box,a,url){
+  if(typeof WaveSurfer==='undefined')return null;
+  box.innerHTML='<div></div>'; /* WaveSurfer 会在容器上挂 shadow root，留一层壳保住静音层的位置 */
+  try{
+    return WaveSurfer.create({
+      container:box.firstChild, media:a, url:url,
+      height:44, normalize:true, cursorWidth:0, hideScrollbar:true,
+      waveColor:'#2b303b', progressColor:'#7b6cf6',
+    });
+  }catch(e){return null;}
+}
+/* 空格键：暂停/继续当前播放（两处播放器共用 window._curAudio 单实例）。
+   焦点在输入框/可编辑区时不拦截；暂停中波形保持显示，可拖动调进度。 */
+document.addEventListener('keydown',function(e){
+  if(e.code!=='Space')return;
+  var t=e.target;
+  if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable))return;
+  var a=window._curAudio;
+  if(!a)return;
+  e.preventDefault();
+  if(a.paused)a.play().catch(function(){});else a.pause();
+});
 
 /* ================= 录音流 =================
    平铺展示筛选结果的全部转写内容（3 行收起，点开看全文），播完一条自动接下一条，
@@ -1478,10 +1524,15 @@ document.getElementById('stSkip').onclick=function(){
     skipSilence(ST.list.filter(function(x){return x.id===ST.playingId;})[0],ST.audio,true);
   toast(SKIP.on?'已开启跳过静音（所有播放器生效）':'已关闭跳过静音');
 };
+document.getElementById('stRate').onclick=function(){
+  this.textContent=cycleRate()+'×';
+  toast('倍速 '+this.textContent+'（与记录库共用）');
+};
 try{
   if(localStorage.getItem('vn.stauto')==='1'){ST.auto=true;
     document.getElementById('stAuto').classList.add('on');}
   if(SKIP.on)document.getElementById('stSkip').classList.add('on');
+  document.getElementById('stRate').textContent=RATE.vals[RATE.i]+'×';
 }catch(e){}
 
 function loadStream(){
@@ -1543,36 +1594,26 @@ function renderStream(){
       '<div class="ft"><button class="op" data-more style="display:none">展开</button></div>';
     b.appendChild(el);
     wireStreamCard(el,r);
-    /* 占位波形先铺上（与峰值条同数量）：滚入视口由观察器触发解码后重绘，
-       已有缓存的重渲染卡片由 paintStreamWave 按 dataset.ph 直接换真波形 */
-    var wv=el.querySelector('[data-wave]');
-    if(wv){for(var i=0;i<STWAVE_N;i++){var bi=document.createElement('i');bi.style.height='15%';wv.appendChild(bi);}wv.dataset.ph='1';}
   });
-  observeStreamWaves();
+  /* 播放中的卡片被重渲染（loadStream/打标签等）：把已挂载的波形容器原样搬进新卡片，
+     不重建 WaveSurfer——重建会再次重设 audio.src，打断正在进行的播放 */
+  if(ST.playingId&&ST.audio&&STWS&&STWSBox){
+    var cardEl=document.querySelector('.sc[data-id="'+ST.playingId+'"]');
+    var nb=cardEl&&cardEl.querySelector('[data-wave]');
+    if(nb&&nb!==STWSBox)nb.replaceWith(STWSBox);
+  }
 }
-/* 滚入视口的卡片预解码波形（不等播放，方便直接点波形定位声音位置） */
-var _waveObs=null;
-function observeStreamWaves(){
-  if(!('IntersectionObserver' in window))return;
-  if(!_waveObs)_waveObs=new IntersectionObserver(function(es){
-    es.forEach(function(en){
-      if(!en.isIntersecting)return;
-      var card=en.target.closest('.sc');
-      var rec=ST.list.filter(function(x){return x.id===card.dataset.id;})[0];
-      if(rec&&rec.has_audio)streamWaveBars(rec,card);
-      _waveObs.unobserve(en.target);
-    });
-  },{root:document.getElementById('p-stream'),rootMargin:'200px'});
-  document.querySelectorAll('.sc [data-wave]').forEach(function(w){
-    var rid=w.closest('.sc').dataset.id,c=WAVES[rid];
-    if(c&&c.peaks)paintStreamWave(rid,c); /* 峰值已在缓存（重渲染场景）：不等观察器，直接画 */
-    else _waveObs.observe(w);
-  });
-}
-/* 卡片内交互：播放（全局单实例+ended 连播）、进度条 seek、重转写、标签、删除、展开 */
+/* 卡片内交互：播放/暂停（全局单实例+ended 连播，空格键同样生效）、重转写、标签、删除、展开 */
 function wireStreamCard(el,r){
   var pb=el.querySelector('[data-play]');
-  if(pb)pb.onclick=function(){ST.playingId===r.id?stopStreamAudio():playStreamCard(r.id);};
+  if(pb)pb.onclick=function(){
+    /* 播放中再点=暂停/继续（暂停时波形保持显示，可拖动调进度）；换卡直接切 */
+    if(ST.playingId===r.id&&ST.audio){
+      ST.audio.paused?ST.audio.play().catch(function(){toast('播放失败');}):ST.audio.pause();
+      return;
+    }
+    playStreamCard(r.id);
+  };
   el.querySelector('.tt').onclick=function(){openRecord(r.id);};
   el.querySelector('[data-meta]').onclick=function(){openMeta(r.id);};
   var rt=el.querySelector('[data-retr]');
@@ -1589,14 +1630,7 @@ function wireStreamCard(el,r){
     api('/records/'+r.id,{method:'DELETE'})
       .then(function(){if(ST.playingId===r.id)stopStreamAudio();toast('已删除');loadStream();loadStats();});
   };
-  var bar=el.querySelector('[data-wave]');
-  if(bar)bar.onclick=function(e){
-    if(ST.playingId!==r.id||!ST.audio)return;
-    var rect=bar.getBoundingClientRect();
-    ST.audio.currentTime=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width))*
-      (isFinite(ST.audio.duration)&&ST.audio.duration>0?ST.audio.duration:r.dur_ms/1000||0);
-    if(SKIP.on)skipSilence(r,ST.audio); /* seek 落进静音段也直接跳出去 */
-  };
+  /* 波形上的点击/拖拽 seek 由 WaveSurfer 自带交互完成（media 绑定的就是 ST.audio） */
   /* 溢出才显示展开钮；-webkit-box 的 scrollHeight 即全文高度。
      卡片已 append 才能测出高度，且不能放 rAF（页签隐藏时不触发）。 */
   var txt=el.querySelector('.txt'),more=el.querySelector('[data-more]');
@@ -1609,59 +1643,43 @@ function wireStreamCard(el,r){
     };
   }
 }
-/* 流卡片波形：占位条在 renderStream 就铺好，这里只负责触发解码与重绘；
-   解码失败退化为装饰波形（仍可 seek）。 */
-function streamWaveBars(rec,el){
-  var wave=el.querySelector('[data-wave]');
-  if(!wave||!wave.dataset.ph)return; /* 无占位条（无音频）或已是真波形 */
-  var w=analyzeAudio(rec);
-  if(w.peaks){paintStreamWave(rec.id,w);return;}
-  w.promise.then(function(){paintStreamWave(rec.id,w);});
+/* 流卡片波形：只在播放时挂载（media 绑定播放中的 Audio 实例），暂停中保持显示。
+   换卡/停止时销毁实例，容器显示与否由 .playing 类控制（.sc .wave 默认 display:none）。
+   注意 WS 拿到 url 会重设 media.src，打断进行中的 play()，所以起播要等它 ready。 */
+var STWS=null,STWSBox=null;
+function unmountStreamWave(){
+  if(STWS){try{STWS.destroy();}catch(e){}}
+  STWS=null;STWSBox=null;
 }
-function paintStreamWave(id,w){
-  var el=document.querySelector('.sc[data-id="'+id+'"]');
-  var wave=el&&el.querySelector('[data-wave]');
-  if(!wave)return;
-  var bars=wave.children;
-  /* 容器还是占位条（dataset.ph）或条数与峰值对不上（重渲染后的空/旧容器）就整体重绘。
-     drawn 标记不能挂在缓存条目上：缓存跨卡片重建存活，会让新容器永远等不到重绘。 */
-  if(w.peaks&&(wave.dataset.ph||bars.length!==w.peaks.length)){
-    wave.innerHTML='';delete wave.dataset.ph;
-    w.peaks.forEach(function(p){var b=document.createElement('i');
-      b.style.height=Math.round(p*100)+'%';wave.appendChild(b);});
-    bars=wave.children;
+function mountStreamWave(rec,a,auto){
+  unmountStreamWave();
+  var box=document.querySelector('.sc[data-id="'+rec.id+'"] [data-wave]');
+  STWS=box?createWave(box,a,rec.audio_url):null;
+  if(!STWS){
+    if(auto)a.play().catch(function(){toast('播放失败');});
+    return;
   }
-  if(!w.peaks)return;
-  var sil=w.sil||[],dur=0;
-  if(ST.playingId===id&&ST.audio&&isFinite(ST.audio.duration))dur=ST.audio.duration;
-  else{var rec=ST.list.filter(function(x){return x.id===id;})[0];if(rec)dur=rec.dur_ms/1000;}
-  for(var i=0;i<bars.length;i++){
-    var t0=i/bars.length*dur,t1=(i+1)/bars.length*dur,mid=(t0+t1)/2,isSil=false;
-    for(var k=0;k<sil.length;k++)if(mid>=sil[k][0]&&mid<sil[k][1]){isSil=true;break;}
-    bars[i].className=(ST.playingId===id&&i<paintStreamN?'past':'')+(isSil?' sil':'');
-  }
+  STWSBox=box;
+  var kick=function(){
+    paintSilCached(rec,box,STWS.getDuration());
+    if(auto&&ST.audio===a&&ST.playingId===rec.id&&a.paused&&!a.ended)
+      a.play().catch(function(){toast('播放失败');});
+  };
+  STWS.on('ready',kick);
+  STWS.on('error',kick); /* 波形解码失败只留空波形，播放本身不受影响 */
 }
-var paintStreamN=0;
 function paintStreamCard(){
   var el=document.querySelector('.sc[data-id="'+ST.playingId+'"]');
   if(!el||!ST.audio)return;
-  var d=isFinite(ST.audio.duration)&&ST.audio.duration>0?ST.audio.duration:0;
-  if(!d&&ST.audio.readyState===0){ /* duration 未就绪：先用记录时长画个大概 */
-    var rec=ST.list.filter(function(x){return x.id===ST.playingId;})[0];
-    d=rec?rec.dur_ms/1000:0;
-  }
-  var w=WAVES[ST.playingId];
-  if(w&&w.peaks&&d>0){
-    paintStreamN=Math.floor(Math.min(1,ST.audio.currentTime/d)*STWAVE_N);
-    paintStreamWave(ST.playingId,w);
-    if(!ST.audio.paused)skipSilence(ST.list.filter(function(x){return x.id===ST.playingId;})[0],ST.audio);
-  }
+  if(SKIP.on&&!ST.audio.paused)
+    skipSilence(ST.list.filter(function(x){return x.id===ST.playingId;})[0],ST.audio);
   var pb=el.querySelector('[data-play]');
   if(pb)pb.innerHTML=ST.audio.paused?SVG_PLAY:SVG_PAUSE;
 }
 function stopStreamAudio(){
   if(ST.audio){try{ST.audio.pause();}catch(e){}}
-  ST.audio=null;ST.playingId=null;paintStreamN=0;
+  ST.audio=null;ST.playingId=null;
+  unmountStreamWave();
   document.querySelectorAll('.sc.playing').forEach(function(x){x.classList.remove('playing')});
   /* pause 事件回调里 playingId 已清空、paintStreamCard 会提前返回，图标在这里统一归位 */
   document.querySelectorAll('.sc [data-play]').forEach(function(pb){pb.innerHTML=SVG_PLAY;});
@@ -1672,6 +1690,8 @@ function playStreamCard(id){
   if(window._curAudio){try{window._curAudio.pause();}catch(e){}}
   stopStreamAudio();
   var a=new Audio(rec.audio_url);a.preload='metadata';
+  a.defaultPlaybackRate=RATE.vals[RATE.i]; /* load 会把 playbackRate 回退到 default，两处都设 */
+  a.playbackRate=RATE.vals[RATE.i];
   ST.audio=a;ST.playingId=id;
   window._curAudio=a;
   document.querySelectorAll('.sc[data-id="'+id+'"]').forEach(function(x){x.classList.add('playing')});
@@ -1690,8 +1710,7 @@ function playStreamCard(id){
     toast('本页播完了');paintStreamCard();
   });
   paintStreamCard();
-  streamWaveBars(rec,document.querySelector('.sc[data-id="'+id+'"]'));
-  a.play().catch(function(){toast('播放失败');});
+  mountStreamWave(rec,a,true); /* 波形此刻才挂载，就绪后自动起播；非播放卡片不占空间也不解码 */
 }
 /* 流卡片打标签：复用详情页的 catmenu（已有标签 + 新建） */
 function pickStreamCat(el,r){
