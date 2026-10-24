@@ -55,7 +55,8 @@ class CloudOpenAI(Engine):
             if not out and data.get("text"):
                 out.append({"t_ms": 0, "e_ms": record["dur_ms"] or 0,
                             "text": data["text"].strip(), "spk": -1})
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, AttributeError, TypeError):
+            # AttributeError/TypeError：响应 JSON 不是 dict（如 list）时 data.get 直接炸
             out = [{"t_ms": 0, "e_ms": record["dur_ms"] or 0,
                     "text": resp.text.strip(), "spk": -1}]
         if on_progress:

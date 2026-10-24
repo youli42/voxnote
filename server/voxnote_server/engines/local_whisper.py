@@ -8,6 +8,13 @@ import threading
 from . import Engine, register
 
 
+def _cuda_missing(t) -> bool:
+    """Windows 上 pip 轮子常缺 CUDA 运行库（cublas/cudnn）：加载或首次 encode
+    时才炸。这份关键字表是 CPU 降级的判定依据，只此一份。"""
+    low = str(t).lower()
+    return "cublas" in low or "cudnn" in low or "cuda" in low
+
+
 class WhisperLocal(Engine):
     id = "whisper-local"
     name = "Whisper（本地）"
@@ -51,8 +58,7 @@ class WhisperLocal(Engine):
             try:
                 self._model = WhisperModel(name, device=device, compute_type=compute)
             except Exception as t:
-                low = str(t).lower()
-                if device == "cuda" and ("cublas" in low or "cudnn" in low or "cuda" in low):
+                if device == "cuda" and _cuda_missing(t):
                     self._cpu_fallback = True
                     device, compute = "cpu", "int8"
                     key = (name, device, compute)
@@ -68,8 +74,7 @@ class WhisperLocal(Engine):
         try:
             return self._run(audio_path, record, on_progress, on_partial)
         except Exception as t:
-            low = str(t).lower()
-            if not self._cpu_fallback and ("cublas" in low or "cudnn" in low or "cuda" in low):
+            if not self._cpu_fallback and _cuda_missing(t):
                 self._cpu_fallback = True
                 with self._lock:
                     self._model = None

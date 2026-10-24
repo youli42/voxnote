@@ -208,6 +208,7 @@ def start_server():
                 "-c", "4096", "-ngl", "99"]
         log = open(os.path.join(model_dir(), "llama-server.log"), "ab")
         _state["proc"] = subprocess.Popen(args, stdout=log, stderr=log, cwd=model_dir())
+        log.close()  # 子进程已继承句柄；父进程不关的话每次启停泄漏一个 fd
     for _ in range(240):  # 首次加载模型可能要几分钟
         if _healthy():
             return
