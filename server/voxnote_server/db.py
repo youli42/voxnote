@@ -136,6 +136,13 @@ def _migrate(c):
     cols = {r["name"] for r in c.execute("PRAGMA table_info(records)").fetchall()}
     if "error_detail" not in cols:
         c.execute("ALTER TABLE records ADD COLUMN error_detail TEXT NOT NULL DEFAULT ''")
+    # 同一记录只允许一个排队/进行中的任务（enqueue 的查-插间隙靠它兜底）。
+    # 老库可能已有多余任务（并发展撞出来的），先清掉再建索引，否则建索引失败。
+    c.execute("UPDATE jobs SET state='cancel', finished_at=? WHERE state IN ('queued','running')"
+              " AND id NOT IN (SELECT MAX(id) FROM jobs WHERE state IN ('queued','running')"
+              " GROUP BY record_id)", (now_ms(),))
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_active"
+              " ON jobs(record_id) WHERE state IN ('queued','running')")
 
 
 # ------------------------------------------------------------ 设置

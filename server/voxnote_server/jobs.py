@@ -56,6 +56,7 @@ def _backfill_errors():
 
 
 def enqueue(record_id: str, engine_id: str) -> int:
+    import sqlite3
     with db.conn() as c:
         # 同记录已有排队/进行中的任务：不重复入队（retry 连点、手动+自动叠加），
         # 只把引擎参数带上，返回已有 job。
@@ -70,9 +71,23 @@ def enqueue(record_id: str, engine_id: str) -> int:
             else:
                 c.execute("UPDATE records SET engine=? WHERE id=?", (engine_id, record_id))
             return row["id"]
-        cur = c.execute(
-            "INSERT INTO jobs(record_id, engine, state, created_at) VALUES(?,?,?,?)",
-            (record_id, engine_id, "queued", now_ms()))
+        try:
+            cur = c.execute(
+                "INSERT INTO jobs(record_id, engine, state, created_at) VALUES(?,?,?,?)",
+                (record_id, engine_id, "queued", now_ms()))
+        except sqlite3.IntegrityError:
+            # 两个请求并发穿过上面的 SELECT：idx_jobs_active 部分唯一索引兜底，
+            # 已有任务插入成功的那条算数，这里改成复用它。
+            row = c.execute(
+                "SELECT id, state FROM jobs WHERE record_id=? AND state IN ('queued','running')"
+                " ORDER BY id DESC LIMIT 1", (record_id,)).fetchone()
+            if row is None:
+                raise
+            c.execute("UPDATE jobs SET engine=? WHERE id=?", (engine_id, row["id"]))
+            if row["state"] == "queued":
+                c.execute("UPDATE records SET status='queued', engine=?, error='', error_detail=''"
+                          " WHERE id=?", (engine_id, record_id))
+            return row["id"]
         c.execute("UPDATE records SET status='queued', engine=?, error='', error_detail='' WHERE id=?",
                   (engine_id, record_id))
         return cur.lastrowid
