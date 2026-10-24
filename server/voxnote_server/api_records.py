@@ -91,6 +91,56 @@ def get_record(rid: str):
     return _rec_out(r, with_segs=True)
 
 
+@router.get("/records/{rid}/meta")
+def record_meta(rid: str):
+    """详细信息弹窗：文件落盘位置、音频元数据、转写统计与最近一次转写任务。"""
+    import time
+    from . import config
+    r = db.record_row(rid)
+    if r is None:
+        raise HTTPException(404, "记录不存在")
+    segs = db.conn().execute(
+        "SELECT COUNT(*) AS n, SUM(CASE WHEN e_text IS NOT NULL OR e_spk IS NOT NULL"
+        " THEN 1 ELSE 0 END) AS ed FROM segments WHERE record_id=?",
+        (rid,)).fetchone()
+    job = db.conn().execute(
+        "SELECT engine, state, progress, error, created_at, started_at, finished_at"
+        " FROM jobs WHERE record_id=? ORDER BY id DESC LIMIT 1", (rid,)).fetchone()
+
+    def stat(p):
+        if not p or not os.path.isfile(p):
+            return None
+        s = os.stat(p)
+        return {"size": s.st_size, "mtime": int(s.st_mtime * 1000),
+                "ctime": int(s.st_ctime * 1000)}
+
+    audio_file = r["audio_path"] if (r["audio_path"] and os.path.isfile(r["audio_path"])) else None
+    tdir = config.transcript_dir(rid)
+    tfiles = {}
+    for n in ("transcript.md", "segments.jsonl"):
+        p = os.path.join(tdir, n)
+        s = stat(p)
+        if s:
+            s["path"] = p
+            tfiles[n] = s
+    return {
+        "id": r["id"], "sid": r["sid"], "title": r["title"], "cat": r["cat"],
+        "mode": r["mode"], "src": r["src"], "status": r["status"],
+        "engine": r["engine"], "error": r["error"], "error_detail": r["error_detail"],
+        "dur_ms": r["dur_ms"], "bytes": r["bytes"],
+        "created_at": r["created_at"], "updated_at": r["updated_at"],
+        "audio_name": r["audio_name"],
+        "audio_path": r["audio_path"] or "",
+        "audio_url": "/api/v1/records/%s/audio" % rid,
+        "audio_file": stat(audio_file),
+        "transcript_dir": tdir,
+        "transcript_files": tfiles,
+        "segments": segs["n"], "edited": segs["ed"] or 0,
+        "last_job": dict(job) if job else None,
+        "server_now": int(time.time() * 1000),
+    }
+
+
 class RecordPatch(BaseModel):
     title: Optional[str] = None
     cat: Optional[str] = None
