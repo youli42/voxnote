@@ -2,7 +2,6 @@
 
 逐句修订只写 e_*（人工层），重转写只替换机器层 —— 两层互不覆盖。
 """
-import datetime
 import os
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
@@ -203,42 +202,8 @@ def segments_jsonl(rid: str):
 @router.post("/records/upload")
 async def console_upload(file: UploadFile = File(...), title: str = "", mode: str = ""):
     """控制台手动导入；登记逻辑与设备同步一致（src=upload）。"""
-    from .api_sync import AUDIO_EXTS, _stamp_ms
-    import re
+    from .api_sync import save_upload
     name = os.path.basename(file.filename or "")
-    ext = os.path.splitext(name)[1].lower()
-    if ext not in AUDIO_EXTS:
-        raise HTTPException(400, "不支持的音频格式：%s" % ext)
-    stamp_m = re.match(r"^(\d{8}_\d{6})", name)
-    stamp = stamp_m.group(1) if stamp_m else datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    rid = db.unique_record_id(stamp)
-
-    ym = datetime.datetime.fromtimestamp(_stamp_ms(stamp) / 1000.0).strftime("%Y.%m")
-    dest_dir = config.audio_dir(ym)
-    os.makedirs(dest_dir, exist_ok=True)
-    dest = os.path.join(dest_dir, rid + ext)
-    size = 0
-    with open(dest, "wb") as f:
-        while True:
-            chunk = await file.read(1 << 20)
-            if not chunk:
-                break
-            size += len(chunk)
-            f.write(chunk)
-    if size == 0:
-        try:
-            os.remove(dest)
-        except OSError:
-            pass
-        raise HTTPException(400, "空文件")
-
-    db.insert_record(
-        id=rid, title=title or os.path.splitext(name)[0], mode=mode or "", src="upload",
-        status="raw", created_at=_stamp_ms(stamp),
-        audio_path=dest, audio_name=name, bytes=size)
-    try:
-        from .jobs import enqueue_default
-        enqueue_default(rid)
-    except ImportError:
-        pass
-    return {"id": rid, "bytes": size}
+    rec = await save_upload(file, src="upload",
+                            title=title or os.path.splitext(name)[0], mode=mode)
+    return {"id": rec["id"], "bytes": rec["bytes"]}

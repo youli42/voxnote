@@ -46,7 +46,10 @@ def chat(req: ChatReq):
             continue
         seen.add(h["seg_id"])
         n = len(blocks) + 1
-        t = datetime.datetime.fromtimestamp(h["created_at"] / 1000).strftime("%m-%d %H:%M")
+        try:
+            t = datetime.datetime.fromtimestamp(h["created_at"] / 1000).strftime("%m-%d %H:%M")
+        except (OSError, OverflowError, ValueError):
+            t = ""  # 老库里可能有钳制前的极端时间戳，别让引用整段 500
         blocks.append("[S%d] %s《%s》%s" % (n, t, h["title"] or "未命名", h["text"]))
         cites.append({"ref": n, "record_id": h["record_id"], "seg_id": h["seg_id"],
                       "text": h["text"]})
