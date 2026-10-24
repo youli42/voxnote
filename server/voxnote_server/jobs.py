@@ -8,6 +8,7 @@ import time
 import traceback
 
 from . import db
+from .db import now_ms
 
 _stop = threading.Event()
 _thread = None
@@ -36,8 +37,9 @@ def _recover():
 
 
 def _backfill_errors():
-    """老库里已失败的记录 error 还是原始异常串：归类一遍（幂等，只处理没有 detail 的）。
-    已有 detail 的说明是新代码写的，不动。"""
+    """老库里已失败的记录 error 还是原始异常串：归类一遍（幂等，一次性）。
+    无论能否归类都把原文落进 error_detail——既是控制台展开的详情，
+    也标记"已处理过"，下次启动不再扫这批行。"""
     try:
         with db.conn() as c:
             rows = c.execute(
@@ -48,18 +50,29 @@ def _backfill_errors():
         if not r["error"]:
             continue
         friendly, raw = _classify_error(Exception(r["error"]))
-        if friendly:
-            with db.conn() as c:
-                c.execute("UPDATE records SET error=?, error_detail=? WHERE id=?",
-                          (friendly, raw, r["id"]))
+        with db.conn() as c:
+            c.execute("UPDATE records SET error=?, error_detail=? WHERE id=?",
+                      (friendly or r["error"], raw, r["id"]))
 
 
 def enqueue(record_id: str, engine_id: str) -> int:
-    now = int(time.time() * 1000)
     with db.conn() as c:
+        # 同记录已有排队/进行中的任务：不重复入队（retry 连点、手动+自动叠加），
+        # 只把引擎参数带上，返回已有 job。
+        row = c.execute(
+            "SELECT id, state FROM jobs WHERE record_id=? AND state IN ('queued','running')"
+            " ORDER BY id DESC LIMIT 1", (record_id,)).fetchone()
+        if row is not None:
+            c.execute("UPDATE jobs SET engine=? WHERE id=?", (engine_id, row["id"]))
+            if row["state"] == "queued":
+                c.execute("UPDATE records SET status='queued', engine=?, error='', error_detail=''"
+                          " WHERE id=?", (engine_id, record_id))
+            else:
+                c.execute("UPDATE records SET engine=? WHERE id=?", (engine_id, record_id))
+            return row["id"]
         cur = c.execute(
             "INSERT INTO jobs(record_id, engine, state, created_at) VALUES(?,?,?,?)",
-            (record_id, engine_id, "queued", now))
+            (record_id, engine_id, "queued", now_ms()))
         c.execute("UPDATE records SET status='queued', engine=?, error='', error_detail='' WHERE id=?",
                   (engine_id, record_id))
         return cur.lastrowid
@@ -81,7 +94,7 @@ def enqueue_default(record_id: str) -> int:
 def cancel(job_id: int) -> bool:
     with db.conn() as c:
         cur = c.execute("UPDATE jobs SET state='cancel', finished_at=? WHERE id=? AND state='queued'",
-                        (int(time.time() * 1000), job_id))
+                        (now_ms(), job_id))
         if cur.rowcount > 0:
             row = c.execute("SELECT record_id FROM jobs WHERE id=?", (job_id,)).fetchone()
             if row:
@@ -142,7 +155,7 @@ def _loop():
             # 任何阶段崩了都不能带死 worker：记失败，接着消费下一个
             traceback.print_exc()
             try:
-                _finish(job, "fail", "任务异常，见服务端日志", None, traceback.format_exc()[:2000])
+                _finish(job, "fail", "任务异常，见服务端日志", traceback.format_exc()[:2000])
             except Exception:
                 traceback.print_exc()
 
@@ -153,8 +166,10 @@ def _claim():
             "SELECT * FROM jobs WHERE state='queued' ORDER BY id LIMIT 1").fetchone()
         if row is None:
             return None
-        c.execute("UPDATE jobs SET state='running', started_at=? WHERE id=?",
-                  (int(time.time() * 1000), row["id"]))
+        cur = c.execute("UPDATE jobs SET state='running', started_at=? WHERE id=? AND state='queued'",
+                        (now_ms(), row["id"]))
+        if cur.rowcount == 0:
+            return None  # SELECT 与 UPDATE 之间恰好被取消：让它保持 cancel，本轮不领
         c.execute("UPDATE records SET status='asr' WHERE id=?", (row["record_id"],))
         return row
 
@@ -162,20 +177,19 @@ def _claim():
 def _run(job, engines):
     rid = job["record_id"]
     rec = db.record_row(rid)
-    now = lambda: int(time.time() * 1000)  # noqa: E731
-    if rec is None or not rec["audio_path"]:
-        _finish(job, "fail", "音频文件缺失", None)
+    if rec is None:
+        _finish(job, "fail", "记录不存在")
+        return
+    # 已有内容的重转写：新结果先攒在内存，成功后才整层替换——中途失败不清旧稿。
+    # 首次转写照旧边转边落库（本来就没有内容可丢）。
+    had_content = _has_content(rid)
+    if not rec["audio_path"]:
+        _fail(job, rid, had_content, "音频文件缺失")
         return
     e = engines.get(job["engine"])
     if e is None or not e.available():
-        _finish(job, "fail", "引擎不可用：%s" % job["engine"], None)
+        _fail(job, rid, had_content, "引擎不可用：%s" % job["engine"])
         return
-
-    # 已有内容的重转写：新结果先攒在内存，成功后才整层替换——中途失败不清旧稿。
-    # 首次转写照旧边转边落库（本来就没有内容可丢）。
-    with db.conn() as c:
-        had_content = c.execute(
-            "SELECT COUNT(*) FROM segments WHERE record_id=?", (rid,)).fetchone()[0] > 0
 
     last = [0.0]
 
@@ -198,10 +212,10 @@ def _run(job, engines):
     def on_partial(segs_partial):
         if had_content or not segs_partial:
             return
-        now = time.time()
-        if now - last_flush[0] < 3.0:
+        t_now = time.time()
+        if t_now - last_flush[0] < 3.0:
             return
-        last_flush[0] = now
+        last_flush[0] = t_now
         try:
             db.replace_machine_segments(rid, segs_partial)
             db.update_record(rid, status="asr",
@@ -215,17 +229,7 @@ def _run(job, engines):
     except Exception as t:
         traceback.print_exc()
         friendly, raw = _classify_error(t)
-        if had_content:
-            # 旧稿还在：不把记录打成 fail（否则详情页只剩失败卡片，像被清空了一样）。
-            # 保留 done 状态与全部内容，失败原因挂在记录元信息上，任务页仍可重试。
-            db.update_record(rid, status="done",
-                             error="重转写失败：" + (friendly or raw[:280]),
-                             error_detail=raw[:2000])
-            with db.conn() as c:
-                c.execute("UPDATE jobs SET state='fail', error=?, finished_at=?, progress=0 WHERE id=?",
-                          (friendly or ("重转写失败：" + raw[:280]), now(), job["id"]))
-        else:
-            _finish(job, "fail", friendly or ("转写失败：" + raw[:280]), None, raw[:2000])
+        _fail(job, rid, had_content, friendly or ("转写失败：" + raw[:280]), raw[:2000])
         return
 
     db.replace_machine_segments(rid, segs)
@@ -233,14 +237,33 @@ def _run(job, engines):
     db.update_record(rid, status="done", engine=e.id, dur_ms=dur or rec["dur_ms"],
                      error="", error_detail="")
     db.export_mirror(rid)
-    _finish(job, "done", "", len(segs))
+    _finish(job, "done", "")
 
 
-def _finish(job, state, error, n_segs, detail=""):
+def _has_content(rid) -> bool:
+    with db.conn() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM segments WHERE record_id=?", (rid,)).fetchone()[0] > 0
+
+
+def _fail(job, rid, had_content, msg, raw=""):
+    """任务失败落账，统一收尾。已有旧稿的重转写失败不打断旧稿：记录保持 done、
+    失败原因挂元信息（详情页照常显示逐句稿 + 错误 chip），任务页仍可重试；
+    只有首次转写（没有旧稿可保）才把记录置 fail。"""
+    if had_content:
+        full = ("重转写失败：" + msg)[:300]
+        db.update_record(rid, status="done", error=full, error_detail=raw[:2000])
+        _finish(job, "fail", full, raw[:2000], keep_record=True)
+    else:
+        _finish(job, "fail", msg, raw[:2000])
+
+
+def _finish(job, state, error, detail="", keep_record=False):
     with db.conn() as c:
         c.execute("UPDATE jobs SET state=?, error=?, finished_at=?, progress=? WHERE id=?",
-                  (state, error, int(time.time() * 1000),
+                  (state, error, now_ms(),
                    1.0 if state == "done" else 0.0, job["id"]))
-        if state == "fail":
+        if state == "fail" and not keep_record:
             c.execute("UPDATE records SET status='fail', error=?, error_detail=? WHERE id=?",
                       (error, detail, job["record_id"]))
+    _last_progress.pop(job["id"], None)
