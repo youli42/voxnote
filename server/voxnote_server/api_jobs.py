@@ -13,15 +13,17 @@ def list_engines():
 
 
 @router.get("/jobs")
-def list_jobs(state: str = "", limit: int = 50):
-    sql = "SELECT j.*, r.title FROM jobs j JOIN records r ON r.id=j.record_id"
-    args = []
+def list_jobs(state: str = "", limit: int = 50, offset: int = 0):
+    where, args = [], []
     if state:
-        sql += " WHERE j.state=?"
+        where.append("j.state=?")
         args.append(state)
-    sql += " ORDER BY j.id DESC LIMIT ?"
-    args.append(min(limit, 200))
-    rows = db.conn().execute(sql, args).fetchall()
+    cond = (" WHERE " + " AND ".join(where)) if where else ""
+    c = db.conn()
+    total = c.execute("SELECT COUNT(*) FROM jobs j" + cond, args).fetchone()[0]
+    sql = ("SELECT j.*, r.title FROM jobs j JOIN records r ON r.id=j.record_id"
+           + cond + " ORDER BY j.id DESC LIMIT ? OFFSET ?")
+    rows = c.execute(sql, args + [min(limit, 200), max(0, offset)]).fetchall()
     out = []
     for r in rows:
         out.append({
@@ -30,7 +32,7 @@ def list_jobs(state: str = "", limit: int = 50):
             "error": r["error"], "created_at": r["created_at"],
             "started_at": r["started_at"], "finished_at": r["finished_at"],
         })
-    return {"jobs": out}
+    return {"jobs": out, "total": total}
 
 
 @router.post("/jobs/{job_id}/retry")

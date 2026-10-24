@@ -32,7 +32,8 @@ def _rec_out(r, with_segs=False):
 
 
 @router.get("/records")
-def list_records(status: str = "", q: str = "", limit: int = 200):
+def list_records(status: str = "", q: str = "", cat: str = "",
+                 limit: int = 50, offset: int = 0):
     sql = "SELECT * FROM records"
     where, args = [], []
     if status == "edited":
@@ -40,6 +41,9 @@ def list_records(status: str = "", q: str = "", limit: int = 200):
     elif status:
         where.append("status=?")
         args.append(status)
+    if cat:
+        where.append("cat=?")
+        args.append(cat)
     if q:
         # 标题/全文（FTS 句级召回出 record_id 集合）
         hits = db.search_sentences(q, limit=50)
@@ -50,10 +54,24 @@ def list_records(status: str = "", q: str = "", limit: int = 200):
         args += ids
     if where:
         sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY created_at DESC LIMIT ?"
-    args.append(min(limit, 500))
-    rows = db.conn().execute(sql, args).fetchall()
-    return {"records": [_rec_out(r) for r in rows]}
+
+    c = db.conn()
+    cond = (" WHERE " + " AND ".join(where)) if where else ""
+    total = c.execute("SELECT COUNT(*) FROM records" + cond, args).fetchone()[0]
+
+    sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    rows = c.execute(sql, args + [min(limit, 500), max(0, offset)]).fetchall()
+
+    previews = db.first_texts([r["id"] for r in rows])
+    out = []
+    for r in rows:
+        o = _rec_out(r)
+        pv = (previews.get(r["id"]) or "").strip()
+        if pv:
+            o["preview"] = pv[:80]
+        out.append(o)
+    return {"records": out, "total": total,
+            "cats": [dict(x) for x in db.distinct_cats()]}
 
 
 @router.get("/records/{rid}")

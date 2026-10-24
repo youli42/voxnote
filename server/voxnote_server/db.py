@@ -250,6 +250,27 @@ def _fts_upsert(c, seg_id, record_id, text):
               (text or "", seg_id, record_id))
 
 
+def first_texts(record_ids):
+    """列表预览：每场第一条生效句，返回 {record_id: text}（无转写的记录不在结果里）。"""
+    if not record_ids:
+        return {}
+    qs = ",".join("?" * len(record_ids))
+    rows = conn().execute(
+        "SELECT record_id, text FROM ("
+        " SELECT record_id, COALESCE(e_text, m_text) AS text,"
+        " ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY t_ms, idx) AS rn"
+        " FROM segments WHERE record_id IN (%s))"
+        " WHERE rn = 1" % qs, tuple(record_ids)).fetchall()
+    return {r["record_id"]: r["text"] for r in rows}
+
+
+def distinct_cats():
+    """库内出现过的自定义标签（安卓端可自建标签），带计数。"""
+    return conn().execute(
+        "SELECT cat, COUNT(*) AS n FROM records WHERE cat IS NOT NULL AND cat != ''"
+        " GROUP BY cat ORDER BY n DESC, cat").fetchall()
+
+
 def search_sentences(query: str, limit=12, record_ids=None):
     """句级召回（FTS5，前缀友好的 OR 查询），供 AI 引用与全局搜索。"""
     terms = [t for t in _tokenize(query) if len(t) >= 1]
