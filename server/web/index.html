@@ -1934,32 +1934,50 @@ function sendChat(){
   });
 }
 
-/* ================= 设置 ================= */
-var setForm={};
+/* ================= 设置（分页） ================= */
+var setForm={},setS=null,setSt=null,setTab='engine';
+var SET_TABS=[['engine','转写'],['ai','AI 与云端'],['models','本地模型'],['sys','存储与安全']];
 function loadSettings(){
   Promise.all([api('/settings'),api('/storage')]).then(function(rs){
-    var s=rs[0],st=rs[1];
-    setForm=Object.assign({},s);
-    document.getElementById('setSub').textContent='数据目录 '+st.data_dir+' · 音频 '+fmtBytes(st.audio_bytes);
-    var g=document.getElementById('setGrid');
-    function row(lb,hint,rt){return '<div class="srow"><div><div class="lb">'+lb+'</div>'+(hint?'<div class="hint">'+hint+'</div>':'')+'</div><div class="rt">'+rt+'</div></div>';}
-    g.innerHTML=
-      '<div class="card"><h3>转写</h3>'+
-      row('同步/导入后自动转写','', '<span class="toggle'+(s.auto_transcribe?' on':'')+'" data-k="auto_transcribe"></span>')+
-      row('默认引擎','', '<select data-k="default_engine">'+engines.map(function(e){return '<option value="'+e.id+'"'+(e.id===s.default_engine?' selected':'')+'>'+esc(e.name)+(e.available?'':'（不可用）')+'</option>';}).join('')+'</select>')+
-      row('Whisper 模型','tiny / base / small / medium / large-v3','<input type="text" data-k="whisper_model" value="'+esc(s.whisper_model)+'" style="width:120px">')+
-      row('设备','auto / cpu / cuda','<select data-k="whisper_device">'+['auto','cpu','cuda'].map(function(x){return '<option'+(x===s.whisper_device?' selected':'')+'>'+x+'</option>';}).join('')+'</select>')+
-      row('语言','auto = 自动检测（短音频易判错）','<select data-k="whisper_language">'+['zh','auto','en','ja'].map(function(x){return '<option'+(x===s.whisper_language?' selected':'')+'>'+x+'</option>';}).join('')+'</select>')+
-      '</div>'+
-      '<div class="card"><h3>AI</h3>'+
-      row('API 地址','OpenAI 兼容 /chat/completions','<input type="text" data-k="ai_base" value="'+esc(s.ai_base)+'" style="width:230px">')+
+    setS=rs[0];setSt=rs[1];
+    setForm=Object.assign({},setS);
+    document.getElementById('setSub').textContent='数据目录 '+setSt.data_dir+' · 音频 '+fmtBytes(setSt.audio_bytes);
+    renderSet();
+  }).catch(function(e){toast(e.message)});
+}
+/* 输入值一律取 setForm（初始 = 服务器值）：切页不丢未保存的编辑 */
+function renderSet(){
+  var s=setS,st=setSt;
+  if(!s)return;
+  var g=document.getElementById('setGrid');
+  function row(lb,hint,rt){return '<div class="srow"><div><div class="lb">'+lb+'</div>'+(hint?'<div class="hint">'+hint+'</div>':'')+'</div><div class="rt">'+rt+'</div></div>';}
+  var tabs='<div class="tabs" style="grid-column:1/-1;margin-bottom:2px">'+SET_TABS.map(function(t){
+    return '<button class="tab'+(setTab===t[0]?' on':'')+'" data-st="'+t[0]+'">'+t[1]+'</button>';}).join('')+'</div>';
+  var b='';
+  if(setTab==='engine'){
+    b='<div class="card"><h3>转写</h3>'+
+      row('同步/导入后自动转写','', '<span class="toggle'+(setForm.auto_transcribe?' on':'')+'" data-k="auto_transcribe"></span>')+
+      row('默认引擎','', '<select data-k="default_engine">'+engines.map(function(e){return '<option value="'+e.id+'"'+(e.id===setForm.default_engine?' selected':'')+'>'+esc(e.name)+(e.available?'':'（不可用）')+'</option>';}).join('')+'</select>')+
+      row('Whisper 模型','tiny / base / small / medium / large-v3 · 本地模型页可安装/卸载','<input type="text" data-k="whisper_model" value="'+esc(setForm.whisper_model)+'" style="width:120px">')+
+      row('设备','auto / cpu / cuda','<select data-k="whisper_device">'+['auto','cpu','cuda'].map(function(x){return '<option'+(x===setForm.whisper_device?' selected':'')+'>'+x+'</option>';}).join('')+'</select>')+
+      row('语言','auto = 自动检测（短音频易判错）','<select data-k="whisper_language">'+['zh','auto','en','ja'].map(function(x){return '<option'+(x===setForm.whisper_language?' selected':'')+'>'+x+'</option>';}).join('')+'</select>')+
+      '</div>';
+  } else if(setTab==='ai'){
+    b='<div class="card"><h3>AI</h3>'+
+      row('API 地址','OpenAI 兼容 /chat/completions','<input type="text" data-k="ai_base" value="'+esc(setForm.ai_base)+'" style="width:230px">')+
       row('API Key',s.ai_key_set?'已配置（留空不更改）':'未配置','<input type="password" data-k="ai_key" placeholder="'+(s.ai_key_set?'••••••••••••':'sk-…')+'" style="width:190px">')+
-      row('模型','','<input type="text" data-k="ai_model" value="'+esc(s.ai_model)+'" style="width:150px">')+
+      row('模型','','<input type="text" data-k="ai_model" value="'+esc(setForm.ai_model)+'" style="width:150px">')+
       '</div>'+
       '<div class="card"><h3>云端转写（可选）</h3>'+
-      row('API 地址','OpenAI 兼容 /audio/transcriptions'+(s.cloud_asr_ready?'':' · 未配置时该引擎不可用'),'<input type="text" data-k="cloud_asr_base" value="'+esc(s.cloud_asr_base)+'" style="width:230px">')+
+      row('API 地址','OpenAI 兼容 /audio/transcriptions'+(s.cloud_asr_ready?'':' · 未配置时该引擎不可用'),'<input type="text" data-k="cloud_asr_base" value="'+esc(setForm.cloud_asr_base)+'" style="width:230px">')+
       row('API Key',s.cloud_asr_key_set?'已配置（留空不更改）':'未配置','<input type="password" data-k="cloud_asr_key" placeholder="'+(s.cloud_asr_key_set?'••••••••••••':'sk-…')+'" style="width:190px">')+
-      row('模型','如 whisper-large-v3 / SenseVoiceLarge','<input type="text" data-k="cloud_asr_model" value="'+esc(s.cloud_asr_model)+'" style="width:190px">')+
+      row('模型','如 whisper-large-v3 / SenseVoiceLarge','<input type="text" data-k="cloud_asr_model" value="'+esc(setForm.cloud_asr_model)+'" style="width:190px">')+
+      '</div>';
+  } else if(setTab==='models'){
+    b='<div class="card"><h3>Whisper 模型（faster-whisper）</h3>'+
+      '<div id="whisperList"><div class="hint">加载中…</div></div>'+
+      '<div class="hint" id="whDlTxt" style="font-size:10.5px;color:var(--dim);margin:6px 0 2px"></div>'+
+      '<div class="hintblk">缓存位置 <span class="tok" id="whCache">–</span>。卸载当前使用的模型后，下一次转写会自动重新下载；下载默认走 hf-mirror 镜像。</div>'+
       '</div>'+
       '<div class="card"><h3>本地大模型 · Qwen3-ASR-1.7B</h3>'+
       row('模型文件','q4_k 1.31 GB（2C/6G 推荐）· q5_k 1.82 GB','<span id="llamaStat" style="font-size:11px;color:var(--dim)">–</span>')+
@@ -1973,15 +1991,17 @@ function loadSettings(){
         '<button class="btn sm" id="btnDlStop" style="display:none">取消</button></span>')+
       '<div class="pbar" id="llamaDlBar" style="width:100%;margin:8px 0 2px;display:none"><i></i></div>'+
       '<div class="hint" id="llamaDlTxt" style="font-size:10.5px;color:var(--dim);margin-bottom:6px"></div>'+
-      row('llama-server 路径','llama.cpp 发布包里的 llama-server(.exe) 完整路径','<input type="text" data-k="llama_server_path" value="'+esc(s.llama_server_path||'')+'" style="width:230px">')+
-      row('服务端口','','<input type="text" data-k="llama_port" value="'+esc(s.llama_port||'8849')+'" style="width:80px">')+
+      row('llama-server 路径','llama.cpp 发布包里的 llama-server(.exe) 完整路径','<input type="text" data-k="llama_server_path" value="'+esc(setForm.llama_server_path||'')+'" style="width:230px">')+
+      row('服务端口','','<input type="text" data-k="llama_port" value="'+esc(setForm.llama_port||'8849')+'" style="width:80px">')+
       row('推理服务','转写时自动启动，也可手动预热','<span class="dlrow"><span id="llamaSrvHint" style="font-size:11px;color:var(--dim)">–</span>'+
         '<button class="btn sm" id="btnSrv">启动</button></span>')+
-      '<div class="hintblk">模型下载走 <a href="https://hf-mirror.com" target="_blank">hf-mirror.com</a> 镜像；'+
-      '模型与音频编码器（mmproj）存到 <span class="tok">data/models/qwen3-asr/</span>。Qwen3-ASR 不输出时间戳，转写稿为整段一句。'+
-      'llama.cpp 发布包见 <a href="https://github.com/ggml-org/llama.cpp/releases" target="_blank">github.com/ggml-org/llama.cpp/releases</a>。</div>'+
-      '</div>'+
-      '<div class="card"><h3>存储位置</h3>'+
+      '<div id="ggufList" style="margin-top:4px"></div>'+
+      '<div class="hintblk">模型与音频编码器（mmproj）存到 <span class="tok" id="ggufDir">–</span>，可逐个删除释放空间。'+
+      'Qwen3-ASR 不输出时间戳，转写稿为整段一句。llama.cpp 发布包见 '+
+      '<a href="https://github.com/ggml-org/llama.cpp/releases" target="_blank">github.com/ggml-org/llama.cpp/releases</a>。</div>'+
+      '</div>';
+  } else {
+    b='<div class="card"><h3>存储位置</h3>'+
       row('数据目录','启动参数/环境变量决定，改路径需改启动配置','<span class="tok">'+esc(st.data_dir)+'</span>')+
       row('音频目录','相对路径基于数据目录；留空 = 默认 '+esc(st.data_dir)+'\\audio（新上传即时生效）','<input type="text" id="setAudioDir" placeholder="'+esc(st.audio_dir)+'" value="'+esc(st.audio_dir_set||'')+'" style="width:260px">')+
       row('数据库文件','改后需手动搬 voxnote.db 到新位置并重启服务；留空 = 默认 '+esc(st.db_path),'<input type="text" id="setDbPath" placeholder="'+esc(st.db_path)+'" value="'+esc(st.db_path_set||'')+'" style="width:260px">')+
@@ -1992,12 +2012,18 @@ function loadSettings(){
       row('配对令牌','App 端「设置 → 服务器」中填入','<span class="tok">'+esc(s.sync_token)+'</span><button class="btn sm" id="btnCopyTok">复制</button>')+
       row('重置令牌','旧令牌立即失效，设备需更新','<button class="btn sm" id="btnResetTok">重置</button>')+
       '</div>';
-
-    g.querySelectorAll('[data-k]').forEach(function(el){
-      var k=el.dataset.k;
-      if(el.classList.contains('toggle'))el.onclick=function(){el.classList.toggle('on');setForm[k]=el.classList.contains('on');};
-      else el.addEventListener('change',function(){setForm[k]=el.value;});
-    });
+  }
+  g.innerHTML=tabs+b;
+  g.querySelectorAll('[data-st]').forEach(function(el){
+    el.onclick=function(){setTab=el.dataset.st;renderSet();};
+  });
+  g.querySelectorAll('[data-k]').forEach(function(el){
+    var k=el.dataset.k;
+    if(el.classList.contains('toggle'))el.onclick=function(){el.classList.toggle('on');setForm[k]=el.classList.contains('on');};
+    else el.addEventListener('change',function(){setForm[k]=el.value;});
+  });
+  if(setTab==='models'){ wireLlama();loadModel();loadWhisperModels(); }
+  if(setTab==='sys'){
     document.getElementById('btnCopyTok').onclick=function(){
       navigator.clipboard.writeText(s.sync_token).then(function(){toast('令牌已复制');});
     };
@@ -2012,9 +2038,7 @@ function loadSettings(){
       }}).then(function(r){toast(r.note||'已保存');loadSettings();})
         .catch(function(e){toast(e.message);});
     };
-    wireLlama();
-    loadModel();
-  }).catch(function(e){toast(e.message)});
+  }
 }
 
 /* ================= 本地大模型（Qwen3-ASR · llama.cpp） ================= */
@@ -2088,7 +2112,82 @@ function loadModel(){
     if(srv.healthy){sb.textContent='停止';sb.dataset.stop='1';sh.innerHTML='<span style="color:var(--ok)">运行中</span> · 端口 '+srv.port;}
     else if(srv.running){sb.textContent='停止';sb.dataset.stop='1';sh.innerHTML='进程存在 · 端口 '+srv.port+'（模型加载中）';}
     else{sb.textContent='启动';delete sb.dataset.stop;sh.innerHTML='未运行';}
+    /* GGUF 文件清单：逐个显示位置与大小，可卸载 */
+    var gf=document.getElementById('ggufList');
+    if(gf){
+      var gd=document.getElementById('ggufDir');if(gd)gd.textContent=mb.dir;
+      var gh='';
+      (m.files||[]).forEach(function(f){
+        gh+='<div class="srow"><div><div class="lb">'+esc(f.name)+'</div>'+
+          '<div class="hint">'+fmtBytes(f.bytes)+'</div></div>'+
+          '<div class="rt"><button class="btn sm danger" data-ggdel="'+esc(f.name)+'">删除</button></div></div>';
+      });
+      gf.innerHTML=gh||'<div class="hint" style="margin:4px 0">模型目录为空（未下载）</div>';
+      gf.querySelectorAll('[data-ggdel]').forEach(function(x){
+        x.onclick=function(){
+          if(!confirm('删除 '+x.dataset.ggdel+'？文件不可恢复。'))return;
+          api('/models/asr/file',{method:'DELETE',body:{name:x.dataset.ggdel}})
+            .then(function(){toast('已删除');loadModel();})
+            .catch(function(e){toast(e.message);});
+        };
+      });
+    }
+    if(m.download.state==='downloading')scheduleModelPoll();
   }).catch(function(){});
+}
+/* Whisper 模型管理：列表/安装/卸载（快照缓存），下载中每 2 秒刷新状态 */
+function loadWhisperModels(){
+  api('/models/whisper').then(function(d){
+    var box=document.getElementById('whisperList');if(!box)return;
+    document.getElementById('whCache').textContent=d.cache;
+    var dl=d.download,dt=document.getElementById('whDlTxt');
+    if(dl.state==='downloading')dt.textContent='正在下载 '+dl.name+' …（视网络可能需要几分钟，可离开本页）';
+    else dt.textContent=dl.state==='fail'?('下载失败：'+dl.error):(dl.state==='done'?'下载完成':'');
+    var h='';
+    d.models.forEach(function(m){
+      var act=d.active===m.name;
+      var btns=m.installed
+        ?'<button class="btn sm" data-whuse="'+esc(m.name)+'">使用</button>'+
+         '<button class="btn sm danger" data-whdel="'+esc(m.name)+'">卸载</button>'
+        :'<button class="btn sm accent" data-whdl="'+esc(m.name)+'">下载</button>';
+      h+='<div class="srow"><div><div class="lb">'+esc(m.name)+(act?' <span style="color:var(--ok)">· 当前使用</span>':'')+'</div>'+
+        '<div class="hint">'+(m.installed?('已下载 · '+fmtBytes(m.bytes)):(m.size_hint?'未下载 · '+esc(m.size_hint):'未下载'))+'</div></div>'+
+        '<div class="rt">'+btns+'</div></div>';
+    });
+    box.innerHTML=h||'<div class="hint">缓存目录为空</div>';
+    box.querySelectorAll('[data-whuse]').forEach(function(x){
+      x.onclick=function(){
+        setForm.whisper_model=x.dataset.whuse;
+        var inp=document.querySelector('[data-k="whisper_model"]');if(inp)inp.value=x.dataset.whuse;
+        toast('转写将使用 '+x.dataset.whuse+'（保存设置后生效）');
+        loadWhisperModels();
+      };
+    });
+    box.querySelectorAll('[data-whdl]').forEach(function(x){
+      x.onclick=function(){
+        api('/models/whisper/download',{method:'POST',body:{name:x.dataset.whdl}})
+          .then(function(r){toast(r.note||'开始下载（走 hf-mirror 镜像）');loadWhisperModels();})
+          .catch(function(e){toast(e.message);});
+      };
+    });
+    box.querySelectorAll('[data-whdel]').forEach(function(x){
+      x.onclick=function(){
+        if(!confirm('卸载 '+x.dataset.whdel+'？将删除缓存目录，不可恢复。'))return;
+        api('/models/whisper/'+x.dataset.whdel,{method:'DELETE'})
+          .then(function(){toast('已卸载');loadWhisperModels();})
+          .catch(function(e){toast(e.message);});
+      };
+    });
+    if(dl.state==='downloading')scheduleModelPoll();
+  }).catch(function(){});
+}
+var modelPoll=null;
+function scheduleModelPoll(){
+  clearTimeout(modelPoll);
+  modelPoll=setTimeout(function(){
+    if(cur!=='set'||setTab!=='models')return;
+    loadWhisperModels();loadModel();
+  },2000);
 }
 document.getElementById('btnSave').onclick=function(){
   var p={};
