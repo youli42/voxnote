@@ -45,6 +45,7 @@ class UploadMeta(BaseModel):
     cat: str = ""
     mode: str = ""             # meeting / memo / ...
     sid: int = 0               # 厂商会话号（可无）
+    device: str = ""           # 上传设备名（控制台可当标签看）
     recorded_at: int = 0       # 毫秒时间戳（缺省 = stamp / 当前）
     dur_ms: int = 0            # 已知时长（可无，转写后覆盖）
 
@@ -57,13 +58,13 @@ async def upload(meta: str = Form(default=""), file: UploadFile = File(...), _: 
     except Exception:
         raise HTTPException(400, "meta 不是合法 JSON")
     rec = await save_upload(file, src="app", stamp=m.stamp, title=m.title, cat=m.cat,
-                            mode=m.mode, sid=m.sid,
+                            mode=m.mode, sid=m.sid, device=m.device,
                             recorded_at=m.recorded_at, dur_ms=m.dur_ms)
     return {"id": rec["id"], "bytes": rec["bytes"], "status": rec["status"]}
 
 
 async def save_upload(file: UploadFile, *, src: str, stamp: str = "", title: str = "",
-                      cat: str = "", mode: str = "", sid: int = 0,
+                      cat: str = "", mode: str = "", sid: int = 0, device: str = "",
                       recorded_at: int = 0, dur_ms: int = 0):
     """上传音频落盘 + 登记 + 自动入队（设备同步与控制台导入共用）。
 
@@ -109,7 +110,7 @@ async def save_upload(file: UploadFile, *, src: str, stamp: str = "", title: str
             try:
                 rec = db.insert_record(
                     id=rid, sid=sid or 0, title=title or "", cat=cat or None, mode=mode or "",
-                    src=src, dur_ms=dur_ms or 0, status="raw", created_at=ts,
+                    src=src, device=device or "", dur_ms=dur_ms or 0, status="raw", created_at=ts,
                     audio_path=os.path.join(dest_dir, rid + ext), audio_name=name, bytes=size)
             except sqlite3.IntegrityError:
                 continue  # 并发先插了同 id：换后缀重来
@@ -152,7 +153,8 @@ def _stamp_ms(stamp: str) -> int:
 @router.get("/records")
 def list_records(since: int = 0, _: None = Depends(auth)):
     rows = db.conn().execute(
-        "SELECT id, title, cat, mode, dur_ms, status, engine, updated_at, bytes"
+        "SELECT id, title, cat, mode, dur_ms, status, engine, device, src, bytes,"
+        " audio_name, updated_at"
         " FROM records WHERE updated_at > ? ORDER BY updated_at, id LIMIT 500", (since,)).fetchall()
     return {"records": [dict(r) for r in rows], "server_time": db.now_ms()}
 

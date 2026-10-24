@@ -19,7 +19,7 @@ def _rec_out(r, with_segs=False):
         "id": r["id"], "sid": r["sid"], "title": r["title"], "cat": r["cat"],
         "mode": r["mode"], "dur_ms": r["dur_ms"], "status": r["status"],
         "engine": r["engine"], "error": r["error"], "error_detail": r["error_detail"],
-        "src": r["src"],
+        "src": r["src"], "device": r["device"],
         "bytes": r["bytes"], "created_at": r["created_at"], "updated_at": r["updated_at"],
         "has_audio": bool(r["audio_path"] and os.path.isfile(r["audio_path"])),
         "audio_url": "/api/v1/records/%s/audio" % r["id"],
@@ -140,7 +140,7 @@ def record_meta(rid: str):
             tfiles[n] = s
     return {
         "id": r["id"], "sid": r["sid"], "title": r["title"], "cat": r["cat"],
-        "mode": r["mode"], "src": r["src"], "status": r["status"],
+        "mode": r["mode"], "src": r["src"], "device": r["device"], "status": r["status"],
         "engine": r["engine"], "error": r["error"], "error_detail": r["error_detail"],
         "dur_ms": r["dur_ms"], "bytes": r["bytes"],
         "created_at": r["created_at"], "updated_at": r["updated_at"],
@@ -301,6 +301,6 @@ async def console_upload(file: UploadFile = File(...), title: str = "", mode: st
     """控制台手动导入；登记逻辑与设备同步一致（src=upload）。"""
     from .api_sync import save_upload
     name = os.path.basename(file.filename or "")
-    rec = await save_upload(file, src="upload",
+    rec = await save_upload(file, src="upload", device="web",
                             title=title or os.path.splitext(name)[0], mode=mode)
     return {"id": rec["id"], "bytes": rec["bytes"]}

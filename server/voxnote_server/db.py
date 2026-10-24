@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS records(
   cat TEXT,                        -- 分类 id（NULL=未分类）
   mode TEXT NOT NULL DEFAULT '',   -- meeting / memo / ...
   src TEXT NOT NULL DEFAULT 'app', -- 来源标记：app / upload / import
+  device TEXT NOT NULL DEFAULT '', -- 上传设备名（App 端可自设，控制台导入 = web）
   dur_ms INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'raw',  -- raw|queued|asr|done|fail
   engine TEXT NOT NULL DEFAULT '',
@@ -136,6 +137,8 @@ def _migrate(c):
     cols = {r["name"] for r in c.execute("PRAGMA table_info(records)").fetchall()}
     if "error_detail" not in cols:
         c.execute("ALTER TABLE records ADD COLUMN error_detail TEXT NOT NULL DEFAULT ''")
+    if "device" not in cols:
+        c.execute("ALTER TABLE records ADD COLUMN device TEXT NOT NULL DEFAULT ''")
     # 同一记录只允许一个排队/进行中的任务（enqueue 的查-插间隙靠它兜底）。
     # 老库可能已有多余任务（并发展撞出来的），先清掉再建索引，否则建索引失败。
     c.execute("UPDATE jobs SET state='cancel', finished_at=? WHERE state IN ('queued','running')"
