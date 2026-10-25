@@ -78,6 +78,9 @@ public class ServerSync {
     private final Storage storage;
     private final SharedPreferences prefs;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    /** ping / 拉配置 / 拉库列表等轻量请求走这条队列：不等大文件上传，
+     *  「测试连接」才不会在同步进行中卡到上传结束才反馈。 */
+    private final ExecutorService ioLight = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final AtomicBoolean running = new AtomicBoolean(false);
 
@@ -108,22 +111,24 @@ public class ServerSync {
         try {
             io.shutdownNow();
         } catch (Throwable ignore) { }
+        try {
+            ioLight.shutdownNow();
+        } catch (Throwable ignore) { }
         ui.removeCallbacksAndMessages(null);
     }
 
     // ------------------------------------------------------------ 对外（异步）
 
-    /** 测试连通性；msg = "xxx ms"。 */
+    /** 测试连通性；msg = 延迟 "xxx ms"。走轻量队列，不等上传。 */
     public void ping(final ResultCallback cb) {
         if (!configured()) {
             deliver(cb, "未配置服务器地址", "", false);
             return;
         }
-        io.execute(new Runnable() {
+        ioLight.execute(new Runnable() {
             public void run() {
                 try {
-                    doPing();
-                    deliver(cb, null, "服务正常", true);
+                    deliver(cb, null, doPing(), true);
                 } catch (Throwable t) {
                     deliver(cb, readable(t), "", false);
                 }
@@ -371,7 +376,7 @@ public class ServerSync {
             ui.post(new Runnable() { public void run() { cb.onDone("未配置服务器地址", null); } });
             return;
         }
-        io.execute(new Runnable() {
+        ioLight.execute(new Runnable() {
             public void run() {
                 try {
                     JSONObject root = new JSONObject(httpGet(api() + "/asr-config"));
@@ -419,7 +424,7 @@ public class ServerSync {
             deliver(cb, "未配置服务器地址", "", false);
             return;
         }
-        io.execute(new Runnable() {
+        ioLight.execute(new Runnable() {
             public void run() {
                 String err = null;
                 try {
@@ -699,7 +704,7 @@ public class ServerSync {
             ui.post(new Runnable() { public void run() { cb.onDone("未配置服务器地址", null); } });
             return;
         }
-        io.execute(new Runnable() {
+        ioLight.execute(new Runnable() {
             public void run() {
                 try {
                     JSONObject root = new JSONObject(httpGet(api() + "/records?since=0"));
@@ -739,7 +744,7 @@ public class ServerSync {
             ui.post(new Runnable() { public void run() { cb.onDone("未配置服务器地址", null); } });
             return;
         }
-        io.execute(new Runnable() {
+        ioLight.execute(new Runnable() {
             public void run() {
                 try {
                     final String text = httpGet(api() + "/records/" + srvId + "/transcript");
@@ -990,13 +995,15 @@ public class ServerSync {
         return c;
     }
 
-    private void doPing() throws Exception {
+    private String doPing() throws Exception {
+        long t0 = android.os.SystemClock.elapsedRealtime();
         HttpURLConnection c = open(api() + "/ping", 15000);
         try {
             check(c, 200);
         } finally {
             c.disconnect();
         }
+        return (android.os.SystemClock.elapsedRealtime() - t0) + " ms";
     }
 
     private String httpGet(String url) throws Exception {
