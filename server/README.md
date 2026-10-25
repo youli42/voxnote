@@ -17,7 +17,9 @@ venv\Scripts\python run.py            # http://127.0.0.1:8787
 可选依赖：`pip install faster-whisper` 启用本地转写（GPU 优先，自动回退 CPU；
 不装则本地引擎显示"不可用"，可用云端引擎或先只做同步）。
 `pip install sherpa-onnx numpy` 启用 **Qwen3-ASR 句级引擎**（silero VAD 分句，
-逐句起止时间可作字幕；模型约 1GB，首次转写自动从 hf-mirror 下载）。
+逐句起止时间可作字幕；自带说话人分离——按句声纹聚类，只认出一人的场次
+不标说话人；设置 `sherpa_speakers=0` 可关。模型约 1GB，首次转写自动从
+hf-mirror 下载）。转写稿可在控制台导出 SRT 字幕。
 
 ### Debian / Docker
 
