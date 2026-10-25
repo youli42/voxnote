@@ -273,6 +273,7 @@ def sync_transcribe(rid: str, req: TranscribeReq, _: None = Depends(auth)):
 class MetaPatch(BaseModel):
     title: str = ""      # 空 = 不改；非空 = 改名
     marks: list = None   # 缺省 = 不改；[] = 清空标记
+    device: str = ""     # 空 = 不改；非空 = 补报来源设备（旧版上传时没带过）
 
 
 @router.post("/records/{rid}/meta")
@@ -289,10 +290,14 @@ def sync_meta(rid: str, p: MetaPatch, _: None = Depends(auth)):
     mk = _clean_marks(p.marks)
     if mk is not None:
         kw["marks"] = mk
+    # 来源设备只在空缺时认领（App 端同样只在服务器为空时才发），先到先得不改名
+    if p.device and p.device.strip() and not (row["device"] or "").strip():
+        kw["device"] = p.device.strip()[:100]
     if kw:
         db.update_record(rid, **kw)
     row = db.record_row(rid)
-    return {"ok": True, "title": row["title"], "marks": _parse_marks(row["marks"])}
+    return {"ok": True, "title": row["title"], "marks": _parse_marks(row["marks"]),
+            "device": row["device"]}
 
 
 # ------------------------------------------------------------ 服务器转写配置（App 设置页）
