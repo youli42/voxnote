@@ -268,6 +268,29 @@ def _read_f32(path):
     return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
 
 
+_PAD_MS = 250   # 解码切片左右各补的静音衬垫
+
+
+def _decode_spans(spans, n_samples):
+    """VAD 段 → 解码切片：左右各扩 _PAD_MS，但不超过相邻空隙的中点
+    （相邻切片不重叠，同一个字不会被两段各认一遍）。
+
+    VAD 触发有延迟，段首/段尾的字常被削掉一截（"不要新建"只剩"新建"）；
+    小模型缺上下文时对这种残句尤其敏感，补一点前后静音能显著减少吞字。
+    只影响送进解码器的波形，t_ms/e_ms 仍用原 VAD 边界（字幕时间不受影响）。
+    """
+    pad = int(RATE * _PAD_MS / 1000)
+    out = []
+    prev_b = 0
+    for i, (a, b) in enumerate(spans):
+        nxt = spans[i + 1][0] if i + 1 < len(spans) else n_samples
+        lo = max(a - pad, (prev_b + a) // 2, 0)
+        hi = min(b + pad, (b + nxt) // 2, n_samples)
+        out.append((lo, hi))
+        prev_b = b
+    return out
+
+
 def _vad_segments(vad, cfg, samples):
     """窗口推进 is_speech，静音处断句、说满上限强制断。返回样本区间列表。
 
@@ -354,9 +377,11 @@ class SherpaQwenASR(Engine):
         segs = []
         seg_span = []          # segs[i] 对应的 span 下标（对回聚类结果用）
         embeds = [None] * len(spans)
+        dec = _decode_spans(spans, len(samples))
         for idx, (a, b) in enumerate(spans):
+            da, db = dec[idx]
             stream = rec.create_stream()
-            stream.accept_waveform(RATE, samples[a:b])
+            stream.accept_waveform(RATE, samples[da:db])
             rec.decode_stream(stream)
             text = (stream.result.text or "").strip()
             if text:

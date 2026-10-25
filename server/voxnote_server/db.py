@@ -266,7 +266,11 @@ def patch_segment(record_id: str, seg_id: int, text=None, spk=None) -> bool:
         if text is not None:
             c.execute("UPDATE segments SET e_text=?, edited_at=? WHERE id=?", (text, now, seg_id))
         if spk is not None:
-            c.execute("UPDATE segments SET e_spk=?, edited_at=? WHERE id=?", (spk, now, seg_id))
+            # spk=-1（未标注）= 清除人工覆盖、回到机器层，必须写 NULL：
+            # 写 -1 的话这句"看起来没改过"却被当成已修订，重转写时会被
+            # replace_machine_segments 当修订句钉住，和新稿叠在同一时间轴上。
+            c.execute("UPDATE segments SET e_spk=?, edited_at=? WHERE id=?",
+                      (None if spk < 0 else spk, now, seg_id))
         eff = text if text is not None else (row["e_text"] if row["e_text"] is not None else row["m_text"])
         c.execute("DELETE FROM fts WHERE seg_id=?", (seg_id,))
         _fts_upsert(c, seg_id, record_id, eff or "")
