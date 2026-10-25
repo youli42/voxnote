@@ -59,7 +59,7 @@ def all_infos() -> list:
 
 def _load_builtin():
     """import 各引擎模块以触发注册；单个引擎缺依赖不影响其它。"""
-    from . import local_whisper, cloud_openai, local_llama  # noqa: F401
+    from . import local_whisper, cloud_openai, local_llama, sherpa_asr  # noqa: F401
 
 
 _load_builtin()
