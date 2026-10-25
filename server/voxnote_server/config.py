@@ -68,6 +68,12 @@ def transcript_dir(record_id: str) -> str:
     return os.path.join(data_dir(), "transcripts", record_id)
 
 
+def temp_dir() -> str:
+    """转码等运行期临时产物（如 llama-server 用的 16k wav）。数据目录内，
+    存储设置页可打开/清理；不在里面放任何需要持久的东西。"""
+    return os.path.join(data_dir(), "tmp")
+
+
 _db_path = [None]  # 进程内固化：连接是每线程缓存的，热切换会让各线程在新旧库间分叉
 
 
@@ -86,5 +92,5 @@ def web_dir() -> str:
 
 
 def ensure_dirs():
-    for d in (data_dir(), audio_base(), os.path.join(data_dir(), "transcripts")):
+    for d in (data_dir(), audio_base(), os.path.join(data_dir(), "transcripts"), temp_dir()):
         os.makedirs(d, exist_ok=True)

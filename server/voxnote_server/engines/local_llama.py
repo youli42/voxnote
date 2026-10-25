@@ -233,6 +233,40 @@ def stop_server():
                 pass
 
 
+def to_wav16k(audio_path: str, record_id: str) -> str:
+    """非 wav 音频（手机录音是 AAC m4a）先用 PyAV（libav）转 16k 单声道
+    wav 放临时目录。llama-server 的音频加载用 miniaudio，只认 wav/mp3/flac，
+    AAC 直接 400「Failed to load image or audio file」；whisper 引擎走 faster-whisper
+    自带解码，不受此限。返回临时 wav 路径，调用方用完自行决定删留。"""
+    import av
+
+    from .. import config
+    os.makedirs(config.temp_dir(), exist_ok=True)
+    out_path = os.path.join(config.temp_dir(), record_id + ".wav")
+    inp = out = None
+    try:
+        inp = av.open(audio_path)
+        out = av.open(out_path, "w")
+        stream = out.add_stream("pcm_s16le", rate=16000, layout="mono")
+        resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+        for frame in inp.decode(audio=0):
+            for rf in resampler.resample(frame):
+                for packet in stream.encode(rf):
+                    out.mux(packet)
+        for packet in stream.encode(None):
+            out.mux(packet)
+    except Exception as e:
+        raise RuntimeError("音频转码失败（%s）：%s" % (os.path.basename(audio_path), e))
+    finally:
+        for f in (inp, out):
+            try:
+                if f is not None:
+                    f.close()
+            except Exception:
+                pass
+    return out_path
+
+
 class LlamaASR(Engine):
     id = "llama-local"
     name = "Qwen3-ASR（本地）"
@@ -258,12 +292,24 @@ class LlamaASR(Engine):
             start_server()
         if on_progress:
             on_progress(0.15)
-        with open(audio_path, "rb") as f:
+        # 非 wav 先转 16k wav（llama-server 的 miniaudio 不认 AAC/m4a）。
+        # 转码产物在 data/tmp：成功即删；失败保留供排查，存储设置页可清理。
+        send_path = audio_path
+        wav = None
+        if not audio_path.lower().endswith(".wav"):
+            wav = to_wav16k(audio_path, record["id"])
+            send_path = wav
+        with open(send_path, "rb") as f:
             resp = httpx.post(
                 _base() + "/v1/audio/transcriptions",
-                files={"file": (os.path.basename(audio_path), f)},
+                files={"file": (os.path.basename(send_path), f)},
                 data={"response_format": "json"},  # llama-server 只接受 json
                 timeout=1800)
+        if resp.status_code == 200 and wav:
+            try:
+                os.remove(wav)
+            except OSError:
+                pass
         if resp.status_code != 200:
             raise RuntimeError("llama-server 转写失败 HTTP %d：%s"
                                % (resp.status_code, resp.text[:200]))
