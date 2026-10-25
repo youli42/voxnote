@@ -301,6 +301,18 @@ def segments_jsonl(rid: str):
     return FileResponse(path, filename="%s.segments.jsonl" % rid)
 
 
+@router.get("/records/{rid}/transcript.srt")
+def transcript_srt(rid: str):
+    """字幕导出：句级时间戳的引擎（sherpa/whisper）产出可直接挂播放器。"""
+    if db.record_row(rid) is None:
+        raise HTTPException(404, "记录不存在")
+    db.export_mirror(rid)
+    path = os.path.join(config.transcript_dir(rid), "transcript.srt")
+    if not os.path.isfile(path):
+        raise HTTPException(404, "暂无转写稿")
+    return FileResponse(path, filename="%s.srt" % rid, media_type="application/x-subrip")
+
+
 # ------------------------------------------------------------ 导入（控制台拖拽上传，本机免令牌）
 
 @router.post("/records/upload")

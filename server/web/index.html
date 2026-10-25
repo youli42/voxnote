@@ -1027,6 +1027,7 @@ function renderDetail(){
     '<div class="acts"><button class="btn sm" id="btnMeta">详情</button>'+
     '<button class="btn sm" id="btnRetr">重新转写</button>'+
     '<a class="btn sm ghost" style="text-decoration:none" href="'+API+'/records/'+esc(r.id)+'/transcript.md" target="_blank">导出 MD</a>'+
+    '<a class="btn sm ghost" style="text-decoration:none" href="'+API+'/records/'+esc(r.id)+'/transcript.srt" target="_blank">导出 SRT</a>'+
     '<button class="btn sm danger" id="btnDel">删除</button></div></div>'+
     '<div class="dm"><span>'+fmtTime(r.created_at)+'</span><span>'+fmtDur(r.dur_ms)+'</span>'+
     '<span class="chip" id="catChip" style="cursor:pointer">'+esc(r.cat||'未分类')+' ▾</span>'+

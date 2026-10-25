@@ -416,10 +416,26 @@ def export_mirror(record_id: str):
                     f.write("\n**%s**\n\n" % _spk_name(cur))
                 f.write("`[%s → %s]` %s\n\n" % (
                     _fmt_ms(s["t_ms"]), _fmt_ms(s["e_ms"]), s["text"]))
+        with open(os.path.join(d, "transcript.srt"), "w", encoding="utf-8") as f:
+            # 字幕（句级时间戳的引擎产出可直接挂播放器；说话人写进行首便于分辨）
+            for i, s in enumerate(segs):
+                name = _spk_name(s["spk"]) if s["spk"] is not None and s["spk"] >= 0 else ""
+                f.write("%d\n%s --> %s\n%s%s\n\n" % (
+                    i + 1, _srt_ts(s["t_ms"]), _srt_ts(s["e_ms"]),
+                    name + "：" if name else "", s["text"]))
     except Exception:
         # 可再生镜像，失败不影响主流程，但别完全无声——排查靠它
         import traceback
         traceback.print_exc()
+
+
+def _srt_ts(ms):
+    """毫秒 → SRT 时间码 HH:MM:SS,mmm。"""
+    ms = max(0, int(ms))
+    h, rem = divmod(ms, 3600000)
+    m, rem = divmod(rem, 60000)
+    s, ms = divmod(rem, 1000)
+    return "%02d:%02d:%02d,%03d" % (h, m, s, ms)
 
 
 def _spk_name(spk):
