@@ -217,32 +217,27 @@ def del_segment(rid: str, seg_id: int):
     return {"ok": True}
 
 
-class TranscribeReq(BaseModel):
-    engine: str = ""
-
-
-def enqueue_transcribe(rid: str, engine_id: str = "") -> int:
-    """校验并入队转写（控制台与设备同步 API 共用）：引擎缺省用默认引擎。"""
+def enqueue_transcribe(rid: str) -> int:
+    """校验并入队转写（控制台与设备同步 API 共用）。任务层不选引擎——
+    一律用设置页配置的默认引擎，用哪个就跑哪个。"""
     from . import engines, jobs
     r = db.record_row(rid)
     if r is None:
         raise HTTPException(404, "记录不存在")
     if not r["audio_path"] or not os.path.isfile(r["audio_path"]):
         raise HTTPException(400, "音频文件缺失")
-    engine_id = engine_id or db.get("default_engine", "whisper-local")
+    engine_id = db.get("default_engine", "whisper-local")
     e = engines.get(engine_id)
     if e is None:
         raise HTTPException(400, "未知引擎：%s" % engine_id)
-    if not engines.enabled(engine_id):
-        raise HTTPException(400, "引擎已停用：%s（设置 → 转写可重新启用）" % e.name)
     if not e.available():
         raise HTTPException(400, "引擎不可用：%s" % e.name)
     return jobs.enqueue(rid, engine_id)
 
 
 @router.post("/records/{rid}/transcribe")
-def transcribe(rid: str, req: TranscribeReq):
-    job_id = enqueue_transcribe(rid, req.engine)
+def transcribe(rid: str):
+    job_id = enqueue_transcribe(rid)
     return {"ok": True, "job": job_id}
 
 

@@ -56,6 +56,13 @@ async def _lifespan(app: FastAPI):
     config.ensure_dirs()
     db.init()
     try:
+        # 历史遗留：默认引擎可能还躺在停用表里（启用开关的 UI 已移除），
+        # 启动即清，保证"设置页用哪个引擎就跑哪个引擎"。
+        from . import engines
+        engines.ensure_default_enabled()
+    except Exception:
+        logging.exception("默认引擎自愈失败")
+    try:
         from . import jobs
         jobs.start_worker()
     except Exception:

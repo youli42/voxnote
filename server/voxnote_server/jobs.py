@@ -94,14 +94,14 @@ def enqueue(record_id: str, engine_id: str) -> int:
 
 
 def enqueue_default(record_id: str) -> int:
-    """上传/导入后的自动入队（受 auto_transcribe 设置控制）。"""
+    """上传/导入后的自动入队（受 auto_transcribe 设置控制）：用设置页的默认引擎。"""
     if db.get("auto_transcribe", "1") != "1":
         return 0
     engine_id = db.get("default_engine", "whisper-local")
     from . import engines
     e = engines.get(engine_id)
-    if e is None or not e.available() or not engines.enabled(engine_id):
-        # 默认引擎不可用或已被停用：记录停在 raw，控制台可手动换引擎重试
+    if e is None or not e.available():
+        # 默认引擎不可用：记录停在 raw，控制台设置页换可用引擎后重试
         return 0
     return enqueue(record_id, engine_id)
 

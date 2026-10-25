@@ -53,6 +53,18 @@ def enabled(engine_id: str) -> bool:
     return engine_id not in disabled_ids()
 
 
+def ensure_default_enabled():
+    """设置页选定的默认引擎一定参与转写：把它从停用表移出。
+    历史遗留的停用值不该挡住"用哪个引擎就跑哪个引擎"（启用开关的 UI 已随
+    引擎卡重构移除，旧值只在这里被清）。启动时与每次改默认引擎后调用。"""
+    from .. import db
+    d = db.get("default_engine", "whisper-local")
+    raw = db.get("disabled_engines") or ""
+    parts = [x.strip() for x in raw.split(",") if x.strip() and x.strip() != d]
+    if ",".join(parts) != raw:
+        db.set("disabled_engines", ",".join(parts))
+
+
 def all_infos() -> list:
     return [e.info() for e in ENGINES.values()]
 

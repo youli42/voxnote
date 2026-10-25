@@ -121,6 +121,10 @@ def patch_settings(p: SettingsPatch):
                 raise HTTPException(400, "非法引擎 id：%s" % ",".join(bad))
             v = ",".join(ids)
         db.set(k, v)
+    if "default_engine" in plain:
+        # 设置页选了哪个引擎就用哪个：把它移出停用表（历史遗留值不挡转写）
+        from . import engines
+        engines.ensure_default_enabled()
     return {"ok": True}
 
 

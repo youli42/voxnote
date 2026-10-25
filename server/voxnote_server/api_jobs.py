@@ -41,13 +41,15 @@ def retry(job_id: int):
     row = db.conn().execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
     if row is None:
         raise HTTPException(404, "任务不存在")
+    # 重试也用设置页的默认引擎（任务层不选引擎）；原任务的 engine 只是历史记录
     from . import engines as es, jobs as jq
-    e = es.get(row["engine"])
-    if e is None or not e.available():
-        raise HTTPException(400, "引擎不可用：%s" % row["engine"])
-    if not es.enabled(row["engine"]):
-        raise HTTPException(400, "引擎已停用：%s（设置 → 转写可重新启用）" % e.name)
-    new_id = jq.enqueue(row["record_id"], row["engine"])
+    engine_id = db.get("default_engine", "whisper-local")
+    e = es.get(engine_id)
+    if e is None:
+        raise HTTPException(400, "未知引擎：%s" % engine_id)
+    if not e.available():
+        raise HTTPException(400, "引擎不可用：%s" % e.name)
+    new_id = jq.enqueue(row["record_id"], engine_id)
     return {"ok": True, "job": new_id}
 
 

@@ -255,16 +255,12 @@ def get_transcript(rid: str, _: None = Depends(auth)):
 
 # ------------------------------------------------------------ 设备端触发的（重）转写
 
-class TranscribeReq(BaseModel):
-    engine: str = ""   # 空 = 服务器默认引擎
-
-
 @router.post("/records/{rid}/transcribe")
-def sync_transcribe(rid: str, req: TranscribeReq, _: None = Depends(auth)):
-    """App 详情页「转文字 / 重新转写」的落点：校验与入队逻辑和控制台一致，
-    新稿转好后设备靠增量拉取（updated_at 变化）回填。"""
+def sync_transcribe(rid: str, _: None = Depends(auth)):
+    """App 详情页「转文字 / 重新转写」的落点：任务层不选引擎，一律用服务器
+    设置页配置的默认引擎；新稿转好后设备靠增量拉取（updated_at 变化）回填。"""
     from .api_records import enqueue_transcribe
-    job_id = enqueue_transcribe(rid, req.engine)
+    job_id = enqueue_transcribe(rid)
     return {"ok": True, "job": job_id}
 
 
@@ -327,12 +323,11 @@ def patch_asr_config(p: AsrConfigPatch, _: None = Depends(auth)):
     from . import engines
     from .api_models import _check_model_name
     if p.default_engine:
-        e = engines.get(p.default_engine)
-        if e is None:
+        if engines.get(p.default_engine) is None:
             raise HTTPException(400, "未知引擎：%s" % p.default_engine)
-        if not engines.enabled(p.default_engine):
-            raise HTTPException(400, "引擎已停用：%s" % e.name)
         db.set("default_engine", p.default_engine)
+        # 设置页选了哪个引擎就用哪个：顺手把它移出停用表（历史遗留值不挡路）
+        engines.ensure_default_enabled()
     if p.whisper_model:
         name = p.whisper_model.strip().lower()
         _check_model_name(name)
