@@ -7,6 +7,9 @@
   GET  /records?since=  增量枚举（毫秒时间戳游标 = updated_at）
   GET  /records/{id}/audio        下载音频原件
   GET  /records/{id}/transcript   生效转写稿（机器层 + 人工修订合并，JSONL）
+  POST /records/{id}/transcribe   设备端触发（重）转写
+  GET  /asr-config                 读服务器转写配置（引擎 / Whisper 模型清单）
+  POST /asr-config                 改默认引擎与 Whisper 模型
 """
 import datetime
 import os
@@ -182,3 +185,58 @@ def get_transcript(rid: str, _: None = Depends(auth)):
         }, ensure_ascii=False))
     return PlainTextResponse("\n".join(lines) + ("\n" if lines else ""),
                              media_type="application/x-ndjson")
+
+
+# ------------------------------------------------------------ 设备端触发的（重）转写
+
+class TranscribeReq(BaseModel):
+    engine: str = ""   # 空 = 服务器默认引擎
+
+
+@router.post("/records/{rid}/transcribe")
+def sync_transcribe(rid: str, req: TranscribeReq, _: None = Depends(auth)):
+    """App 详情页「转文字 / 重新转写」的落点：校验与入队逻辑和控制台一致，
+    新稿转好后设备靠增量拉取（updated_at 变化）回填。"""
+    from .api_records import enqueue_transcribe
+    job_id = enqueue_transcribe(rid, req.engine)
+    return {"ok": True, "job": job_id}
+
+
+# ------------------------------------------------------------ 服务器转写配置（App 设置页）
+
+@router.get("/asr-config")
+def get_asr_config(_: None = Depends(auth)):
+    """App「设置 → 服务器」的引擎选择数据：引擎清单（含可用/停用）、默认引擎、
+    Whisper 模型清单（含已装状态）。其余配置（云端 Key、llama 路径等）只在控制台改。"""
+    from . import engines
+    from .api_models import whisper_status
+    w = whisper_status()
+    return {
+        "default_engine": db.get("default_engine", "whisper-local"),
+        "whisper_model": db.get("whisper_model", "small"),
+        "engines": [dict(e, enabled=engines.enabled(e["id"])) for e in engines.all_infos()],
+        "whisper_models": w["models"],
+    }
+
+
+class AsrConfigPatch(BaseModel):
+    default_engine: str = ""     # 空 = 不改
+    whisper_model: str = ""
+
+
+@router.post("/asr-config")
+def patch_asr_config(p: AsrConfigPatch, _: None = Depends(auth)):
+    from . import engines
+    from .api_models import _check_model_name
+    if p.default_engine:
+        e = engines.get(p.default_engine)
+        if e is None:
+            raise HTTPException(400, "未知引擎：%s" % p.default_engine)
+        if not engines.enabled(p.default_engine):
+            raise HTTPException(400, "引擎已停用：%s" % e.name)
+        db.set("default_engine", p.default_engine)
+    if p.whisper_model:
+        name = p.whisper_model.strip().lower()
+        _check_model_name(name)
+        db.set("whisper_model", name)
+    return {"ok": True}

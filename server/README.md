@@ -38,6 +38,10 @@ docker compose --profile gpu up -d   # NVIDIA GPU（需 nvidia-container-toolkit
      `device` 是上传设备名，控制台按它显示来源标签）
    - `GET /records?since=<ms>`：增量枚举（游标 = updated_at，返回含 device 字段）
    - `GET /records/{id}/audio`、`GET /records/{id}/transcript`：下载音频 / 生效转写稿（JSONL）
+   - `POST /records/{id}/transcribe`：App 端触发（重）转写（engine 空 = 默认引擎），
+     校验与控制台同一套；新稿转好后设备靠增量拉取回填
+   - `GET /asr-config`、`POST /asr-config`：App 设置页读 / 改服务器转写配置
+     （默认引擎与 Whisper 模型；其余配置仍只在控制台改）
 
 多台设备可以同时连同一台服务器：各设备推自己的录音、按各自游标拉回填；
 同秒撞车时服务端给记录 id 加 `-N` 后缀，App 端按上传响应里的真实 id 对回。
