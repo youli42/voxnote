@@ -2026,9 +2026,10 @@ function renderSet(){
       '</div>';
   } else {
     b='<div class="card"><h3>存储位置</h3>'+
-      row('数据目录','启动参数/环境变量决定，改路径需改启动配置','<span class="tok">'+esc(st.data_dir)+'</span>')+
-      row('音频目录','相对路径基于数据目录；留空 = 默认 '+esc(st.data_dir)+'\\audio（新上传即时生效）','<input type="text" id="setAudioDir" placeholder="'+esc(st.audio_dir)+'" value="'+esc(st.audio_dir_set||'')+'" style="width:260px">')+
-      row('数据库文件','改后需手动搬 voxnote.db 到新位置并重启服务；留空 = 默认 '+esc(st.db_path),'<input type="text" id="setDbPath" placeholder="'+esc(st.db_path)+'" value="'+esc(st.db_path_set||'')+'" style="width:260px">')+
+      row('数据目录','启动参数/环境变量决定','<span class="tok">'+esc(st.data_dir)+'</span> <button class="btn sm" data-open="data">打开</button>')+
+      row('音频目录','相对路径基于数据目录；留空 = 默认 '+esc(st.data_dir)+'\\audio（新上传即时生效）','<input type="text" id="setAudioDir" placeholder="'+esc(st.audio_dir)+'" value="'+esc(st.audio_dir_set||'')+'" style="width:260px"> <button class="btn sm" data-open="audio">打开</button>')+
+      row('数据库文件','改后需手动搬 voxnote.db 到新位置并重启服务；留空 = 默认 '+esc(st.db_path),'<input type="text" id="setDbPath" placeholder="'+esc(st.db_path)+'" value="'+esc(st.db_path_set||'')+'" style="width:260px"> <button class="btn sm" data-open="db">打开</button>')+
+      row('转码临时目录','llama-server 转写前的 16k wav 产物：成功自动删，失败保留可排查','<span class="tok" id="tempInfo">'+(st.temp_files?st.temp_files+' 个 · '+(st.temp_bytes>1048576?(st.temp_bytes/1048576).toFixed(1)+' MB':(st.temp_bytes/1024).toFixed(0)+' KB'):'空')+'</span> <button class="btn sm" data-open="temp">打开</button><button class="btn sm" id="btnCleanTemp">清理</button>')+
       row('','','<button class="btn sm" id="btnSaveStorage">保存位置</button>'+
         '<span class="hint" style="font-size:10.5px;color:var(--dim);margin-left:8px">配置写入 '+esc(st.config_file||'data/config.json')+'</span>')+
       '</div>'+
@@ -2131,6 +2132,17 @@ function renderSet(){
         db_path:document.getElementById('setDbPath').value.trim()
       }}).then(function(r){toast(r.note||'已保存');loadSettings();})
         .catch(function(e){toast(e.message);});
+    };
+    /* 四个路径在服务器所在机器打开文件管理器（db 定位选中文件） */
+    g.querySelectorAll('[data-open]').forEach(function(el){
+      el.onclick=function(){
+        api('/storage/open',{method:'POST',body:{target:el.dataset.open}}).catch(function(e){toast(e.message);});
+      };
+    });
+    document.getElementById('btnCleanTemp').onclick=function(){
+      api('/storage/clean-temp',{method:'POST'}).then(function(r){
+        toast('已清理 '+r.removed+' 个文件');loadSettings();
+      }).catch(function(e){toast(e.message);});
     };
   }
 }

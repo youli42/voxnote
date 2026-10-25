@@ -177,13 +177,77 @@ def storage():
                 pass
     db_bytes = os.path.getsize(config.db_path()) if os.path.isfile(config.db_path()) else 0
     ov = config.overrides()
+    tmp = config.temp_dir()
+    temp_bytes = temp_files = 0
+    if os.path.isdir(tmp):
+        for f in os.listdir(tmp):
+            fp = os.path.join(tmp, f)
+            try:
+                if os.path.isfile(fp):
+                    temp_files += 1
+                    temp_bytes += os.path.getsize(fp)
+            except OSError:
+                pass
     return {"audio_bytes": total, "db_bytes": db_bytes, "data_dir": config.data_dir(),
             "audio_dir": config.audio_base(), "db_path": config.db_path(),
+            "temp_dir": tmp, "temp_bytes": temp_bytes, "temp_files": temp_files,
             # 原始覆盖值（表单用）：空 = 未覆盖（默认）；解析后的绝对路径别回填表单，
             # 否则保存会把绝对路径固化进 config.json，数据目录搬家后就指错地方了。
             "audio_dir_set": ov.get("audio_dir") or "",
             "db_path_set": ov.get("db_path") or "",
             "config_file": config.config_file()}
+
+
+class OpenTarget(BaseModel):
+    """storage/open 的目标：data=数据目录 audio=音频目录 db=数据库文件 temp=转码临时目录"""
+    target: str
+
+
+def _open_in_file_manager(path: str):
+    """在宿主机文件管理器里打开目录；文件则定位选中（Windows 的 /select,）。"""
+    import subprocess
+    import sys
+    if sys.platform == "win32":
+        if os.path.isfile(path):
+            subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+        else:
+            os.startfile(path)  # noqa: 只有 Windows 有，这里必然是
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", path if os.path.isdir(path) else os.path.dirname(path)])
+    else:
+        subprocess.Popen(["xdg-open", path if os.path.isdir(path) else os.path.dirname(path)])
+
+
+@router.post("/storage/open")
+def storage_open(p: OpenTarget):
+    """在服务器所在机器打开对应目录的文件管理器（自托管本机用的运维便利）。"""
+    targets = {"data": config.data_dir(), "audio": config.audio_base(),
+               "db": config.db_path(), "temp": config.temp_dir()}
+    if p.target not in targets:
+        raise HTTPException(400, "未知目标：%s" % p.target)
+    path = targets[p.target]
+    if not os.path.exists(path):
+        os.makedirs(path, exist_ok=True)
+    _open_in_file_manager(path)
+    return {"ok": True}
+
+
+@router.post("/storage/clean-temp")
+def storage_clean_temp():
+    """清空转码临时目录。转写成功会自动删，这里兜底清失败残留。"""
+    tmp = config.temp_dir()
+    removed = freed = 0
+    if os.path.isdir(tmp):
+        for f in os.listdir(tmp):
+            fp = os.path.join(tmp, f)
+            try:
+                if os.path.isfile(fp):
+                    freed += os.path.getsize(fp)
+                    os.remove(fp)
+                    removed += 1
+            except OSError:
+                pass
+    return {"ok": True, "removed": removed, "freed": freed}
 
 
 class StoragePatch(BaseModel):
