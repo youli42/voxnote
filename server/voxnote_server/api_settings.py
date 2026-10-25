@@ -48,8 +48,8 @@ def build_stats() -> dict:
     recent = c.execute(
         "SELECT id, title, status, created_at FROM records ORDER BY created_at DESC LIMIT 5").fetchall()
     active_jobs = c.execute(
-        "SELECT j.id, j.state, j.progress, j.error, r.title FROM jobs j"
-        " JOIN records r ON r.id=j.record_id"
+        "SELECT j.id, j.record_id, j.state, j.progress, j.started_at, j.error, r.title"
+        " FROM jobs j JOIN records r ON r.id=j.record_id"
         " WHERE j.state IN ('queued','running','fail') ORDER BY j.id DESC LIMIT 5").fetchall()
 
     return {

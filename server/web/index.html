@@ -776,6 +776,9 @@ function liveTypeReset(){
 function refreshLive(rid){
   api('/records/'+rid).then(function(nu){
     if(!S.rec||S.rec.id!==rid||S.rec.status!=='asr')return;
+    /* 重转写：旧稿不会变（新稿成功后才整体替换），不打实时出稿的幌子 */
+    var jb=jobFor(rid);
+    if(jb&&jb.started_at&&nu.updated_at&&nu.updated_at<jb.started_at)return;
     S.rec.segments=nu.segments||[];
     var segs=S.rec.segments;
     var box=document.getElementById('liveSegs');
@@ -1033,16 +1036,20 @@ function renderDetail(){
       '<a class="btn sm ghost" style="text-decoration:none" href="'+r.audio_url+'" download="'+esc(r.id)+'.audio">下载</a></div></div>';
   }
 
-  /* 转写中卡片优先于逐句稿：重新转写已有稿的记录也要显示进度条，
-     旧稿先在实时出稿区只读展示，新结果边出边替换 */
+  /* 转写中卡片优先于逐句稿：重新转写已有稿的记录也要显示进度条。
+     重转写（任务开始晚于稿子最后一次更新）的旧稿不会边转边变——新稿
+     成功后才整体替换，标成「旧稿暂存」，不当实时出稿骗人 */
   if(r.status==='asr'||r.status==='queued'){
     var job=jobFor(r.id),p=job&&job.state==='running'?(job.progress*100|0):0;
     var segs=r.segments||[];
     var streamOk=!r.engine||STREAM_ENGINES[r.engine];
+    var reTr=job&&job.started_at&&r.updated_at&&r.updated_at<job.started_at&&segs.length>0;
     h+='<div class="card" style="padding:20px;text-align:center">'+
        '<div style="font-size:13px;color:var(--sub)" id="transTxt">'+(job&&job.state==='queued'?'排队等待中…':'正在转写'+(p?' '+p+'%':''))+'</div>'+
        '<div class="pbar" style="width:200px;margin:14px auto 0"><i id="transPbar" style="width:'+p+'%"></i></div>';
-    if(!streamOk){
+    if(reTr){
+      h+='<div style="font-size:11.5px;color:var(--dim);margin-top:12px">重转写中 · 新稿完成后整体替换 · 下方仍可阅读旧稿（'+segs.length+' 句）</div>';
+    }else if(!streamOk){
       h+='<div style="font-size:11.5px;color:var(--warn);margin-top:12px">「'+esc(engineName(r.engine))+'」为批量转写，不支持逐字实时出稿，完成后一次性显示</div>';
     }else{
       h+='<div style="font-size:11.5px;color:var(--dim);margin-top:12px" id="liveCnt">'+(segs.length?'实时出稿 · 已 '+segs.length+' 句 · 完成前为机器稿，暂不可修订':'')+'</div>'+

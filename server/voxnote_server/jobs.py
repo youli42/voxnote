@@ -173,7 +173,14 @@ def _classify_error(exc):
 def _loop():
     from . import engines
     while not _stop.is_set():
-        job = _claim()
+        try:
+            job = _claim()
+        except Exception:
+            # _claim 也可能炸（库被长事务锁住、磁盘错误…）：不兜住会带死整个
+            # worker 线程，队列从此无人消费，只能重启救——睡一秒再试。
+            traceback.print_exc()
+            _stop.wait(1.0)
+            continue
         if job is None:
             _stop.wait(1.0)
             continue
