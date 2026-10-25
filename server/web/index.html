@@ -1973,38 +1973,9 @@ function renderSet(){
   var b='';
   if(setTab==='stt'){
     function sec(t){return '<div class="sec" data-title="'+esc(t)+'" style="cursor:pointer;user-select:none">'+esc(t)+'</div>';}
-    /* 语音转文本一站配齐：引擎启停与参数 → 获取模型 → 管理模型。
-       卡片按流程分（配置 / 获取 / 管理），不按模型分卡。 */
-    b='<div class="card" style="grid-column:1/-1"><h3>转写引擎</h3>'+
-      row('同步/导入后自动转写','', '<span class="toggle'+(setForm.auto_transcribe?' on':'')+'" data-k="auto_transcribe"></span>')+
-      '<div class="hint" style="margin:10px 0 0">引擎启停 · 关闭后隐藏对应设置，也不参与自动转写</div>'+
-      engines.map(function(e){
-        return row(esc(e.name)+(e.available?'':'（依赖缺失）'), esc(e.desc),
-          '<span class="toggle'+(engOff(e.id)?'':' on')+'" data-eng="'+esc(e.id)+'"></span>');
-      }).join('')+
-      row('默认引擎','已停用的引擎不会被自动选中','<select data-k="default_engine">'+
-        engines.filter(function(e){return !engOff(e.id)||e.id===setForm.default_engine;}).map(function(e){
-          return '<option value="'+e.id+'"'+(e.id===setForm.default_engine?' selected':'')+'>'+esc(e.name)+
-            (engOff(e.id)?'（已停用）':(e.available?'':'（不可用）'))+'</option>';
-        }).join('')+'</select>')+
-      (engOff('whisper-local')?'':
-      sec('Whisper · 本地（GPU 优先，自动回退 CPU）')+
-      row('Whisper 模型','tiny / base / small / medium / large-v3 · 下方可安装/卸载','<input type="text" data-k="whisper_model" value="'+esc(setForm.whisper_model)+'" style="width:120px">')+
-      row('设备','auto / cpu / cuda','<select data-k="whisper_device">'+['auto','cpu','cuda'].map(function(x){return '<option'+(x===setForm.whisper_device?' selected':'')+'>'+x+'</option>';}).join('')+'</select>')+
-      row('语言','auto = 自动检测（短音频易判错）','<select data-k="whisper_language">'+['zh','auto','en','ja'].map(function(x){return '<option'+(x===setForm.whisper_language?' selected':'')+'>'+x+'</option>';}).join('')+'</select>'))+
-      (engOff('llama-local')?'':
-      sec('Qwen3-ASR · 本地（llama.cpp，无 GPU 也能跑）')+
-      row('推理服务','模型在下方获取；转写时自动启动，也可手动预热','<span class="dlrow"><span id="llamaSrvHint" style="font-size:11px;color:var(--dim)">–</span>'+
-        '<button class="btn sm" id="btnSrv">启动</button></span>')+
-      row('llama-server 路径','llama.cpp 发布包里的 llama-server(.exe) 完整路径','<input type="text" data-k="llama_server_path" value="'+esc(setForm.llama_server_path||'')+'" style="width:230px">')+
-      row('服务端口','','<input type="text" data-k="llama_port" value="'+esc(setForm.llama_port||'8849')+'" style="width:80px">'))+
-      (engOff('cloud-openai')?'':
-      sec('云端 API（OpenAI 兼容）')+
-      row('API 地址','/audio/transcriptions · 未配置时该引擎不可用','<input type="text" data-k="cloud_asr_base" value="'+esc(setForm.cloud_asr_base)+'" style="width:230px">')+
-      row('API Key',s.cloud_asr_key_set?'已配置（留空不更改）':'未配置','<input type="password" data-k="cloud_asr_key" placeholder="'+(s.cloud_asr_key_set?'••••••••••••':'sk-…')+'" style="width:190px">')+
-      row('模型','如 whisper-large-v3 / SenseVoiceLarge','<input type="text" data-k="cloud_asr_model" value="'+esc(setForm.cloud_asr_model)+'" style="width:190px">'))+
-      '</div>'+
-      '<div class="card"><h3>获取模型</h3>'+
+    /* 语音转文本一站配齐：左「获取」右「管理」两列。转写用哪个引擎不单设配置卡——
+       在管理列点某个模型的「使用」即切换，被使用引擎的参数就地显示在清单下方。 */
+    b='<div class="card"><h3>获取模型</h3>'+
       sec('Whisper 系列（faster-whisper）')+
       '<div id="whGet"><div class="hint">加载中…</div></div>'+
       sec('Qwen3-ASR 系列（llama.cpp）· 无 GPU 也能跑')+
@@ -2022,12 +1993,26 @@ function renderSet(){
       '<div class="hint" id="whDlTxt" style="font-size:10.5px;color:var(--dim)"></div>'+
       '</div>'+
       '<div class="card"><h3>管理模型</h3>'+
-      sec('Whisper 已装模型 · 小的跑得快、占得少，大的更准')+
-      '<div id="whManage"><div class="hint">加载中…</div></div>'+
-      '<div class="hintblk">缓存位置 <span class="tok" id="whCache">–</span>。卸载当前使用的模型后，下一次转写会自动重新下载；下载走 hf-mirror 镜像。</div>'+
-      sec('Qwen3-ASR 模型文件')+
-      '<div id="ggufList" style="margin-top:4px"></div>'+
-      '<div class="hintblk">存到 <span class="tok" id="ggufDir">–</span>，删除后可随时重新下载。换量化前先卸载现有文件（多个主模型并存时按体积取大者）。</div>'+
+      row('同步/导入后自动转写','', '<span class="toggle'+(setForm.auto_transcribe?' on':'')+'" data-k="auto_transcribe"></span>')+
+      sec('已安装模型 · 点「使用」即切换转写引擎')+
+      '<div id="modelManage"><div class="hint">加载中…</div></div>'+
+      sec('当前引擎配置')+
+      (setForm.default_engine==='whisper-local'?
+      row('设备','auto / cpu / cuda','<select data-k="whisper_device">'+['auto','cpu','cuda'].map(function(x){return '<option'+(x===setForm.whisper_device?' selected':'')+'>'+x+'</option>';}).join('')+'</select>')+
+      row('语言','auto = 自动检测（短音频易判错）','<select data-k="whisper_language">'+['zh','auto','en','ja'].map(function(x){return '<option'+(x===setForm.whisper_language?' selected':'')+'>'+x+'</option>';}).join('')+'</select>')
+      :setForm.default_engine==='llama-local'?
+      row('推理服务','转写时自动启动，也可手动预热','<span class="dlrow"><span id="llamaSrvHint" style="font-size:11px;color:var(--dim)">–</span>'+
+        '<button class="btn sm" id="btnSrv">启动</button></span>')+
+      row('llama-server 路径','llama.cpp 发布包里的 llama-server(.exe) 完整路径','<input type="text" data-k="llama_server_path" value="'+esc(setForm.llama_server_path||'')+'" style="width:230px">')+
+      row('服务端口','','<input type="text" data-k="llama_port" value="'+esc(setForm.llama_port||'8849')+'" style="width:80px">')
+      :setForm.default_engine==='cloud-openai'?
+      row('API 地址','/audio/transcriptions · 未配置时该引擎不可用','<input type="text" data-k="cloud_asr_base" value="'+esc(setForm.cloud_asr_base)+'" style="width:230px">')+
+      row('API Key',s.cloud_asr_key_set?'已配置（留空不更改）':'未配置','<input type="password" data-k="cloud_asr_key" placeholder="'+(s.cloud_asr_key_set?'••••••••••••':'sk-…')+'" style="width:190px">')+
+      row('模型','如 whisper-large-v3 / SenseVoiceLarge','<input type="text" data-k="cloud_asr_model" value="'+esc(setForm.cloud_asr_model)+'" style="width:190px">')
+      :'<div class="hint" style="margin:6px 0">在上方点某个模型的「使用」选择转写引擎</div>')+
+      '</div>'+
+      '<div class="hintblk">Whisper 缓存 <span class="tok" id="mgrWhCache">–</span> · Qwen3 模型目录 <span class="tok" id="mgrQwenDir">–</span>。'+
+      '卸载当前使用的 Whisper 模型后，下一次转写会自动重新下载；Qwen3 换量化前先卸载现有文件（多个主模型并存时按体积取大者）。下载走 hf-mirror 镜像。</div>'+
       '</div>';
   } else if(setTab==='ai'){
     b='<div class="card"><h3>AI 助手</h3>'+
@@ -2199,26 +2184,9 @@ function loadModel(){
       else if(srv.running)sh.innerHTML='进程存在 · 端口 '+srv.port+'（模型加载中）';
       else sh.innerHTML='未运行';
     }
-    /* GGUF 文件清单：逐个显示位置与大小，可卸载 */
-    var gf=document.getElementById('ggufList');
-    if(gf){
-      var gd=document.getElementById('ggufDir');if(gd)gd.textContent=mb.dir;
-      var gh='';
-      (m.files||[]).forEach(function(f){
-        gh+='<div class="srow"><div><div class="lb">'+esc(f.name)+'</div>'+
-          '<div class="hint">'+fmtBytes(f.bytes)+'</div></div>'+
-          '<div class="rt"><button class="btn sm danger" data-ggdel="'+esc(f.name)+'">删除</button></div></div>';
-      });
-      gf.innerHTML=gh||'<div class="hint" style="margin:4px 0">模型目录为空（未下载）</div>';
-      gf.querySelectorAll('[data-ggdel]').forEach(function(x){
-        x.onclick=function(){
-          if(!confirm('删除 '+x.dataset.ggdel+'？文件不可恢复。'))return;
-          api('/models/asr/file',{method:'DELETE',body:{name:x.dataset.ggdel}})
-            .then(function(){toast('已删除');loadModel();})
-            .catch(function(e){toast(e.message);});
-        };
-      });
-    }
+    /* GGUF 清单并入「管理模型」统一列表；这里只更新缓存目录显示 */
+    MGR.asr=m;
+    renderManage();
     if(m.download.state==='downloading')scheduleModelPoll();
   }).catch(function(){});
 }
@@ -2230,60 +2198,109 @@ var WH_DESC={tiny:'最快 · 显存/内存占用最低 · 适合先跑通流程'
   medium:'更准 · 速度明显变慢',
   'large-v2':'高准确率 · 资源要求高',
   'large-v3':'最新 · 准确率最高 · 资源要求高'};
-/* Whisper 模型管理：未装的进「获取模型」列，已装的进「管理模型」列；
+/* Whisper 模型管理：未装的进「获取模型」列；已装的进「管理模型」统一清单。
    下载中每 2 秒刷新状态 */
 function loadWhisperModels(){
   api('/models/whisper').then(function(d){
-    var getBox=document.getElementById('whGet'),mgrBox=document.getElementById('whManage');
-    if(!getBox||!mgrBox)return;
-    document.getElementById('whCache').textContent=d.cache;
+    var getBox=document.getElementById('whGet');
+    if(!getBox)return;
+    MGR.wh=d.models;
+    MGR.whCache=d.cache;
     var dl=d.download,dt=document.getElementById('whDlTxt');
     if(dl.state==='downloading')dt.textContent='正在下载 '+dl.name+' …（视网络可能需要几分钟，可离开本页）';
     else dt.textContent=dl.state==='fail'?('下载失败：'+dl.error):(dl.state==='done'?'下载完成':'');
-    var get='',mgr='';
+    var get='';
     d.models.forEach(function(m){
-      var act=d.active===m.name;
+      if(m.installed)return;
       var desc=WH_DESC[m.name]?' · '+WH_DESC[m.name]:'';
-      if(!m.installed){
-        get+='<div class="srow"><div><div class="lb">'+esc(m.name)+'</div>'+
-          '<div class="hint">未下载'+(m.size_hint?' · '+esc(m.size_hint):'')+desc+'</div></div>'+
-          '<div class="rt"><button class="btn sm accent" data-whdl="'+esc(m.name)+'">下载</button></div></div>';
-      }else{
-        mgr+='<div class="srow"><div><div class="lb">'+esc(m.name)+(act?' <span style="color:var(--ok)">· 当前使用</span>':'')+'</div>'+
-          '<div class="hint">已下载 · '+fmtBytes(m.bytes)+desc+'</div></div>'+
-          '<div class="rt"><button class="btn sm" data-whuse="'+esc(m.name)+'">使用</button>'+
-          '<button class="btn sm danger" data-whdel="'+esc(m.name)+'">卸载</button></div></div>';
-      }
+      get+='<div class="srow"><div><div class="lb">'+esc(m.name)+'</div>'+
+        '<div class="hint">未下载'+(m.size_hint?' · '+esc(m.size_hint):'')+desc+'</div></div>'+
+        '<div class="rt"><button class="btn sm accent" data-whdl="'+esc(m.name)+'">下载</button></div></div>';
     });
     getBox.innerHTML=get||'<div class="hint">Whisper 各模型都已下载</div>';
-    mgrBox.innerHTML=mgr||'<div class="hint">还没有已下载的 Whisper 模型</div>';
-    [getBox,mgrBox].forEach(function(box){
-      box.querySelectorAll('[data-whuse]').forEach(function(x){
-        x.onclick=function(){
-          setForm.whisper_model=x.dataset.whuse;
-          var inp=document.querySelector('[data-k="whisper_model"]');if(inp)inp.value=x.dataset.whuse;
-          toast('转写将使用 '+x.dataset.whuse+'（保存设置后生效）');
-          loadWhisperModels();
-        };
-      });
-      box.querySelectorAll('[data-whdl]').forEach(function(x){
-        x.onclick=function(){
-          api('/models/whisper/download',{method:'POST',body:{name:x.dataset.whdl}})
-            .then(function(r){toast(r.note||'开始下载（走 hf-mirror 镜像）');loadWhisperModels();})
-            .catch(function(e){toast(e.message);});
-        };
-      });
-      box.querySelectorAll('[data-whdel]').forEach(function(x){
-        x.onclick=function(){
-          if(!confirm('卸载 '+x.dataset.whdel+'？将删除缓存目录，不可恢复。'))return;
-          api('/models/whisper/'+x.dataset.whdel,{method:'DELETE'})
-            .then(function(){toast('已卸载');loadWhisperModels();})
-            .catch(function(e){toast(e.message);});
-        };
-      });
+    getBox.querySelectorAll('[data-whdl]').forEach(function(x){
+      x.onclick=function(){
+        api('/models/whisper/download',{method:'POST',body:{name:x.dataset.whdl}})
+          .then(function(r){toast(r.note||'开始下载（走 hf-mirror 镜像）');loadWhisperModels();})
+          .catch(function(e){toast(e.message);});
+      };
     });
+    renderManage();
     if(dl.state==='downloading')scheduleModelPoll();
   }).catch(function(){});
+}
+/* 管理列：已装模型统一清单（Whisper + Qwen3 + 云端 API），点「使用」即切换转写引擎，
+   被使用引擎的参数就地显示在下方「当前引擎配置」 */
+var MGR={wh:null,asr:null,whCache:''};
+function useEngine(engineId,model){
+  var p={default_engine:engineId};
+  if(model)p.whisper_model=model;
+  api('/settings',{method:'PATCH',body:p}).then(function(){
+    setForm.default_engine=engineId;
+    if(model)setForm.whisper_model=model;
+    toast(model?('已切换到 Whisper · '+model):'已切换默认引擎');
+    renderSet();   // 「当前引擎配置」随切换重排；尾部加载器会刷新清单
+  }).catch(function(e){toast(e.message);});
+}
+function renderManage(){
+  var box=document.getElementById('modelManage');if(!box)return;
+  var h='';
+  var actW=setForm.default_engine==='whisper-local'?setForm.whisper_model:null;
+  (MGR.wh||[]).forEach(function(m){
+    if(!m.installed)return;
+    var act=actW===m.name;
+    h+='<div class="srow"><div><div class="lb">'+esc(m.name)+(act?' <span style="color:var(--ok)">· 当前使用</span>':'')+'</div>'+
+      '<div class="hint">Whisper · 已下载 · '+fmtBytes(m.bytes)+(WH_DESC[m.name]?' · '+WH_DESC[m.name]:'')+'</div></div>'+
+      '<div class="rt">'+(act?'':'<button class="btn sm" data-usewh="'+esc(m.name)+'">使用</button>')+
+      '<button class="btn sm danger" data-whdel="'+esc(m.name)+'">卸载</button></div></div>';
+  });
+  if(MGR.asr){
+    var mb=MGR.asr.model,qAct=setForm.default_engine==='llama-local';
+    var qdesc=mb.ready?('主模型 '+fmtBytes(mb.main_bytes)+' · 编码器 '+fmtBytes(mb.mmproj_bytes)+' · 无 GPU 也能跑')
+      :('不完整（已有 '+([mb.main?'主模型':null,mb.mmproj?'编码器':null].filter(Boolean).join(' + ')||'无文件')+'，暂不可用）');
+    h+='<div class="srow"><div><div class="lb">Qwen3-ASR-1.7B（llama.cpp）'+(mb.ready&&qAct?' <span style="color:var(--ok)">· 当前使用</span>':'')+'</div>'+
+      '<div class="hint">'+qdesc+'</div></div>'+
+      '<div class="rt">'+(mb.ready&&!qAct?'<button class="btn sm" data-useqwen="1">使用</button>':'')+
+      ((mb.main||mb.mmproj)?'<button class="btn sm danger" data-qwendel="1">卸载</button>':'')+'</div></div>';
+  }
+  var cAct=setForm.default_engine==='cloud-openai';
+  h+='<div class="srow"><div><div class="lb">云端 API（OpenAI 兼容）'+(cAct?' <span style="color:var(--ok)">· 当前使用</span>':'')+'</div>'+
+    '<div class="hint">'+esc(engDesc('cloud-openai'))+((setS&&setS.cloud_asr_ready)?' · Key 已配置':' · 未配置 Key')+'</div></div>'+
+    '<div class="rt">'+(cAct?'':'<button class="btn sm" data-usecloud="1">使用</button>')+'</div></div>';
+  box.innerHTML=h;
+  box.querySelectorAll('[data-usewh]').forEach(function(x){
+    x.onclick=function(){useEngine('whisper-local',x.dataset.usewh);};
+  });
+  box.querySelectorAll('[data-useqwen]').forEach(function(x){
+    x.onclick=function(){useEngine('llama-local');};
+  });
+  box.querySelectorAll('[data-usecloud]').forEach(function(x){
+    x.onclick=function(){useEngine('cloud-openai');};
+  });
+  box.querySelectorAll('[data-whdel]').forEach(function(x){
+    x.onclick=function(){
+      if(!confirm('卸载 '+x.dataset.whdel+'？将删除缓存目录，不可恢复。'))return;
+      api('/models/whisper/'+x.dataset.whdel,{method:'DELETE'})
+        .then(function(){toast('已卸载');loadWhisperModels();})
+        .catch(function(e){toast(e.message);});
+    };
+  });
+  var qd=box.querySelector('[data-qwendel]');
+  if(qd)qd.onclick=function(){
+    if(!confirm('卸载 Qwen3-ASR？将删除模型目录下的全部 GGUF 文件。'))return;
+    var files=(MGR.asr&&MGR.asr.files)||[];
+    var chain=Promise.resolve();
+    files.forEach(function(f){
+      chain=chain.then(function(){
+        return api('/models/asr/file',{method:'DELETE',body:{name:f.name}})
+          .catch(function(e){toast(e.message);});
+      });
+    });
+    chain.then(function(){toast('已卸载');loadModel();});
+  };
+  var wc=document.getElementById('mgrWhCache'),qd2=document.getElementById('mgrQwenDir');
+  if(wc)wc.textContent=MGR.whCache||'–';
+  if(qd2&&MGR.asr&&MGR.asr.model)qd2.textContent=MGR.asr.model.dir;
 }
 var modelPoll=null;
 function scheduleModelPoll(){
