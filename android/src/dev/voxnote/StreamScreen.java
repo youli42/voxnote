@@ -23,6 +23,9 @@ import java.util.ArrayList;
  * 会话模型：连播会话期间流页是全局 Player 的控制者（进度刷新 + 播完切卡），
  * HomeActivity.openDetail 会调 stopSession() 结束会话——详情页有自己的
  * 播完暂停逻辑，两边同时管同一个 Player 会打架。
+ *
+ * 每张卡片外面包 SwipeCatBox：左右滑归类与列表页同款（同一对滑动分类设置、
+ * 同一套归类/取消语义，回调直接走列表页的 onSwipe 逻辑）。
  */
 public class StreamScreen extends LinearLayout {
 
@@ -31,6 +34,8 @@ public class StreamScreen extends LinearLayout {
         ArrayList<RecordVm> records();
         String catName(RecordVm vm);
         void openDetail(RecordVm vm);
+        /** 左右滑归类（与列表页 onSwipe 同语义：滑回原分类＝取消）。 */
+        void onSwipeCat(RecordVm vm, String targetCat);
     }
 
     private final Host host;
@@ -111,7 +116,14 @@ public class StreamScreen extends LinearLayout {
         listBox.addView(emptyText, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         for (int i = 0; i < list.size(); i++) {
             StreamCard card = new StreamCard(getContext(), i);
-            listBox.addView(card, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+            final RecordVm vm = list.get(i);
+            SwipeCatBox box = new SwipeCatBox(getContext(), settings, card, new SwipeCatBox.Callback() {
+                public void onSwipeCat(String targetCat) {
+                    host.onSwipeCat(vm, targetCat);
+                }
+            });
+            box.refreshLabels();
+            listBox.addView(box, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 7));
             card.bind();
         }
@@ -158,19 +170,15 @@ public class StreamScreen extends LinearLayout {
     }
 
     private void repaintCard(int idx) {
-        for (int i = 0; i < listBox.getChildCount(); i++) {
-            View v = listBox.getChildAt(i);
-            if (v instanceof StreamCard && ((StreamCard) v).idx == idx) ((StreamCard) v).bind();
-        }
+        StreamCard card = cardAt(idx);
+        if (card != null) card.bind();
     }
 
     private void scrollCardVisible(int idx) {
-        for (int i = 0; i < listBox.getChildCount(); i++) {
-            View v = listBox.getChildAt(i);
-            if (v instanceof StreamCard && ((StreamCard) v).idx == idx) {
-                v.requestRectangleOnScreen(new android.graphics.Rect(0, 0, v.getWidth(), v.getHeight()), false);
-                return;
-            }
+        StreamCard card = cardAt(idx);
+        if (card != null) {
+            View v = (View) card.getParent();
+            v.requestRectangleOnScreen(new android.graphics.Rect(0, 0, v.getWidth(), v.getHeight()), false);
         }
     }
 
@@ -221,10 +229,14 @@ public class StreamScreen extends LinearLayout {
         }
     };
 
+    /** 卡片现在包在 SwipeCatBox 里，按 idx 沿子项找一层。 */
     private StreamCard cardAt(int idx) {
         for (int i = 0; i < listBox.getChildCount(); i++) {
             View v = listBox.getChildAt(i);
-            if (v instanceof StreamCard && ((StreamCard) v).idx == idx) return (StreamCard) v;
+            if (v instanceof SwipeCatBox) {
+                StreamCard card = (StreamCard) ((SwipeCatBox) v).card;
+                if (card.idx == idx) return card;
+            }
         }
         return null;
     }

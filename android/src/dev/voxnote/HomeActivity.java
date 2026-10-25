@@ -154,6 +154,11 @@ public class HomeActivity extends Activity implements Picker.Host {
         public void openDetail(RecordVm vm) {
             HomeActivity.this.openDetail(vm);
         }
+
+        public void onSwipeCat(RecordVm vm, String targetCat) {
+            // 与列表页滑动归类同一条路：归类/取消语义、patch、刷新和提示都在那边
+            rowHost.onSwipe(vm, targetCat);
+        }
     };
 
     private final ServerScreen.Host cloudHost = new ServerScreen.Host() {
@@ -294,8 +299,7 @@ public class HomeActivity extends Activity implements Picker.Host {
     }
 
     /** 启动时清掉上次进程被杀 / 中断残留的临时录音（此刻不可能有正在发布的文件）。 */
-    private void cleanTmpOrphans() {
-        data.post(new Runnable() {
+    private void cleanTmpOrphans() {        data.post(new Runnable() {
             public void run() {
                 File[] fs = storage.privateTmp().listFiles();
                 if (fs == null) return;
