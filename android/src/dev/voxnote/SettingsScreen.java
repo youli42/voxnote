@@ -64,6 +64,9 @@ public class SettingsScreen {
         /** 立即同步一轮（推音频 + 拉转写稿）。 */
         void onSyncNow();
 
+        /** 选服务器用的转写引擎（宿主拉 /asr-config 后弹选择器）。 */
+        void onPickServerEngine();
+
         /** 被"删除"（屏蔽）的场次数。 */
         int ignoredCount();
 
@@ -104,6 +107,7 @@ public class SettingsScreen {
     private final LinearLayout permRow;
     private final TextView versionValue;
     private final TextView ignoredValue;
+    private final TextView serverEngineValue;
 
     private boolean capturing;
 
@@ -348,6 +352,13 @@ public class SettingsScreen {
                 s.save();
             }
         }));
+        srvGroup.addView(Ui.divider(act));
+        serverEngineValue = valueButton();
+        srvGroup.addView(selectorRow("服务器转写引擎", serverEngineValue, new Runnable() {
+            public void run() {
+                host.onPickServerEngine();
+            }
+        }));
         content.addView(srvGroup, groupLp());
 
         // ---------------- 存储位置
@@ -561,6 +572,12 @@ public class SettingsScreen {
         keyCaptureBtn.setText(c ? "请按键…" : (s.keyBindingLabel.length() > 0 ? s.keyBindingLabel : "按下按键"));
         keyCaptureBtn.setBackground(Ui.pressable(Ui.rounded(8, Ui.SURFACE2,
                 c ? Ui.WHITE : Ui.LINE2, 1), 0x22FFFFFF));
+    }
+
+    /** 服务器转写引擎行回显：宿主懒加载 /asr-config 或保存成功后回填（空 = 提示点开）。 */
+    public void setServerEngineLabel(String label) {
+        serverEngineValue.setText(
+                label == null || label.trim().length() == 0 ? "点开选择" : label);
     }
 
     public void refreshSources(JSONArray sources) {

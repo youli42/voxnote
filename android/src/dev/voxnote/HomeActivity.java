@@ -125,6 +125,8 @@ public class HomeActivity extends Activity implements Picker.Host {
     private String pendingTranscribe;
     /** 设置了"录完自动上传"时，保存后等重扫把新场次进列表再同步（快照里才有它）。 */
     private boolean pendingSync;
+    /** 服务器转写引擎行回显只懒加载一次（每次打开设置页都拉一遍没必要）。 */
+    private boolean serverEngineLabelLoaded;
     private final Runnable recTimerTick = new Runnable() {
         public void run() {
             if (!recording) return;
@@ -461,6 +463,7 @@ public class HomeActivity extends Activity implements Picker.Host {
         if ("settings".equals(name)) {
             settingsPage.refresh();
             settingsPage.refreshSources(data.sourceInfoBlocking());
+            loadServerEngineLabel();
         }
         setTabActive(name);
     }
@@ -909,6 +912,23 @@ public class HomeActivity extends Activity implements Picker.Host {
                     else toast("同步完成 · " + msg);
                     if (changed) load(false, null, false);   // 回填的文稿要重扫才进列表
                     if (settingsPage != null) settingsPage.refresh();
+                }
+            });
+        }
+
+        public void onPickServerEngine() {
+            if (!serverSync.configured()) {
+                toast("先填服务器地址");
+                return;
+            }
+            toast("读取服务器配置…");
+            serverSync.fetchAsrConfig(new ServerSync.AsrConfigCallback() {
+                public void onDone(String err, ServerSync.AsrConfig cfg) {
+                    if (err != null) {
+                        toast("读取失败：" + err);
+                        return;
+                    }
+                    pickServerEngine(cfg);
                 }
             });
         }
@@ -1399,6 +1419,101 @@ public class HomeActivity extends Activity implements Picker.Host {
     private int syncStateOf(String id) {
         Integer v = syncStates.get(id);
         return v == null ? ServerSync.SYNC_NONE : v;
+    }
+
+    // ------------------------------------------------------------ 服务器转写引擎选择（设置页）
+
+    /** 转写引擎回显文案：引擎名；Whisper 追加当前模型（手机上最常换的就是这两项）。 */
+    private String asrConfigLabel(ServerSync.AsrConfig cfg) {
+        String name = cfg.defaultEngine;
+        for (int i = 0; i < cfg.engines.size(); i++) {
+            if (cfg.defaultEngine.equals(cfg.engines.get(i).id)) {
+                name = cfg.engines.get(i).name;
+                break;
+            }
+        }
+        if ("whisper-local".equals(cfg.defaultEngine) && cfg.whisperModel.length() > 0) {
+            name += " · " + cfg.whisperModel;
+        }
+        return name;
+    }
+
+    private void pickServerEngine(final ServerSync.AsrConfig cfg) {
+        final ArrayList<ServerSync.AsrConfig.EngineInfo> es = cfg.engines;
+        if (es.isEmpty()) {
+            toast("服务器没有可用的转写引擎");
+            return;
+        }
+        String[] labels = new String[es.size()];
+        int sel = -1;
+        for (int i = 0; i < es.size(); i++) {
+            ServerSync.AsrConfig.EngineInfo e = es.get(i);
+            labels[i] = e.name;
+            if (e.id.equals(cfg.defaultEngine)) {
+                labels[i] += " · 当前";
+                sel = i;
+            }
+            if (!e.enabled) labels[i] += "（已停用）";
+            else if (!e.available) labels[i] += "（不可用）";
+        }
+        Picker.show(this, this, "服务器转写引擎", labels, sel, new Picker.OnPick() {
+            public void onPick(int index) {
+                final ServerSync.AsrConfig.EngineInfo e = es.get(index);
+                if ("whisper-local".equals(e.id)) {
+                    pickWhisperModel(cfg);   // Whisper 再选一档模型
+                    return;
+                }
+                applyServerAsrConfig(e.id, "", e.name);
+            }
+        });
+    }
+
+    private void pickWhisperModel(final ServerSync.AsrConfig cfg) {
+        final ArrayList<ServerSync.AsrConfig.WhisperModel> ms = cfg.whisperModels;
+        if (ms.isEmpty()) {
+            applyServerAsrConfig("whisper-local", "", "Whisper（本地）");
+            return;
+        }
+        String[] labels = new String[ms.size()];
+        int sel = -1;
+        for (int i = 0; i < ms.size(); i++) {
+            ServerSync.AsrConfig.WhisperModel m = ms.get(i);
+            labels[i] = m.name;
+            if (m.sizeHint.length() > 0) labels[i] += " " + m.sizeHint;
+            if (!m.installed) labels[i] += "（未安装）";
+            if (m.name.equals(cfg.whisperModel)) {
+                labels[i] += " · 当前";
+                sel = i;
+            }
+        }
+        Picker.show(this, this, "Whisper 模型", labels, sel, new Picker.OnPick() {
+            public void onPick(int index) {
+                ServerSync.AsrConfig.WhisperModel m = ms.get(index);
+                applyServerAsrConfig("whisper-local", m.name, "Whisper · " + m.name);
+            }
+        });
+    }
+
+    private void applyServerAsrConfig(String engine, String whisperModel, final String label) {
+        serverSync.setAsrConfig(engine, whisperModel, new ServerSync.ResultCallback() {
+            public void onResult(String err, String msg, boolean changed) {
+                toast(err == null ? "服务器转写已设为 " + label : "设置失败：" + err);
+                if (err == null && settingsPage != null) settingsPage.setServerEngineLabel(label);
+            }
+        });
+    }
+
+    /** 打开设置页时懒加载一次服务器引擎配置，回显到「服务器转写引擎」行。 */
+    private void loadServerEngineLabel() {
+        if (serverEngineLabelLoaded || !serverSync.configured()) return;
+        serverEngineLabelLoaded = true;
+        serverSync.fetchAsrConfig(new ServerSync.AsrConfigCallback() {
+            public void onDone(String err, ServerSync.AsrConfig cfg) {
+                if (err == null && cfg != null && settingsPage != null && !isDestroyed()) {
+                    settingsPage.setServerEngineLabel(asrConfigLabel(cfg));
+                }
+            }
+        });
     }
 
     // ------------------------------------------------------------ 录音

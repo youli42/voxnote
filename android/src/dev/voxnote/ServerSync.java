@@ -39,6 +39,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   GET  /api/v1/sync/records?since=           增量枚举（游标 = updated_at）
  *   GET  /api/v1/sync/records/{id}/transcript  生效转写稿（JSONL）
  *   POST /api/v1/sync/records/{id}/transcribe  触发服务器（重）转写
+ *   GET/POST /api/v1/sync/asr-config           读 / 改服务器转写配置（引擎、Whisper 模型）
  *
  * 方向：推（把本地音频传上服务器）+ 拉（把服务器转好的稿子回填成本地 <stamp>.md）。
  * 回填规则：本地没有文稿的直接写；服务器回填过的场次有更新（含转写进行中的增量）就覆盖重写；
@@ -334,6 +335,104 @@ public class ServerSync {
                     err = readable(t);
                 }
                 deliver(cb, err, msg, err == null);
+            }
+        });
+    }
+
+    // ------------------------------------------------------------ 服务器转写配置（设置页）
+
+    /** GET /asr-config 的结果：引擎清单（含可用/停用）与 Whisper 模型清单。 */
+    public static class AsrConfig {
+        public String defaultEngine = "";
+        public String whisperModel = "";
+        public final ArrayList<EngineInfo> engines = new ArrayList<EngineInfo>();
+        public final ArrayList<WhisperModel> whisperModels = new ArrayList<WhisperModel>();
+
+        public static class EngineInfo {
+            public String id = "";
+            public String name = "";
+            public boolean available;
+            public boolean enabled;
+        }
+
+        public static class WhisperModel {
+            public String name = "";
+            public boolean installed;
+            public String sizeHint = "";
+        }
+    }
+
+    public interface AsrConfigCallback {
+        void onDone(String err, AsrConfig cfg);
+    }
+
+    public void fetchAsrConfig(final AsrConfigCallback cb) {
+        if (!configured()) {
+            ui.post(new Runnable() { public void run() { cb.onDone("未配置服务器地址", null); } });
+            return;
+        }
+        io.execute(new Runnable() {
+            public void run() {
+                try {
+                    JSONObject root = new JSONObject(httpGet(api() + "/asr-config"));
+                    final AsrConfig cfg = new AsrConfig();
+                    cfg.defaultEngine = root.optString("default_engine", "");
+                    cfg.whisperModel = root.optString("whisper_model", "");
+                    JSONArray es = root.optJSONArray("engines");
+                    if (es != null) {
+                        for (int i = 0; i < es.length(); i++) {
+                            JSONObject o = es.optJSONObject(i);
+                            if (o == null) continue;
+                            AsrConfig.EngineInfo e = new AsrConfig.EngineInfo();
+                            e.id = o.optString("id", "");
+                            if (e.id.length() == 0) continue;
+                            e.name = o.optString("name", e.id);
+                            e.available = o.optBoolean("available", false);
+                            e.enabled = o.optBoolean("enabled", true);
+                            cfg.engines.add(e);
+                        }
+                    }
+                    JSONArray ms = root.optJSONArray("whisper_models");
+                    if (ms != null) {
+                        for (int i = 0; i < ms.length(); i++) {
+                            JSONObject o = ms.optJSONObject(i);
+                            if (o == null) continue;
+                            AsrConfig.WhisperModel m = new AsrConfig.WhisperModel();
+                            m.name = o.optString("name", "");
+                            if (m.name.length() == 0) continue;
+                            m.installed = o.optBoolean("installed", false);
+                            m.sizeHint = o.optString("size_hint", "");
+                            cfg.whisperModels.add(m);
+                        }
+                    }
+                    ui.post(new Runnable() { public void run() { cb.onDone(null, cfg); } });
+                } catch (final Throwable t) {
+                    ui.post(new Runnable() { public void run() { cb.onDone(readable(t), null); } });
+                }
+            }
+        });
+    }
+
+    /** 改服务器转写配置：engine / whisperModel 传空串表示该项不改。 */
+    public void setAsrConfig(final String engine, final String whisperModel, final ResultCallback cb) {
+        if (!configured()) {
+            deliver(cb, "未配置服务器地址", "", false);
+            return;
+        }
+        io.execute(new Runnable() {
+            public void run() {
+                String err = null;
+                try {
+                    JSONObject p = new JSONObject();
+                    if (engine != null && engine.length() > 0) p.put("default_engine", engine);
+                    if (whisperModel != null && whisperModel.length() > 0) {
+                        p.put("whisper_model", whisperModel);
+                    }
+                    httpPost(api() + "/asr-config", p.toString());
+                } catch (Throwable t) {
+                    err = readable(t);
+                }
+                deliver(cb, err, err == null ? "已保存" : "", err == null);
             }
         });
     }
