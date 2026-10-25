@@ -2005,16 +2005,16 @@ function renderSet(){
       '<div id="whGet"><div class="hint">加载中…</div></div>'+
       sec('Qwen3-ASR 系列（llama.cpp）· 无 GPU 也能跑')+
       row('当前状态','','<span id="llamaStat" style="font-size:11px;color:var(--dim)">–</span>')+
-      row('下载安装','<span id="llamaDlHint">选量化自动填仓库，也可手动改</span>','<span class="dlrow">'+
-        '<select id="llamaQuant">'+
-        '<option value="Q4_K_M">q4_k_m（推荐）</option>'+
-        '<option value="Q8_0">q8_0（官方 ggml-org）</option>'+
-        '<option value="">自定义仓库</option></select>'+
-        '<input type="text" id="llamaRepo" value="'+esc(s.llama_repo||'')+'" style="width:200px">'+
-        '<button class="btn sm accent" id="btnDl">下载</button>'+
-        '<button class="btn sm" id="btnDlStop" style="display:none">取消</button></span>')+
+      LLAMA_PRESETS.map(function(m){
+        return row(m.label, m.hint,
+          '<button class="btn sm accent" data-llamadl="'+esc(m.repo)+'">下载</button>');
+      }).join('')+
+      row('自定义仓库','HuggingFace 仓库 id（用户名/仓库名），需带 mmproj 编码器','<span class="dlrow">'+
+        '<input type="text" id="llamaRepoCustom" placeholder="用户名/仓库名" style="width:200px">'+
+        '<button class="btn sm accent" id="btnDlCustom">下载</button></span>')+
       '<div class="pbar" id="llamaDlBar" style="width:100%;margin:8px 0 2px;display:none"><i></i></div>'+
       '<div class="hint" id="llamaDlTxt" style="font-size:10.5px;color:var(--dim);margin-bottom:6px"></div>'+
+      '<button class="btn sm" id="btnDlStop" style="display:none">取消下载</button>'+
       '<div class="hint" id="whDlTxt" style="font-size:10.5px;color:var(--dim)"></div>'+
       '</div>'+
       '<div class="card"><h3>管理模型</h3>'+
@@ -2082,26 +2082,32 @@ function renderSet(){
 }
 
 /* ================= 本地大模型（Qwen3-ASR · llama.cpp） ================= */
-var QUANT_REPO={'Q4_K_M':'foryoung365/Qwen3-ASR-1.7B-Q4_K_M-GGUF','Q8_0':'ggml-org/Qwen3-ASR-1.7B-GGUF'};
+/* 预置量化清单：与 Whisper 一样一行一个、点「下载」即装；自定义仓库走独立行 */
+var LLAMA_PRESETS=[
+  {label:'q4_k_m（推荐）',repo:'foryoung365/Qwen3-ASR-1.7B-Q4_K_M-GGUF',
+   hint:'≈1.31 GB · 2C/6G 机器推荐 · 含 mmproj 编码器'},
+  {label:'q8_0',repo:'ggml-org/Qwen3-ASR-1.7B-GGUF',
+   hint:'≈1.8 GB · 官方 ggml-org 仓库 · 精度更高'}];
+function doLlamaDownload(repo,quant){
+  api('/models/asr/download',{method:'POST',body:{repo:repo,quant:quant}})
+    .then(function(){toast('开始下载（走 hf-mirror 镜像）');loadModel();})
+    .catch(function(e){toast(e.message);});
+}
 function wireLlama(){
-  /* 下载控件在「本地模型」页，启停按钮在「转写」页：各按存在与否接线 */
-  var q=document.getElementById('llamaQuant'),repo=document.getElementById('llamaRepo');
-  if(q&&repo){
-    q.onchange=function(){if(QUANT_REPO[q.value])repo.value=QUANT_REPO[q.value];};
-    if(!repo.value)repo.value=QUANT_REPO.Q4_K_M;
-    document.getElementById('btnDl').onclick=function(){
-      var r=repo.value.trim();
-      if(!r){toast('请填写模型仓库');return;}
-      saveLlamaSettings(function(){
-        api('/models/asr/download',{method:'POST',body:{repo:r,quant:q.value}})
-          .then(function(){toast('开始下载（走 hf-mirror 镜像）');loadModel();})
-          .catch(function(e){toast(e.message)});
-      });
-    };
-    document.getElementById('btnDlStop').onclick=function(){
-      api('/models/asr/download/stop',{method:'POST'}).then(function(){toast('正在取消…');});
-    };
-  }
+  /* 预置量化与自定义仓库在「获取模型」列，启停按钮在「转写引擎」卡：按存在与否接线 */
+  document.querySelectorAll('[data-llamadl]').forEach(function(x){
+    x.onclick=function(){doLlamaDownload(x.dataset.llamadl,'');};
+  });
+  var ci=document.getElementById('llamaRepoCustom'),cb=document.getElementById('btnDlCustom');
+  if(ci&&cb)cb.onclick=function(){
+    var r=ci.value.trim();
+    if(!r||r.indexOf('/')<0){toast('仓库格式应为 用户名/仓库名');return;}
+    doLlamaDownload(r,'');
+  };
+  var bs=document.getElementById('btnDlStop');
+  if(bs)bs.onclick=function(){
+    api('/models/asr/download/stop',{method:'POST'}).then(function(){toast('正在取消…');});
+  };
   var sb=document.getElementById('btnSrv');
   if(sb)sb.onclick=function(){
     if(this.dataset.stop){
@@ -2122,7 +2128,6 @@ function saveLlamaSettings(cb){
     var el=document.querySelector('[data-k="'+k+'"]');
     if(el)p[k]=el.value;
   });
-  p.llama_repo=document.getElementById('llamaRepo').value;
   api('/settings',{method:'PATCH',body:p}).then(cb).catch(function(e){toast(e.message)});
 }
 function loadModel(){
