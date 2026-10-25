@@ -296,17 +296,6 @@
         font-size:12px;margin-bottom:14px;cursor:pointer}
   .drop:hover{border-color:#4a4368;color:var(--sub)}
   .drop b{color:var(--sub);font-weight:600}
-  .engs{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
-  .eng{border:1px solid var(--line);border-radius:13px;padding:13px 14px;cursor:pointer;background:var(--card)}
-  .eng:hover{border-color:#333a48}
-  .eng.on{border-color:var(--accent);background:#16142366}
-  .eng.dis{opacity:.5}
-  .eng .r1{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:650}
-  .eng .rdo{width:15px;height:15px;border-radius:99px;border:1.5px solid #3c4250;flex:none;position:relative}
-  .eng.on .rdo{border-color:var(--accent)}
-  .eng.on .rdo::after{content:'';position:absolute;inset:2.5px;border-radius:99px;background:var(--accent)}
-  .eng .r2{font-size:11px;color:var(--sub);margin-top:7px;line-height:1.65}
-  .eng .r3{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}
   table.qt{width:100%;border-collapse:collapse}
   table.qt th{font-size:10.5px;color:var(--dim);text-align:left;font-weight:500;padding:0 10px 9px}
   table.qt td{padding:10px;border-top:1px solid #1b1e25;font-size:12px;color:var(--sub);vertical-align:middle}
@@ -507,7 +496,6 @@
       <section class="page" id="p-asr">
         <div class="ph"><h1>转写任务</h1><span class="sub" id="asrSub">–</span></div>
         <div class="drop" id="drop">拖入音频文件，或 <b>点击选择</b>　·　m4a / wav / mp3 / amr / ogg</div>
-        <div class="engs" id="engs"></div>
         <div class="card">
           <h3>队列</h3>
           <table class="qt">
@@ -1785,22 +1773,9 @@ var J={page:0,limit:50,total:0};
 function loadAsr(){
   Promise.all([api('/engines'),api('/jobs?limit='+J.limit+'&offset='+(J.page*J.limit))]).then(function(rs){
     engines=rs[0].engines;
-    var def=rs[0].default;
-    document.getElementById('asrSub').textContent='默认引擎 '+(engines.filter(function(e){return e.id===def})[0]||{}).name;
-    var eb=document.getElementById('engs');eb.innerHTML='';
-    engines.forEach(function(e){
-      var el=document.createElement('div');
-      el.className='eng'+(e.id===def?' on':'')+(e.available?'':' dis');
-      el.innerHTML='<div class="r1"><span class="rdo"></span>'+esc(e.name)+'</div>'+
-        '<div class="r2">'+esc(e.desc||'')+'</div>'+
-        '<div class="r3">'+(e.id===def?'<span class="st done">默认</span>':'')+
-        (e.available?'<span class="st ed">可用</span>':'<span class="st fail">不可用</span>')+'</div>';
-      el.onclick=function(){
-        if(!e.available){toast(e.name+' 不可用（缺依赖或未配置）');return;}
-        api('/settings',{method:'PATCH',body:{default_engine:e.id}}).then(function(){loadAsr();toast('默认引擎 → '+e.name);});
-      };
-      eb.appendChild(el);
-    });
+    /* 引擎不在本页选——设置 → 语音转文本模型 的已装清单点「使用」切换；
+       这里只读显示当前默认引擎（任务一律用它跑） */
+    document.getElementById('asrSub').textContent='用「'+((engines.filter(function(e){return e.id===rs[0].default})[0]||{}).name)+'」转写 · 在设置页切换';
     var tb=document.getElementById('jobRows');tb.innerHTML='';
     J.total=rs[1].total||0;
     if(!rs[1].jobs.length)tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--dim);padding:24px">队列为空</td></tr>';
