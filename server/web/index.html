@@ -346,6 +346,8 @@
   /* 设置 */
   .setgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:980px}
   .srow{display:flex;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid #1b1e25}
+  .sec{font-size:11px;font-weight:600;color:var(--sub);margin:13px 0 2px}
+  .sec:hover{color:var(--text)}
   .srow:last-child{border-bottom:0}
   .srow .lb{font-size:12.5px;color:var(--text)}
   .srow .hint{font-size:10.5px;color:var(--dim);margin-top:3px}
@@ -1937,6 +1939,8 @@ function sendChat(){
 /* ================= 设置（分页） ================= */
 var setForm={},setS=null,setSt=null,setTab='stt';
 var SET_TABS=[['stt','语音转文本模型'],['ai','AI 与 MCP'],['sys','存储与安全']];
+/* 分节标题折叠状态（按标题记，localStorage 持久化）：模型清单长了可收起不看的节 */
+var SEC_FOLD=(function(){try{return JSON.parse(localStorage.getItem('voxnote.setFold'))||{};}catch(e){return {};}})();
 /* 引擎系列启用开关：停用的引擎藏起自己的设置，也不参与自动转写（disabled_engines 设置） */
 function engOff(id){
   return (','+(setForm.disabled_engines||'')+',').indexOf(','+id+',')>=0;
@@ -1968,7 +1972,7 @@ function renderSet(){
     return '<button class="tab'+(setTab===t[0]?' on':'')+'" data-st="'+t[0]+'">'+t[1]+'</button>';}).join('')+'</div>';
   var b='';
   if(setTab==='stt'){
-    function sec(t){return '<div style="font-size:11px;font-weight:600;color:var(--sub);margin:13px 0 2px">'+t+'</div>';}
+    function sec(t){return '<div class="sec" data-title="'+esc(t)+'" style="cursor:pointer;user-select:none">'+esc(t)+'</div>';}
     /* 语音转文本一站配齐：引擎启停与参数 → 获取模型 → 管理模型。
        卡片按流程分（配置 / 获取 / 管理），不按模型分卡。 */
     b='<div class="card" style="grid-column:1/-1"><h3>转写引擎</h3>'+
@@ -2048,6 +2052,25 @@ function renderSet(){
       '</div>';
   }
   g.innerHTML=tabs+b;
+  /* 可折叠分节标题：▾ 展开主体 / ▸ 收起到下一节（状态按标题持久化）。
+     折叠范围 = 本节头之后、下一个 .sec 之前的所有兄弟元素。 */
+  g.querySelectorAll('.sec').forEach(function(h){
+    var apply=function(){
+      var open=SEC_FOLD[h.dataset.title]!=='0';
+      h.textContent=(open?'▾ ':'▸ ')+h.dataset.title;
+      var n=h.nextElementSibling;
+      while(n&&!n.classList.contains('sec')){
+        n.style.display=open?'':'none';
+        n=n.nextElementSibling;
+      }
+    };
+    apply();
+    h.onclick=function(){
+      SEC_FOLD[h.dataset.title]=SEC_FOLD[h.dataset.title]==='0'?'1':'0';
+      try{localStorage.setItem('voxnote.setFold',JSON.stringify(SEC_FOLD));}catch(e){}
+      apply();
+    };
+  });
   g.querySelectorAll('[data-st]').forEach(function(el){
     el.onclick=function(){setTab=el.dataset.st;renderSet();};
   });
