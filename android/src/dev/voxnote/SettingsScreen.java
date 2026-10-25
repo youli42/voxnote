@@ -52,6 +52,9 @@ public class SettingsScreen {
         /** 服务器同步状态一行字（ServerSync.statusLine()）。 */
         String serverStatus();
 
+        /** 不看用户设置、直接从系统取的本机设备名（设备名输入框的留空提示用）。 */
+        String autoDeviceName();
+
         /** 测试服务器连通（异步，结果由宿主 toast）。 */
         void onServerTest();
 
@@ -287,7 +290,7 @@ public class SettingsScreen {
                 }));
         srvGroup.addView(Ui.divider(act));
         srvGroup.addView(inputBlock("本机设备名", s.deviceName, InputType.TYPE_CLASS_TEXT, false,
-                "显示在服务器控制台的设备标签；留空用手机型号", new OnText() {
+                "留空自动取设备名（当前会取到「" + host.autoDeviceName() + "」）", new OnText() {
                     public void onText(String v) {
                         s.deviceName = v;
                         s.save();

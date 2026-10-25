@@ -789,6 +789,10 @@ public class HomeActivity extends Activity implements Picker.Host {
             return serverSync.statusLine();
         }
 
+        public String autoDeviceName() {
+            return serverSync.autoDeviceName();
+        }
+
         public void onServerTest() {
             if (!serverSync.configured()) {
                 toast("先填服务器地址");

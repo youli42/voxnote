@@ -258,9 +258,18 @@ public class ServerSync {
         return String.valueOf(vm.audioUri);
     }
 
-    /** 上报给服务器的本机设备名：设置页可自设，留空用手机型号。 */
+    /** 上报给服务器的本机设备名：设置页可自设；留空自动取系统设备名，再退回手机型号。 */
     private String deviceName() {
         String n = s.deviceName == null ? "" : s.deviceName.trim();
+        if (n.length() > 0) return n;
+        return autoDeviceName();
+    }
+
+    /** 不看用户设置、直接从系统取的设备名（设置页提示也用它）。
+     *  Settings.Global.DEVICE_NAME 是"关于手机→设备名称"里用户起的名字；
+     *  部分机型只把蓝牙名落在 Secure 表里，兜底取一下；都没有再用型号。 */
+    public String autoDeviceName() {
+        String n = systemDeviceName();
         if (n.length() > 0) return n;
         try {
             n = android.os.Build.MODEL;
@@ -268,6 +277,24 @@ public class ServerSync {
             n = "";
         }
         return n == null ? "" : n;
+    }
+
+    private String systemDeviceName() {
+        // Global 表存"关于手机→设备名称"；部分机型只把蓝牙名落在 Secure 表，兜底取一下
+        String n = readSetting(true, android.provider.Settings.Global.DEVICE_NAME);
+        if (n.length() == 0) n = readSetting(false, "bluetooth_name");
+        return n;
+    }
+
+    private String readSetting(boolean global, String key) {
+        try {
+            String n = global
+                    ? android.provider.Settings.Global.getString(ctx.getContentResolver(), key)
+                    : android.provider.Settings.Secure.getString(ctx.getContentResolver(), key);
+            return n == null ? "" : n.trim();
+        } catch (Throwable t) {
+            return "";
+        }
     }
 
     private String extOf(RecordVm vm) {
