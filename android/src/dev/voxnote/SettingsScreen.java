@@ -269,10 +269,10 @@ public class SettingsScreen {
                 pickLang();
             }
         });
-        TextView test = Ui.button(act, "测试连接", 12.5f, false);
+        final TextView test = Ui.button(act, "测试连接", 12.5f, false);
         test.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                toast("连接成功 · 312ms");
+                testTranscribeApi(test);
             }
         });
         apiGroup.addView(test, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1097,5 +1097,28 @@ public class SettingsScreen {
 
     private void toast(String s) {
         android.widget.Toast.makeText(act.getApplicationContext(), s, android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    /** 转写 API「测试连接」：真实探测配置的接口地址，拿不到任何响应才算失败。 */
+    private void testTranscribeApi(final TextView btn) {
+        String url = s.apiUrl == null ? "" : s.apiUrl.trim();
+        if (url.length() == 0) {
+            toast("先填接口地址");
+            return;
+        }
+        btn.setEnabled(false);
+        btn.setAlpha(0.5f);
+        btn.setText("测试中…");
+        NetProbe.probe(url, s.apiKey, new NetProbe.Callback() {
+            public void onDone(String err, int code, long ms) {
+                btn.setEnabled(true);
+                btn.setAlpha(1f);
+                btn.setText("测试连接");
+                if (act.isFinishing() || act.isDestroyed()) return;
+                if (err != null) toast("连接失败：" + err);
+                else if (code >= 400) toast("地址可达 · HTTP " + code + " · " + ms + "ms（服务有响应，请核对路径）");
+                else toast("连接成功 · HTTP " + code + " · " + ms + "ms");
+            }
+        });
     }
 }
