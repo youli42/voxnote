@@ -196,48 +196,118 @@ public class ServerSync {
     /** 返回 {成功数, 失败数}；单个失败不中断整轮，原因记在 lastPushError。 */
     private int[] push(ArrayList<RecordVm> items, Map<String, String> catNames) {
         int ok = 0, fail = 0;
-        String url = api() + "/upload";
         for (int i = 0; i < items.size(); i++) {
             RecordVm vm = items.get(i);
             if (!vm.hasAudio()) continue;
-            String ext = extOf(vm);
-            if (ext.length() == 0) continue;
             String marker = markerOf(vm);
+            if (marker.length() == 0) continue;
             if (marker.equals(prefs.getString("up." + vm.id, ""))) continue;
-            InputStream in = openAudio(vm);
-            if (in == null) continue;
             try {
-                JSONObject meta = new JSONObject();
-                meta.put("stamp", vm.id);
-                meta.put("title", vm.title == null ? "" : vm.title);
-                meta.put("cat", nameOf(catNames, vm.cat));
-                meta.put("mode", vm.mode == null ? "" : vm.mode);
-                meta.put("sid", vm.sid);
-                meta.put("device", deviceName());
-                meta.put("recorded_at", vm.startMs);
-                meta.put("dur_ms", vm.durMs);
-                String resp = postMultipart(url, meta.toString(), vm.id + ext, in);
-                // 服务器可能给这条记录换了 id（同秒撞车加 -2 后缀）：记下映射，
-                // 拉取时按映射对回本地记录，否则会拿别的设备的稿子错位回填。
-                try {
-                    String srvId = new JSONObject(resp).optString("id", "");
-                    if (srvId.length() > 0 && !srvId.equals(vm.id)) {
-                        prefs.edit().putString("srvid." + vm.id, srvId).apply();
-                    }
-                } catch (Throwable ignore) { }
-                prefs.edit().putString("up." + vm.id, marker).apply();
+                pushOne(vm, catNames);
                 ok++;
             } catch (Throwable t) {
                 fail++;
                 lastPushError = readable(t);
-            } finally {
-                try { in.close(); } catch (Throwable ignore) { }
             }
         }
         return new int[]{ok, fail};
     }
 
     private String lastPushError = "";
+
+    /** 传一场的音频；成功记 up 标记并清失败原因，失败把原因记到 uperr（卡片/详情显示用）。
+     *  返回服务器端的真实记录 id（同秒撞车时与本地 id 不同，映射同时记进 srvid）。 */
+    private String pushOne(RecordVm vm, Map<String, String> catNames) throws Exception {
+        String ext = extOf(vm);
+        if (ext.length() == 0) throw new java.io.IOException("不支持的音频格式");
+        InputStream in = openAudio(vm);
+        if (in == null) throw new java.io.IOException("打不开音频文件");
+        try {
+            JSONObject meta = new JSONObject();
+            meta.put("stamp", vm.id);
+            meta.put("title", vm.title == null ? "" : vm.title);
+            meta.put("cat", nameOf(catNames, vm.cat));
+            meta.put("mode", vm.mode == null ? "" : vm.mode);
+            meta.put("sid", vm.sid);
+            meta.put("device", deviceName());
+            meta.put("recorded_at", vm.startMs);
+            meta.put("dur_ms", vm.durMs);
+            String resp = postMultipart(api() + "/upload", meta.toString(), vm.id + ext, in);
+            // 服务器可能给这条记录换了 id（同秒撞车加 -2 后缀）：记下映射，
+            // 拉取时按映射对回本地记录，否则会拿别的设备的稿子错位回填。
+            String srvId = vm.id;
+            try {
+                String sid = new JSONObject(resp).optString("id", "");
+                if (sid.length() > 0) srvId = sid;
+            } catch (Throwable ignore) { }
+            if (!srvId.equals(vm.id)) {
+                prefs.edit().putString("srvid." + vm.id, srvId).apply();
+            }
+            prefs.edit().putString("up." + vm.id, markerOf(vm)).remove("uperr." + vm.id).apply();
+            return srvId;
+        } catch (Throwable t) {
+            prefs.edit().putString("uperr." + vm.id, readable(t)).apply();
+            throw t;
+        } finally {
+            try { in.close(); } catch (Throwable ignore) { }
+        }
+    }
+
+    // ------------------------------------------------------------ 同步状态（卡片/详情显示）
+
+    public static final int SYNC_NONE = 0;   // 无音频或未配服务器：不显示
+    public static final int SYNC_OK = 1;     // 已上传且文件没再变
+    public static final int SYNC_WAIT = 2;   // 还没传过（或文件变了要重传）
+    public static final int SYNC_FAIL = 3;   // 上次上传失败（uperr 里有原因）
+
+    /** 这场的同步状态。markerOf 要读文件 stat，别在滚动路径里逐帧调——
+     *  宿主在数据变化后整批算进 map，列表 bind 只查 map。 */
+    public int syncState(RecordVm vm) {
+        if (!configured() || !vm.hasAudio()) return SYNC_NONE;
+        String marker = markerOf(vm);
+        if (marker.length() == 0) return SYNC_NONE;
+        if (marker.equals(prefs.getString("up." + vm.id, ""))) return SYNC_OK;
+        return prefs.getString("uperr." + vm.id, "").length() > 0 ? SYNC_FAIL : SYNC_WAIT;
+    }
+
+    /** 上次上传失败的原因（没失败过返回空）。 */
+    public String syncError(String id) {
+        return prefs.getString("uperr." + id, "");
+    }
+
+    /** 设置页状态行用：{已同步, 待上传, 失败} 按当前列表快照计数。 */
+    public int[] syncCounts(ArrayList<RecordVm> items) {
+        int ok = 0, wait = 0, fail = 0;
+        for (int i = 0; i < items.size(); i++) {
+            int st = syncState(items.get(i));
+            if (st == SYNC_OK) ok++;
+            else if (st == SYNC_WAIT) wait++;
+            else if (st == SYNC_FAIL) fail++;
+        }
+        return new int[]{ok, wait, fail};
+    }
+
+    /** 重传一场失败的音频（详情页「重传」按钮）；成功后转写稿仍由轮询/同步回填。 */
+    public void retryUpload(final RecordVm vm, final ResultCallback cb) {
+        if (!configured()) {
+            deliver(cb, "未配置服务器地址", "", false);
+            return;
+        }
+        // 分类名快照要在 UI 线程拍（同 syncNow 的并发说明）
+        final HashMap<String, String> catNames = s.catNameSnapshot();
+        io.execute(new Runnable() {
+            public void run() {
+                String err = null;
+                try {
+                    if (!vm.hasAudio()) throw new java.io.IOException("这场没有音频文件");
+                    pushOne(vm, catNames);
+                } catch (Throwable t) {
+                    err = readable(t);
+                }
+                deliver(cb, err, err == null ? "已重新上传" : "", err == null);
+            }
+        });
+    }
 
     private InputStream openAudio(RecordVm vm) {
         try {

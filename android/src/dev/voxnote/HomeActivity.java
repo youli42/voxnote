@@ -100,6 +100,8 @@ public class HomeActivity extends Activity implements Picker.Host {
     private final ArrayList<RecordVm> all = new ArrayList<RecordVm>();
     private final ArrayList<RecordVm> shown = new ArrayList<RecordVm>();
     private final java.util.HashMap<String, String> sourceLabels = new java.util.HashMap<String, String>();
+    /** 每场的同步状态缓存（syncState 要 stat 音频文件，滚动路径只查这个 map）。 */
+    private final java.util.HashMap<String, Integer> syncStates = new java.util.HashMap<String, Integer>();
     private final ArrayList<Overlay> overlays = new ArrayList<Overlay>();
     private DetailSheet detail;
 
@@ -859,7 +861,18 @@ public class HomeActivity extends Activity implements Picker.Host {
         }
 
         public String serverStatus() {
-            return serverSync.statusLine();
+            String base = serverSync.statusLine();
+            if (!serverSync.configured()) return base;
+            // 状态行回显同步计数：失败/待上传要点出来，「点立即同步可重传失败场次」
+            int[] n = serverSync.syncCounts(all);
+            StringBuilder sb = new StringBuilder();
+            if (n[2] > 0) sb.append("上传失败 ").append(n[2]).append(" 场");
+            if (n[1] > 0) {
+                if (sb.length() > 0) sb.append(" · ");
+                sb.append("待上传 ").append(n[1]).append(" 场");
+            }
+            if (sb.length() == 0 && n[0] > 0) sb.append("已同步 ").append(n[0]).append(" 场");
+            return sb.length() > 0 ? base + " · " + sb : base;
         }
 
         public String autoDeviceName() {
@@ -950,6 +963,7 @@ public class HomeActivity extends Activity implements Picker.Host {
         all.addAll(r.items);
         sourceLabels.clear();
         sourceLabels.putAll(r.sourceLabels);
+        rebuildSyncStates();
 
         if (r.error != null && r.error.length() > 0) {
             // 统计行已去掉，扫描失败只在出错时提示一次，不占版面。
@@ -1272,7 +1286,7 @@ public class HomeActivity extends Activity implements Picker.Host {
             }
             RecordVm vm = shown.get(position);
             String src = vm.fromSource == null ? null : sourceLabels.get(vm.fromSource);
-            row.bind(vm, settings, rowHost, src);
+            row.bind(vm, settings, rowHost, src, syncStateOf(vm.id));
             row.setBatch(batch, selected.contains(vm.id));
             return row;
         }
@@ -1296,6 +1310,25 @@ public class HomeActivity extends Activity implements Picker.Host {
 
         public void onTranscribe(RecordVm vm) {
             transcribe(vm);
+        }
+
+        public int syncState(RecordVm vm) {
+            return syncStateOf(vm.id);
+        }
+
+        public void onRetryUpload(final RecordVm vm) {
+            toast("正在重传…");
+            serverSync.retryUpload(vm, new ServerSync.ResultCallback() {
+                public void onResult(String err, String msg, boolean changed) {
+                    toast(err == null ? "已重新上传，转写稿稍后回填" : "重传失败：" + err);
+                    rebuildSyncStates();
+                    adapter.notifyDataSetChanged();
+                    RecordVm cur = findVm(vm.id);
+                    if (cur != null && detail.isOpen() && vm.id.equals(detail.id())) {
+                        detail.refresh(cur);   // 重传成功后收起「重传」按钮
+                    }
+                }
+            });
         }
     };
 
@@ -1337,6 +1370,22 @@ public class HomeActivity extends Activity implements Picker.Host {
             if (all.get(i).id.equals(id)) return all.get(i);
         }
         return null;
+    }
+
+    // ------------------------------------------------------------ 同步状态（卡片/详情显示）
+
+    /** 数据变化或同步回调后整批重算（syncState 读文件 stat，不在滚动路径里逐条调）。 */
+    private void rebuildSyncStates() {
+        syncStates.clear();
+        if (serverSync == null || !serverSync.configured()) return;
+        for (int i = 0; i < all.size(); i++) {
+            syncStates.put(all.get(i).id, serverSync.syncState(all.get(i)));
+        }
+    }
+
+    private int syncStateOf(String id) {
+        Integer v = syncStates.get(id);
+        return v == null ? ServerSync.SYNC_NONE : v;
     }
 
     // ------------------------------------------------------------ 录音

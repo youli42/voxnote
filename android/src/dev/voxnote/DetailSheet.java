@@ -46,6 +46,12 @@ public class DetailSheet implements Overlay {
         void onMetaChanged(RecordVm vm);
 
         void onTranscribe(RecordVm vm);
+
+        /** 这场的同步状态（ServerSync.SYNC_*）。 */
+        int syncState(RecordVm vm);
+
+        /** 上传失败后的「重传」按钮。 */
+        void onRetryUpload(RecordVm vm);
     }
 
     private static final int TICK_MS = 100;
@@ -71,6 +77,7 @@ public class DetailSheet implements Overlay {
     private final TextView timeText;
     private final TextView markAddBtn;
     private TextView transcribeBtn;
+    private TextView uploadBtn;
     private TextView segsHint;
     private TextView markCount;
     private final TextView tabSegs;
@@ -386,13 +393,23 @@ public class DetailSheet implements Overlay {
         segsHint = Ui.text(act, "转写文本", 10.5f, Ui.FAINT);
         segsHint.setLetterSpacing(0.08f);
         header.addView(segsHint, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        // 上传失败才出现的「重传」（同步链路的问题，与转文字分开）
+        uploadBtn = Ui.smallButton(act, "重传");
+        uploadBtn.setVisibility(View.GONE);
+        uploadBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (vm != null && listener != null) listener.onRetryUpload(vm);
+            }
+        });
+        header.addView(uploadBtn);
         transcribeBtn = Ui.smallButton(act, "转文字");
         transcribeBtn.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 if (vm != null && listener != null) listener.onTranscribe(vm);
             }
         });
-        header.addView(transcribeBtn);
+        header.addView(transcribeBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
         col.addView(header, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -557,7 +574,12 @@ public class DetailSheet implements Overlay {
         String m = vm.dateText() + " · " + vm.fmtDur() + " · " + vm.statusLabel();
         int spkN = distinctSpeakers();
         if (spkN > 1) m += " · " + spkN + " 位发言人";
+        int sync = listener == null ? ServerSync.SYNC_NONE : listener.syncState(vm);
+        if (sync == ServerSync.SYNC_FAIL) m += " · 上传失败";
+        else if (sync == ServerSync.SYNC_OK) m += " · 已同步服务器";
+        else if (sync == ServerSync.SYNC_WAIT) m += " · 待上传服务器";
         meta.setText(m);
+        uploadBtn.setVisibility(sync == ServerSync.SYNC_FAIL ? View.VISIBLE : View.GONE);
         boolean hasCat = vm.cat != null && vm.cat.length() > 0;
         catChip.setText(hasCat ? settings.catName(vm.cat) + "  ›" : "未分类  ›");
         catChip.setTextColor(hasCat ? Ui.TEXT : Ui.FAINT);

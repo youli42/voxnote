@@ -34,6 +34,7 @@ public class CardRow extends LinearLayout {
     private final TextView marksTag;
     private final TextView modeTag;
     private final TextView sourceTag;
+    private final TextView syncTag;
     private final TextView transcribe;
     private final TextView check;
     private boolean wantTranscribe;
@@ -115,12 +116,14 @@ public class CardRow extends LinearLayout {
         marksTag = tagText(c);
         modeTag = tagText(c);
         sourceTag = tagText(c);
+        syncTag = tagText(c);
         meta.addView(date);
         meta.addView(dur, metaLp());
         meta.addView(catTag, metaLp());
         meta.addView(marksTag, metaLp());
         meta.addView(modeTag, metaLp());
         meta.addView(sourceTag, metaLp());
+        meta.addView(syncTag, metaLp());
         main.addView(meta, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 5, 0, 0));
 
         transcribe = Ui.smallButton(c, "转写");
@@ -172,7 +175,7 @@ public class CardRow extends LinearLayout {
         more.setOnClickListener(l);
     }
 
-    public void bind(RecordVm vm, UiSettings s, String catName, String sourceLabel) {
+    public void bind(RecordVm vm, UiSettings s, String catName, String sourceLabel, int syncState) {
         boolean defT = vm.isDefaultTitle();
         title.setText(defT ? vm.displayTitle()
                 : (vm.title.length() == 0 ? "未命名录音" : vm.title));
@@ -256,6 +259,21 @@ public class CardRow extends LinearLayout {
         if (src != null) {
             sourceTag.setText(src);
             styleTag(sourceTag, true);
+        }
+
+        // 服务器同步状态（未配服务器/无音频不显示）。失败用红色徽标点出——
+        // 与"待处理原因"（转写链路）分开：上传是同步链路的问题。
+        if (syncState == ServerSync.SYNC_FAIL) {
+            syncTag.setText("上传失败");
+            syncTag.setTextColor(Ui.DANGER);
+            syncTag.setBackground(Ui.rounded(5, 0x0FC98B8B, Ui.DANGER_LINE, 1));
+            syncTag.setVisibility(VISIBLE);
+        } else if (syncState == ServerSync.SYNC_OK || syncState == ServerSync.SYNC_WAIT) {
+            syncTag.setText(syncState == ServerSync.SYNC_OK ? "已同步" : "待上传");
+            styleTag(syncTag, false);
+            syncTag.setVisibility(VISIBLE);
+        } else {
+            syncTag.setVisibility(GONE);
         }
 
         wantTranscribe = "raw".equals(vm.status()) && vm.hasAudio();
