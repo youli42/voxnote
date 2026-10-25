@@ -70,6 +70,11 @@ $d8bat      = Find-One 'd8.bat' $Sdk
 $zipalign   = Find-One 'zipalign.exe' $Sdk
 $apksigner  = Find-One 'apksigner.jar' $Sdk
 
+# 第三方纯 Java 依赖（jar 放 android\libs，一并进 javac classpath 和 dex）
+$libs = Get-ChildItem (Join-Path $here 'libs') -Filter *.jar -ErrorAction SilentlyContinue |
+    ForEach-Object { $_.FullName }
+$cp = (@($androidJar) + $libs) -join ';'
+
 Write-Output "JDK       : $javaHome"
 Write-Output "android.jar: $androidJar"
 Write-Output "aapt2     : $aapt2"
@@ -81,17 +86,17 @@ New-Item -ItemType Directory -Force -Path "$build\classes", "$build\dex" | Out-N
 Write-Output '--- 1/5 javac ---'
 $sources = Get-ChildItem "$here\src" -Recurse -Filter *.java | ForEach-Object { $_.FullName }
 & $javac -encoding UTF-8 -nowarn -Xlint:-options -source 8 -target 8 `
-    -classpath $androidJar -d "$build\classes" $sources
+    -classpath $cp -d "$build\classes" $sources
 if ($LASTEXITCODE -ne 0) { throw "javac 失败" }
 
 Write-Output '--- 2/5 d8 ---'
 # 类文件多了以后，把几百个 .class 路径直接拼进命令行会超过 Windows 限制；
-# 先打成 classes.jar 再交给 d8。
+# 先打成 classes.jar 再交给 d8。第三方 jar 作为程序输入一起 dex（打同一个 classes.dex）。
 $jar = Find-One 'jar.exe' $Toolchain
 $classesJar = "$build\classes.jar"
 & $jar cf $classesJar -C "$build\classes" .
 if ($LASTEXITCODE -ne 0) { throw "打包 classes.jar 失败" }
-& $d8bat --min-api $MinSdk --release --lib $androidJar --output "$build\dex" $classesJar
+& $d8bat --min-api $MinSdk --release --lib $androidJar --output "$build\dex" (@($classesJar) + $libs)
 if ($LASTEXITCODE -ne 0) { throw "d8 失败" }
 
 Write-Output '--- 3/5 aapt2 link ---'

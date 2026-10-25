@@ -9,9 +9,10 @@ import datetime
 import os
 import re
 import secrets
+import socket
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 
@@ -25,7 +26,7 @@ def stats():
     return build_stats()
 
 
-SECRET_KEYS = {"cloud_asr_key", "ai_key"}
+SECRET_KEYS = {"cloud_asr_key", "ai_key", "sync_password"}
 
 
 def build_stats() -> dict:
@@ -102,6 +103,7 @@ class SettingsPatch(BaseModel):
     # 密钥与令牌：传非空才写（掩码回传不算更改）
     cloud_asr_key: Optional[str] = None
     ai_key: Optional[str] = None
+    sync_password: Optional[str] = None
 
 
 @router.patch("/settings")
@@ -127,6 +129,41 @@ def reset_token():
     token = "vn-" + secrets.token_hex(8)
     db.set("sync_token", token)
     return {"sync_token": token}
+
+
+def _local_ips() -> list:
+    """本机所有 IPv4（排除链路本地 169.254.*）：多网卡/虚拟组网（Tailscale、
+    ZeroTier）时控制台让用户挑哪个 IP 生成配对码。UDP connect 探测出的主 IP 排最前。"""
+    ips = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("10.255.255.255", 1))
+            ips.append(s.getsockname()[0])
+        finally:
+            s.close()
+    except OSError:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if ip.startswith("169.254.") or ip in ips:
+                continue
+            ips.append(ip)
+    except OSError:
+        pass
+    return ips
+
+
+@router.get("/settings/pair-info")
+def pair_info(request: Request):
+    """扫码配对原料：本机 IP 候选、端口（取控制台当前访问用的）、令牌。
+    二维码由控制台前端生成，服务端不引 QR 依赖。"""
+    host = request.headers.get("host", "")
+    port = host.rsplit(":", 1)[1] if ":" in host else "8787"
+    return {"ips": _local_ips(), "port": port,
+            "token": db.get("sync_token", ""),
+            "password_set": bool(db.get("sync_password"))}
 
 
 @router.get("/storage")

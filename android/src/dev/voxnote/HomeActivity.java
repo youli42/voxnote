@@ -51,6 +51,7 @@ import java.util.List;
 public class HomeActivity extends Activity implements Picker.Host {
 
     private static final int REQ_PERMS = 7;
+    private static final int REQ_CAM = 8;
     private static final int REQ_TREE = 8;
     private static final int MAX_REC_SEC = 3600;
 
@@ -260,9 +261,13 @@ public class HomeActivity extends Activity implements Picker.Host {
     }
 
     /**
-     * 配对入口：am start --es server_url http://… --es server_token vn-… [--es sync_now 1]
-     * 给 adb / 桌面端一条命令完成配对。地址与令牌只在还没配置过服务器时生效 ——
-     * 已配置的机器不允许被任何外部应用改写上传目标（否则等于给了个偷传录音的口子）；
+     * 配对入口，两个来源：
+     *   1. am start --es server_url http://… --es server_token vn-… [--es sync_now 1]
+     *      给 adb / 桌面端一条命令完成配对；
+     *   2. voxnote://pair?host=…&t=… —— Web 控制台扫码配对的 deep link（相机扫码
+     *      → pair.html 中转 → 本 App）。
+     * 地址与令牌只在还没配置过服务器时生效 —— 已配置的机器不允许被任何外部输入
+     * 改写上传目标（否则等于给了个偷传录音的口子）；想换服务器先在设置里清空。
      * sync_now 只是用既有配置跑一轮同步，随时允许。
      */
     private void applyPairingIntent() {
@@ -272,7 +277,16 @@ public class HomeActivity extends Activity implements Picker.Host {
             String url = i.getStringExtra("server_url");
             String token = i.getStringExtra("server_token");
             String syncNow = i.getStringExtra("sync_now");
+            // deep link：host 参数是 "ip:port"，t 是令牌或连接密码
+            android.net.Uri d = i.getData();
+            if (d != null && "voxnote".equals(d.getScheme()) && "pair".equals(d.getHost())) {
+                String h = d.getQueryParameter("host");
+                String t = d.getQueryParameter("t");
+                if (h != null && h.trim().length() > 0) url = "http://" + h.trim();
+                if (t != null && t.trim().length() > 0) token = t.trim();
+            }
             if (url == null && token == null && syncNow == null) return;
+            boolean applied = false;
             if ((url != null || token != null) && serverSync.configured()) {
                 toast("服务器已配置，忽略配对参数");
             } else {
@@ -287,15 +301,74 @@ public class HomeActivity extends Activity implements Picker.Host {
                 }
                 if (dirty) {
                     settings.save();
+                    applied = true;
                     toast("已配对服务器");
                     if (settingsPage != null) settingsPage.refresh();
+                    switchTab("settings"); // 扫码来的直接亮出填好的配置，方便顺手点测试
                 }
             }
             if ("1".equals(syncNow) && serverSync.configured()) {
                 pendingSync = true;
                 load(false, null, false);
             }
+            if (applied) setIntent(new Intent(this, HomeActivity.class)); // 防止返回/转屏重放配对
         } catch (Throwable ignore) { }
+    }
+
+    // ------------------------------------------------------------ App 内扫码配对
+
+    /** 设置页「扫码配对」：先要相机权限（扫码才要，不在启动时一起要），再开 ScanSheet。 */
+    private void askCameraThenScan() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            openScanSheet();
+            return;
+        }
+        requestPermissions(new String[]{Manifest.permission.CAMERA}, REQ_CAM);
+    }
+
+    private void openScanSheet() {
+        final ScanSheet sheet = new ScanSheet(this, new ScanSheet.Listener() {
+            public void onScanned(String text) {
+                applyPairingScan(text);
+            }
+
+            public void onClosed() {
+                removeOverlay(scanSheet);
+                scanSheet = null;
+            }
+        });
+        scanSheet = sheet;
+        pushOverlay(sheet);
+        sheet.show();
+    }
+
+    private ScanSheet scanSheet;
+
+    /**
+     * 解析扫到的配对码并直接填入（App 内主动扫码＝用户明确要换配置，
+     * 与 applyPairingIntent 的外部输入不改写规则不同）。
+     * 认两种格式：控制台二维码里的 pair.html 链接、pair.html 中转后的
+     * voxnote://pair deep link——参数都是 host=ip:port & t=凭据。
+     */
+    private void applyPairingScan(String text) {
+        if (text == null) return;
+        try {
+            Uri u = Uri.parse(text.trim());
+            String host = u.getQueryParameter("host");
+            String token = u.getQueryParameter("t");
+            if (host == null || host.trim().length() == 0
+                    || token == null || token.trim().length() == 0) {
+                toast("二维码里没有配对信息");
+                return;
+            }
+            settings.serverUrl = "http://" + host.trim();
+            settings.serverToken = token.trim();
+            settings.save();
+            toast("已配对服务器 " + settings.serverUrl);
+            if (settingsPage != null) settingsPage.refresh();
+        } catch (Throwable t) {
+            toast("二维码解析失败");
+        }
     }
 
     /** 启动时清掉上次进程被杀 / 中断残留的临时录音（此刻不可能有正在发布的文件）。 */
@@ -791,6 +864,10 @@ public class HomeActivity extends Activity implements Picker.Host {
 
         public String autoDeviceName() {
             return serverSync.autoDeviceName();
+        }
+
+        public void onScanPair() {
+            askCameraThenScan();
         }
 
         public void onServerTest() {
@@ -1385,6 +1462,12 @@ public class HomeActivity extends Activity implements Picker.Host {
         if (code == REQ_PERMS) {
             load(false, null, false);
             if (settingsPage != null) settingsPage.refresh();
+        } else if (code == REQ_CAM) {
+            // 扫码才用的权限：拒绝就停在原地，不再追问
+            if (res != null && res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED
+                    && scanSheet == null) {
+                openScanSheet();
+            }
         }
     }
 

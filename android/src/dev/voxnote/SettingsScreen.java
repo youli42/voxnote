@@ -55,6 +55,9 @@ public class SettingsScreen {
         /** 不看用户设置、直接从系统取的本机设备名（设备名输入框的留空提示用）。 */
         String autoDeviceName();
 
+        /** 打开扫码配对（App 内相机识别控制台二维码，直接填地址与凭据）。 */
+        void onScanPair();
+
         /** 测试服务器连通（异步，结果由宿主 toast）。 */
         void onServerTest();
 
@@ -274,6 +277,20 @@ public class SettingsScreen {
 
         // ---------------- 服务器（自托管 voxnote server：推音频、拉转写稿）
         LinearLayout srvGroup = Ui.group(act, "服务器");
+        LinearLayout scanRow = Ui.row(act);
+        Ui.pad(scanRow, 0, 8, 0, 8);
+        TextView scanBtn = Ui.button(act, "扫码配对", 12f, false);
+        scanBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                host.onScanPair();
+            }
+        });
+        scanRow.addView(scanBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
+        scanRow.addView(Ui.text(act, "扫控制台上的配对二维码，地址与令牌自动填入", 10.5f, Ui.FAINT),
+                Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        srvGroup.addView(scanRow);
+        srvGroup.addView(Ui.divider(act));
         srvGroup.addView(inputBlock("服务器地址", s.serverUrl, InputType.TYPE_TEXT_VARIATION_URI, true, new OnText() {
             public void onText(String v) {
                 s.serverUrl = v;
@@ -282,7 +299,8 @@ public class SettingsScreen {
         }));
         srvGroup.addView(Ui.divider(act));
         srvGroup.addView(inputBlock("配对令牌", s.serverToken,
-                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, true, new OnText() {
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, true,
+                "扫码配对自动填入；也可手填令牌或自设连接密码", new OnText() {
                     public void onText(String v) {
                         s.serverToken = v;
                         s.save();

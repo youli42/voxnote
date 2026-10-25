@@ -93,6 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state, id);
 # 控制台可读写、首次启动给默认值的设置项（其余键只读展示）
 SETTING_DEFAULTS = {
     "sync_token": "",            # 首次启动自动生成
+    "sync_password": "",         # 用户自设的连接密码；非空时与令牌等效（App 端填在令牌处）
     "default_engine": "whisper-local",
     "auto_transcribe": "1",      # 同步/导入后自动入队
     "whisper_model": "small",    # tiny/base/small/medium/large-v3
@@ -163,8 +164,13 @@ def set(k: str, v):
 
 
 def check_token(given: str) -> bool:
+    """Bearer 凭据核对：自动生成的令牌，或用户在控制台自设的连接密码（后者便于口头告知/手输）。"""
+    given = given or ""
     want = get("sync_token") or ""
-    return bool(want) and secrets.compare_digest(want, given or "")
+    if want and secrets.compare_digest(want, given):
+        return True
+    pw = get("sync_password") or ""
+    return bool(pw) and secrets.compare_digest(pw, given)
 
 
 # ------------------------------------------------------------ 记录

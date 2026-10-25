@@ -17,7 +17,10 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- 服务器同步（旧版只在 WebView 里发请求，权限是给原生同步客户端补的） -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- App 内扫码配对（运行时申请，只在打开扫码时用） -->
+    <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:label="voxnote"
@@ -36,6 +39,13 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- 扫码配对：Web 控制台二维码 → pair.html 中转 → voxnote://pair?host=…&t=… -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="voxnote" android:host="pair" />
             </intent-filter>
         </activity>
     </application>

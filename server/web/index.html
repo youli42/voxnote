@@ -561,6 +561,7 @@
 <input type="file" id="fileInput" accept=".m4a,.mp4,.aac,.wav,.mp3,.amr,.ogg,.3gp" multiple style="display:none">
 
 <script src="vendor/wavesurfer.min.js"></script>
+<script src="vendor/qrcode.min.js"></script>
 <script>
 /* ================= 基础 ================= */
 var API = '/api/v1';
@@ -2032,8 +2033,13 @@ function renderSet(){
         '<span class="hint" style="font-size:10.5px;color:var(--dim);margin-left:8px">配置写入 '+esc(st.config_file||'data/config.json')+'</span>')+
       '</div>'+
       '<div class="card"><h3>设备与访问</h3>'+
-      row('配对令牌','App 端「设置 → 服务器」中填入','<span class="tok">'+esc(s.sync_token)+'</span><button class="btn sm" id="btnCopyTok">复制</button>')+
+      row('扫码配对','手机相机扫码后跳转 VoxNote 填入；多网卡/虚拟组网时选手机能访问的那个 IP','<select id="pairIp" style="max-width:220px"></select> <button class="btn sm" id="btnPairQr">生成二维码</button><div id="pairQr" style="margin-top:8px"></div>')+
+      row('配对令牌','App 端「设置 → 服务器」中填入；也可填下面的连接密码','<span class="tok">'+esc(s.sync_token)+'</span><button class="btn sm" id="btnCopyTok">复制</button>')+
       row('重置令牌','旧令牌立即失效，设备需更新','<button class="btn sm" id="btnResetTok">重置</button>')+
+      row('连接密码','可选。不想复制长令牌时，App 端在「配对令牌」处填这个密码即可','<input type="password" id="pairPw" placeholder="'+(s.sync_password_set?'••••••••••••':'留空则只用令牌')+'" style="width:190px">'+
+        '<button class="btn sm" id="btnPwSave">保存</button>'+
+        (s.sync_password_set?'<button class="btn sm" id="btnPwClear">清除</button>':'')+
+        '<span class="hint" style="font-size:10.5px;color:var(--dim);margin-left:8px">'+(s.sync_password_set?'已启用':'未设置')+'</span>')+
       '</div>';
   }
   g.innerHTML=tabs+b;
@@ -2078,6 +2084,46 @@ function renderSet(){
     document.getElementById('btnResetTok').onclick=function(){
       if(!confirm('重置后旧令牌立即失效，已配对设备需要更新令牌。继续？'))return;
       api('/settings/reset-token',{method:'POST'}).then(function(r){toast('新令牌：'+r.sync_token);loadSettings();});
+    };
+    /* 扫码配对：QR 内容是 http 中转页（pair.html），任何相机扫码都认；
+       中转页再跳 voxnote:// deep link 进 App。IP 由用户选——虚拟组网
+       （Tailscale/ZeroTier）时手机走的是虚拟网卡地址，不是主 IP。 */
+    var pairInfo=null;
+    function pairUrl(ip){
+      if(!pairInfo)return '';
+      var host=ip+':'+pairInfo.port;
+      return 'http://'+host+'/pair.html?host='+encodeURIComponent(host)+'&t='+encodeURIComponent(pairInfo.token);
+    }
+    function drawPairQr(){
+      var sel=document.getElementById('pairIp'),box=document.getElementById('pairQr');
+      if(!sel||!box||!pairInfo)return;
+      var ip=sel.value;
+      if(!ip){box.innerHTML='';return;}
+      try{
+        var q=qrcode(0,'M'); q.addData(pairUrl(ip)); q.make();
+        box.innerHTML=q.createSvgTag({cellSize:4,margin:2});
+      }catch(e){ box.innerHTML='<span class="hint">生成失败：'+esc(String(e))+'</span>'; }
+    }
+    api('/settings/pair-info').then(function(info){
+      pairInfo=info;
+      var sel=document.getElementById('pairIp');
+      if(!sel)return;
+      sel.innerHTML=(info.ips||[]).map(function(ip){return '<option>'+esc(ip)+'</option>';}).join('')||'<option value="">无可用 IP</option>';
+      sel.onchange=drawPairQr;
+      drawPairQr();
+    }).catch(function(){});
+    document.getElementById('btnPairQr').onclick=drawPairQr;
+    document.getElementById('btnPwSave').onclick=function(){
+      var v=document.getElementById('pairPw').value;
+      if(!v){toast('先输入密码');return;}
+      api('/settings',{method:'PATCH',body:{sync_password:v}}).then(function(){toast('连接密码已保存');loadSettings();})
+        .catch(function(e){toast(e.message);});
+    };
+    var pwClear=document.getElementById('btnPwClear');
+    if(pwClear)pwClear.onclick=function(){
+      if(!confirm('清除后设备只能用令牌连接。继续？'))return;
+      api('/settings',{method:'PATCH',body:{sync_password:''}}).then(function(){toast('已清除连接密码');loadSettings();})
+        .catch(function(e){toast(e.message);});
     };
     document.getElementById('btnSaveStorage').onclick=function(){
       api('/storage',{method:'PATCH',body:{
