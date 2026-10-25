@@ -38,6 +38,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   POST /api/v1/sync/upload                   音频 + meta（multipart），幂等键 stamp
  *   GET  /api/v1/sync/records?since=           增量枚举（游标 = updated_at）
  *   GET  /api/v1/sync/records/{id}/transcript  生效转写稿（JSONL）
+ *   POST /api/v1/sync/records/{id}/transcribe  触发服务器（重）转写
  *
  * 方向：推（把本地音频传上服务器）+ 拉（把服务器转好的稿子回填成本地 <stamp>.md）。
  * 回填规则：本地没有文稿的直接写；服务器回填过的场次有更新（含转写进行中的增量）就覆盖重写；
@@ -305,6 +306,34 @@ public class ServerSync {
                     err = readable(t);
                 }
                 deliver(cb, err, err == null ? "已重新上传" : "", err == null);
+            }
+        });
+    }
+
+    /** 让服务器（重）转写一场：还没传过（或文件变了）先补传，再 POST 触发入队。
+     *  引擎留空 = 服务器配置的默认引擎；新稿转好后由 pollLive/同步增量回填。 */
+    public void transcribeRemote(final RecordVm vm, final ResultCallback cb) {
+        if (!configured()) {
+            deliver(cb, "未配置服务器地址", "", false);
+            return;
+        }
+        final HashMap<String, String> catNames = s.catNameSnapshot();
+        io.execute(new Runnable() {
+            public void run() {
+                String err = null, msg = "";
+                try {
+                    String marker = markerOf(vm);
+                    boolean uploaded = marker.length() > 0
+                            && marker.equals(prefs.getString("up." + vm.id, ""));
+                    if (!uploaded) pushOne(vm, catNames);
+                    // 服务器真实 id：push 记过映射用映射，否则同名直连
+                    String srvId = prefs.getString("srvid." + vm.id, vm.id);
+                    httpPost(api() + "/records/" + srvId + "/transcribe", "{}");
+                    msg = uploaded ? "已请求服务器转写" : "已上传并请求转写";
+                } catch (Throwable t) {
+                    err = readable(t);
+                }
+                deliver(cb, err, msg, err == null);
             }
         });
     }
@@ -874,6 +903,23 @@ public class ServerSync {
     private String httpGet(String url) throws Exception {
         HttpURLConnection c = open(url, 30000);
         try {
+            check(c, 200);
+            return readAll(c);
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    /** 小 JSON POST（触发转写、改服务器配置）。 */
+    private String httpPost(String url, String json) throws Exception {
+        HttpURLConnection c = open(url, 30000);
+        try {
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "application/json");
+            OutputStream out = c.getOutputStream();
+            out.write(json.getBytes("UTF-8"));
+            out.close();
             check(c, 200);
             return readAll(c);
         } finally {

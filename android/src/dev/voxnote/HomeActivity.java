@@ -1343,6 +1343,19 @@ public class HomeActivity extends Activity implements Picker.Host {
     }
 
     private void transcribe(final RecordVm vm) {
+        // 配了服务器且有音频：转写发生在服务器（本地不转）。没传过/文件变了先补传，
+        // 再触发入队；新稿转好后由前台轮询（livePoll）增量回填到列表和详情。
+        if (serverSync != null && serverSync.configured() && vm.hasAudio()) {
+            toast("正在请求服务器转写…");
+            serverSync.transcribeRemote(vm, new ServerSync.ResultCallback() {
+                public void onResult(String err, String msg, boolean changed) {
+                    toast(err == null ? msg : "转写请求失败：" + err);
+                    rebuildSyncStates();
+                    adapter.notifyDataSetChanged();
+                }
+            });
+            return;
+        }
         toast("转写：正在重扫外部来源…");
         final int keepPos = list.getFirstVisiblePosition();
         final View keep = list.getChildAt(0);
