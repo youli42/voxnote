@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS records(
   audio_path TEXT,
   audio_name TEXT NOT NULL DEFAULT '',
   bytes INTEGER NOT NULL DEFAULT 0,
+  marks TEXT NOT NULL DEFAULT '[]',  -- App 端打点标记（秒，JSON 数组；设备间同步）
   created_at INTEGER NOT NULL,     -- 录音时间（优先来自元数据）
   updated_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_records_created ON records(created_at DESC);
@@ -141,6 +142,8 @@ def _migrate(c):
         c.execute("ALTER TABLE records ADD COLUMN error_detail TEXT NOT NULL DEFAULT ''")
     if "device" not in cols:
         c.execute("ALTER TABLE records ADD COLUMN device TEXT NOT NULL DEFAULT ''")
+    if "marks" not in cols:
+        c.execute("ALTER TABLE records ADD COLUMN marks TEXT NOT NULL DEFAULT '[]'")
     # 同一记录只允许一个排队/进行中的任务（enqueue 的查-插间隙靠它兜底）。
     # 老库可能已有多余任务（并发展撞出来的），先清掉再建索引，否则建索引失败。
     c.execute("UPDATE jobs SET state='cancel', finished_at=? WHERE state IN ('queued','running')"

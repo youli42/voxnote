@@ -8,6 +8,7 @@
   GET  /records/{id}/audio        下载音频原件
   GET  /records/{id}/transcript   生效转写稿（机器层 + 人工修订合并，JSONL）
   POST /records/{id}/transcribe   设备端触发（重）转写
+  POST /records/{id}/meta         设备端改元数据（标题改名、打点标记）
   GET  /asr-config                 读服务器转写配置（引擎 / Whisper 模型清单）
   POST /asr-config                 改默认引擎与 Whisper 模型
 """
@@ -51,6 +52,7 @@ class UploadMeta(BaseModel):
     device: str = ""           # 上传设备名（控制台可当标签看）
     recorded_at: int = 0       # 毫秒时间戳（缺省 = stamp / 当前）
     dur_ms: int = 0            # 已知时长（可无，转写后覆盖）
+    marks: list = None         # 打点标记（秒；随录音一起上来的初始值）
 
 
 @router.post("/upload")
@@ -62,18 +64,20 @@ async def upload(meta: str = Form(default=""), file: UploadFile = File(...), _: 
         raise HTTPException(400, "meta 不是合法 JSON")
     rec = await save_upload(file, src="app", stamp=m.stamp, title=m.title, cat=m.cat,
                             mode=m.mode, sid=m.sid, device=m.device,
-                            recorded_at=m.recorded_at, dur_ms=m.dur_ms)
+                            recorded_at=m.recorded_at, dur_ms=m.dur_ms,
+                            marks=_clean_marks(m.marks))
     return {"id": rec["id"], "bytes": rec["bytes"], "status": rec["status"]}
 
 
 async def save_upload(file: UploadFile, *, src: str, stamp: str = "", title: str = "",
                       cat: str = "", mode: str = "", sid: int = 0, device: str = "",
-                      recorded_at: int = 0, dur_ms: int = 0):
+                      recorded_at: int = 0, dur_ms: int = 0, marks: str = "[]"):
     """上传音频落盘 + 登记 + 自动入队（设备同步与控制台导入共用）。
 
     并发安全：先写同目录唯一临时文件（同秒并发互不覆盖），记录插入成功后
     才改名为最终名；主键撞车（unique_record_id 的查-用间隙被并发穿过）时
     换 -2/-3 后缀重试，不再出现后写者覆盖先写者音频的错位。
+    marks 传已序列化的 JSON 数组文本（None → '[]'）。
     """
     name = os.path.basename(file.filename or "")
     ext = os.path.splitext(name)[1].lower()
@@ -114,7 +118,8 @@ async def save_upload(file: UploadFile, *, src: str, stamp: str = "", title: str
                 rec = db.insert_record(
                     id=rid, sid=sid or 0, title=title or "", cat=cat or None, mode=mode or "",
                     src=src, device=device or "", dur_ms=dur_ms or 0, status="raw", created_at=ts,
-                    audio_path=os.path.join(dest_dir, rid + ext), audio_name=name, bytes=size)
+                    audio_path=os.path.join(dest_dir, rid + ext), audio_name=name, bytes=size,
+                    marks=marks or "[]")
             except sqlite3.IntegrityError:
                 continue  # 并发先插了同 id：换后缀重来
             try:
@@ -157,15 +162,41 @@ def _stamp_ms(stamp: str) -> int:
 def list_records(since: int = 0, _: None = Depends(auth)):
     rows = db.conn().execute(
         "SELECT id, title, cat, mode, dur_ms, status, engine, device, src, bytes,"
-        " audio_name, updated_at"
+        " audio_name, marks, updated_at"
         " FROM records WHERE updated_at > ? ORDER BY updated_at, id LIMIT 500", (since,)).fetchall()
     previews = _previews([r["id"] for r in rows])
     out = []
     for r in rows:
         d = dict(r)
         d["preview"] = previews.get(r["id"], "")
+        d["marks"] = _parse_marks(d.get("marks"))
         out.append(d)
     return {"records": out, "server_time": db.now_ms()}
+
+
+def _clean_marks(v, cap=500):
+    """设备端打点标记：数值列表 → 序列化 JSON 文本；None → None（不改动）。"""
+    if v is None:
+        return None
+    if not isinstance(v, list):
+        raise HTTPException(400, "marks 必须是数值数组")
+    out = []
+    for x in v[:cap]:
+        try:
+            out.append(round(float(x), 3))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "marks 必须是数值数组")
+    import json as _json
+    return _json.dumps(out)
+
+
+def _parse_marks(text):
+    import json
+    try:
+        v = json.loads(text or "[]")
+        return v if isinstance(v, list) else []
+    except Exception:
+        return []
 
 
 def _previews(ids, cap=120):
@@ -235,6 +266,33 @@ def sync_transcribe(rid: str, req: TranscribeReq, _: None = Depends(auth)):
     from .api_records import enqueue_transcribe
     job_id = enqueue_transcribe(rid, req.engine)
     return {"ok": True, "job": job_id}
+
+
+# ------------------------------------------------------------ 设备端改元数据（改名 / 打点标记）
+
+class MetaPatch(BaseModel):
+    title: str = ""      # 空 = 不改；非空 = 改名
+    marks: list = None   # 缺省 = 不改；[] = 清空标记
+
+
+@router.post("/records/{rid}/meta")
+def sync_meta(rid: str, p: MetaPatch, _: None = Depends(auth)):
+    """App 端改名 / 打点的上推落点：只动记录级元数据，不碰逐句层。
+    改动会推 updated_at，其它设备靠增量拉取看到；返回改后的完整元数据
+    （设备端记成"服务器已知值"基线）。"""
+    row = db.record_row(rid)
+    if row is None:
+        raise HTTPException(404, "记录不存在")
+    kw = {}
+    if p.title and p.title.strip():
+        kw["title"] = p.title.strip()[:200]
+    mk = _clean_marks(p.marks)
+    if mk is not None:
+        kw["marks"] = mk
+    if kw:
+        db.update_record(rid, **kw)
+    row = db.record_row(rid)
+    return {"ok": True, "title": row["title"], "marks": _parse_marks(row["marks"])}
 
 
 # ------------------------------------------------------------ 服务器转写配置（App 设置页）
