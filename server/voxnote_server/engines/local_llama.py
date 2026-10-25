@@ -7,6 +7,7 @@ llama-server 子进程（-m 主模型 --mmproj 编码器），引擎通过其 Op
 
 Qwen3-ASR 不输出时间戳：整段音频返回一句，t_ms=0 / e_ms=录音时长。
 """
+import atexit
 import os
 import re
 import subprocess
@@ -231,6 +232,19 @@ def stop_server():
                 p.kill()
             except Exception:
                 pass
+
+
+def _reap_on_exit():
+    """atexit 兜底回收 llama-server：uvicorn 收到第二次 Ctrl+C 走 force 退出，
+    会跳过应用的 lifespan 关闭（stop_server 不执行），子进程变孤儿占着几百
+    MB 内存。正常关闭时 lifespan 已回收，这里是无害的空操作。"""
+    try:
+        stop_server()
+    except Exception:
+        pass
+
+
+atexit.register(_reap_on_exit)
 
 
 def to_wav16k(audio_path: str, record_id: str) -> str:
