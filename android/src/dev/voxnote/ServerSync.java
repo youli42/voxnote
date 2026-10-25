@@ -226,6 +226,25 @@ public class ServerSync {
 
     // ------------------------------------------------------------ 元数据上推（改名 / 打点标记）
 
+    /** 旧版上传的场次服务器上没有来源设备名（device 上报是后来才加的，音频
+     *  没变过也不会重传）：本机持有音频（up 标记）就认领补报。只在服务器为空时
+     *  认领——谁先同步谁的名字落上，非空后别的设备不再抢；服务器侧同样只写空缺。
+     *  返回是否补报成功。 */
+    private boolean claimDevice(String srvId) {
+        try {
+            httpPost(api() + "/records/" + srvId + "/meta",
+                    new JSONObject().put("device", deviceName()).toString());
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 这场能不能由本机认领来源：本机持有音频（自己录的或下载过，有 up 标记）。 */
+    private boolean canClaimDevice(RecordVm vm) {
+        return vm.hasAudio() && prefs.contains("up." + vm.id);
+    }
+
     /** 标题归一：默认标题（「录音 HH:MM」）或空 → ""，比较基线用。 */
     private static String normTitle(String t) {
         String v = t == null ? "" : t.trim();
@@ -663,6 +682,10 @@ public class ServerSync {
             }
             String id = vm.id;                     // 本地 id：md 文件名与持久标记都按它
             ed.putBoolean("srvup." + id, true);    // 服务器认识这场：改名/打点可以上推
+            // 旧版上传没带过来源：本机持有音频就认领补报（只在服务器为空时）
+            if (o.optString("device", "").length() == 0 && canClaimDevice(vm)) {
+                claimDevice(srvId);
+            }
             // 标签回填：与转写回填独立，本地稿子受保护也不影响
             String srvCat = o.optString("cat", "");
             if (srvCat.length() > 0 && !srvCat.equals(nameOf(catNames, vm.cat))) {
@@ -899,6 +922,7 @@ public class ServerSync {
                             // ---- 本机没有这场：文稿必拉（有稿的），音频看开关
                             boolean hasTranscript = "done".equals(status) || "asr".equals(status);
                             boolean gotAudio = prefs.getString("up." + srvId, "").length() > 0;
+                            boolean srvNoDevice = o.optString("device", "").length() == 0;
                             if (!hasTranscript && !wantAudio) continue;
                             if (hasTranscript && prefs.getLong("tr." + srvId, 0) < upd) {
                                 String jsonl = httpGet(api() + "/records/" + srvId + "/transcript");
@@ -911,6 +935,8 @@ public class ServerSync {
                                 downloadAudio(srvId, o.optString("audio_name", ""));
                                 audio++;
                             }
+                            // 取回了音频（现在本机持有）且服务器没来源：认领补报
+                            if (srvNoDevice && prefs.contains("up." + srvId)) claimDevice(srvId);
                             ed.putBoolean("srvup." + srvId, true);   // 服务器认识：本地改名可推
                             if (!prefs.getBoolean("srv." + srvId, false)) ed.putBoolean("srv." + srvId, true);
                             if (srvCat.length() > 0) {
@@ -929,6 +955,10 @@ public class ServerSync {
                             // ---- 本机已有：只同步元数据（转写走增量 pull，不整库重拉）
                             String id = vm.id;
                             ed.putBoolean("srvup." + id, true);
+                            // 旧版上传没带过来源：本机持有音频就认领（只在服务器为空时）
+                            if (o.optString("device", "").length() == 0 && canClaimDevice(vm)) {
+                                claimDevice(srvId);
+                            }
                             // 没音频又没被本机推过 = 上一版拉回的云端文稿：补记云端标记
                             if (!vm.hasAudio() && !mappedLocal.contains(id)) {
                                 ed.putBoolean("srv." + id, true);
