@@ -5,7 +5,9 @@ HuggingFace 量化仓库（默认走 hf-mirror.com 镜像，国内可达）。�
 llama-server 子进程（-m 主模型 --mmproj 编码器），引擎通过其 OpenAI 兼容
 /v1/audio/transcriptions 端点转写。
 
-Qwen3-ASR 不输出时间戳：整段音频返回一句，t_ms=0 / e_ms=录音时长。
+Qwen3-ASR 不输出时间戳：整段音频返回一句。长音频按静音边界切段逐块转写
+（llama-server 的上下文装不下整段，见 _AUDIO_TOK_PER_SEC），段落时间戳
+就是各块的时间范围，粒度比分块大小粗。
 """
 import atexit
 import os
@@ -25,6 +27,40 @@ _state = {
     "proc": None,
     "lock": threading.Lock(),
 }
+
+# ------------------------------------------------------------ 长音频分段转写
+# llama-server 把音频按 token 计入上下文（实测 Qwen3-ASR ≈ 13 token/s），
+# 装不下就 400 exceed_context_size_error：4096 只够约 4 分钟；一小时的录音
+# 调大 ctx 也装不下（KV 缓存随 ctx 暴涨）。做法：整段先试，超限错误里带着
+# 实测 n_prompt_tokens / n_ctx——据此反推本机装得下的单块秒数，按静音边界
+# 切段逐块转写拼接；学到的预算记在 _state，后续长音频直接走分段。
+_CTX_SPAWN = 8192             # 启动上下文：4096 只够 ~4 分钟；8192 约 9 分半/块
+_AUDIO_TOK_PER_SEC = 13.0     # 实测均值；超限时用错误里的真实值重算
+_CTX_RESERVE = 700            # 输出文本 + 提示模板的余量（token）
+_MIN_CHUNK_SEC = 30           # 自适应缩块下限，更小说明 ctx 异常
+_BOUNDARY_SEARCH_SEC = 10.0   # 切点在目标位置 ±10s 内找最安静的 300ms
+
+
+class _ContextExceeded(Exception):
+    def __init__(self, n_prompt, n_ctx):
+        Exception.__init__(self, "prompt %d tokens > ctx %d" % (n_prompt, n_ctx))
+        self.n_prompt = n_prompt
+        self.n_ctx = n_ctx
+
+
+def _parse_exceed(resp):
+    """llama-server 的超上下文 400 → _ContextExceeded（带实测 token 数），其余 None。"""
+    if resp.status_code != 400:
+        return None
+    try:
+        e = resp.json().get("error") or {}
+        if e.get("type") == "exceed_context_size_error" \
+                or "exceeds the available context size" in str(e.get("message", "")):
+            return _ContextExceeded(int(e.get("n_prompt_tokens") or 0),
+                                    int(e.get("n_ctx") or 0))
+    except Exception:
+        pass
+    return None
 
 
 def model_dir():
@@ -206,10 +242,11 @@ def start_server():
             return
         args = [exe, "-m", m["main"], "--mmproj", m["mmproj"],
                 "--host", "127.0.0.1", "--port", str(_port()),
-                "-c", "4096", "-ngl", "99"]
+                "-c", str(_CTX_SPAWN), "-ngl", "99"]
         log = open(os.path.join(model_dir(), "llama-server.log"), "ab")
         _state["proc"] = subprocess.Popen(args, stdout=log, stderr=log, cwd=model_dir())
         log.close()  # 子进程已继承句柄；父进程不关的话每次启停泄漏一个 fd
+        _state.pop("chunk_sec", None)  # 新进程的上下文可能变了，重新学
     for _ in range(240):  # 首次加载模型可能要几分钟
         if _healthy():
             return
@@ -281,10 +318,96 @@ def to_wav16k(audio_path: str, record_id: str) -> str:
     return out_path
 
 
+# ------------------------------------------------------------ wav 分段工具（纯 stdlib）
+
+def _wav_info(path):
+    """(rate, ch, width, frames)；不是标准 PCM wav 返回 None。"""
+    import wave
+    try:
+        with wave.open(path, "rb") as w:
+            return (w.getframerate(), w.getnchannels(), w.getsampwidth(), w.getnframes())
+    except Exception:
+        return None
+
+
+def _read_wav_frames(path, f0, f1):
+    import wave
+    with wave.open(path, "rb") as w:
+        w.setpos(f0)
+        return w.readframes(f1 - f0)
+
+
+def _wrap_wav(pcm, info):
+    """PCM 包回 wav（内存里），供分块 POST。"""
+    import io
+    import wave
+    rate, ch, width = info[0], info[1], info[2]
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(ch)
+        w.setsampwidth(width)
+        w.setframerate(rate)
+        w.writeframes(pcm)
+    buf.seek(0)
+    return buf
+
+
+def _quiet_boundary(path, info, target_f, search_f):
+    """切点取 target ±search 内能量最低的 300ms 窗的起点，尽量避免切在词中间。
+    只认 s16（自转码产物与绝大多数录音都是）；其它采样宽度直接用 target。"""
+    rate, _ch, width, frames = info
+    if width != 2:
+        return min(max(target_f, 0), frames)
+    import array
+    import wave
+    win_f = max(1, int(rate * 0.3))
+    step_f = max(1, int(rate * 0.1))
+    lo = max(0, target_f - search_f)
+    hi = min(frames - win_f, target_f + search_f)
+    if hi <= lo:
+        return min(max(target_f, 0), max(0, frames - win_f))
+    best_f, best_e = target_f, None
+    with wave.open(path, "rb") as w:
+        f = lo
+        while f <= hi:
+            w.setpos(f)
+            a = array.array("h")
+            a.frombytes(w.readframes(win_f))
+            e = sum(v * v for v in a)
+            if best_e is None or e < best_e:
+                best_e, best_f = e, f
+            f += step_f
+    return best_f
+
+
+def _plan_cuts(path, info, chunk_sec):
+    """按 chunk_sec 目标切段，返回切点帧号列表（相邻切点之间是一块）。"""
+    rate, _ch, _w, frames = info
+    step_f = int(chunk_sec * rate)
+    guard_f = int(_MIN_CHUNK_SEC * rate)
+    search_f = int(_BOUNDARY_SEARCH_SEC * rate)
+    cuts, last = [], 0
+    while frames - last > step_f:
+        cut = _quiet_boundary(path, info, last + step_f, search_f)
+        cut = max(min(cut, frames - guard_f), last + guard_f)
+        cuts.append(cut)
+        last = cut
+    return cuts
+
+
+def _budget_sec_from(n_prompt, n_ctx, dur_sec):
+    """超限错误 → 本机装得下的单块秒数（记进 _state 供后续长音频直走分段）。"""
+    tok_per_sec = (n_prompt / dur_sec) if n_prompt > 0 and dur_sec > 0 else _AUDIO_TOK_PER_SEC
+    sec = int((n_ctx - _CTX_RESERVE) / tok_per_sec - _BOUNDARY_SEARCH_SEC)
+    sec = max(sec, _MIN_CHUNK_SEC)
+    _state["chunk_sec"] = sec
+    return sec
+
+
 class LlamaASR(Engine):
     id = "llama-local"
     name = "Qwen3-ASR（本地）"
-    desc = "Qwen3-ASR-1.7B GGUF · llama.cpp · 中文多语种 · 整段无时间戳"
+    desc = "Qwen3-ASR-1.7B GGUF · llama.cpp · 中文多语种 · 长音频自动分段"
 
     def available(self):
         if not scan_model()["ready"]:
@@ -301,7 +424,6 @@ class LlamaASR(Engine):
         return o
 
     def transcribe(self, audio_path, record, on_progress=None, on_partial=None):
-        import httpx
         if not _healthy():
             start_server()
         if on_progress:
@@ -313,22 +435,54 @@ class LlamaASR(Engine):
         if not audio_path.lower().endswith(".wav"):
             wav = to_wav16k(audio_path, record["id"])
             send_path = wav
-        with open(send_path, "rb") as f:
-            resp = httpx.post(
-                _base() + "/v1/audio/transcriptions",
-                files={"file": (os.path.basename(send_path), f)},
-                data={"response_format": "json"},  # llama-server 只接受 json
-                timeout=1800)
-        if resp.status_code == 200 and wav:
+        info = _wav_info(send_path)
+        dur_sec = info[3] / float(info[0]) if info and info[0] else 0
+        budget = _state.get("chunk_sec")
+        if info and budget and dur_sec > budget:
+            # 学过的预算说整段装不下：直接分段，省一次注定失败的整段请求
+            segs = self._transcribe_chunked(send_path, info, budget,
+                                            on_progress, on_partial)
+        else:
+            try:
+                segs = self._transcribe_one(send_path, record)
+            except _ContextExceeded as exc:
+                if info is None:
+                    raise RuntimeError(
+                        "llama-server 上下文装不下这段音频（%d token > %d），"
+                        "且无法分段：不是可解析的 PCM wav" % (exc.n_prompt, exc.n_ctx))
+                segs = self._transcribe_chunked(
+                    send_path, info,
+                    _budget_sec_from(exc.n_prompt, exc.n_ctx, dur_sec),
+                    on_progress, on_partial)
+            else:
+                if on_progress:
+                    on_progress(0.95)
+                if on_partial:
+                    on_partial(list(segs))
+        if wav:
             try:
                 os.remove(wav)
             except OSError:
                 pass
+        if on_progress:
+            on_progress(1.0)
+        return segs
+
+    def _transcribe_one(self, path, record):
+        """整段一次请求（短音频主路径；超上下文抛 _ContextExceeded）。"""
+        import httpx
+        with open(path, "rb") as f:
+            resp = httpx.post(
+                _base() + "/v1/audio/transcriptions",
+                files={"file": (os.path.basename(path), f)},
+                data={"response_format": "json"},  # llama-server 只接受 json
+                timeout=1800)
+        exc = _parse_exceed(resp)
+        if exc is not None:
+            raise exc
         if resp.status_code != 200:
             raise RuntimeError("llama-server 转写失败 HTTP %d：%s"
                                % (resp.status_code, resp.text[:200]))
-        if on_progress:
-            on_progress(0.95)
         text = ""
         segs_out = []
         try:
@@ -348,11 +502,56 @@ class LlamaASR(Engine):
                          "text": text, "spk": -1}]
         if not segs_out:
             raise RuntimeError("转写结果为空")
-        if on_partial:
-            on_partial(list(segs_out))
-        if on_progress:
-            on_progress(1.0)
         return segs_out
+
+    def _transcribe_chunked(self, path, info, chunk_sec, on_progress, on_partial):
+        """按静音边界切段逐块转写；某块仍超限时用错误里的实测值缩块重排。"""
+        import httpx
+        rate = info[0]
+        frames = info[3]
+        while True:
+            bounds = [0] + _plan_cuts(path, info, chunk_sec) + [frames]
+            spans = list(zip(bounds[:-1], bounds[1:]))
+            segs = []
+            exceeded = None
+            for i, (f0, f1) in enumerate(spans):
+                resp = httpx.post(
+                    _base() + "/v1/audio/transcriptions",
+                    files={"file": ("chunk_%03d.wav" % i,
+                                    _wrap_wav(_read_wav_frames(path, f0, f1), info))},
+                    data={"response_format": "json"},
+                    timeout=1800)
+                exceeded = _parse_exceed(resp)
+                if exceeded is not None:
+                    break
+                if resp.status_code != 200:
+                    raise RuntimeError("llama-server 转写失败 HTTP %d：%s"
+                                       % (resp.status_code, resp.text[:200]))
+                text = ""
+                try:
+                    text = _ASR_PREFIX.sub("", ((resp.json().get("text") or "").strip()))
+                except Exception:
+                    pass
+                if text:
+                    # 每块一句：时间戳就是块的时间范围（模型无时间戳，粒度=块大小）
+                    segs.append({"t_ms": int(f0 * 1000 / rate),
+                                 "e_ms": int(f1 * 1000 / rate),
+                                 "text": text, "spk": -1})
+                if on_progress:
+                    on_progress(0.15 + 0.85 * (i + 1) / len(spans))
+                if on_partial:
+                    on_partial(list(segs))   # 手机端逐块看到稿子长出来
+            if exceeded is None:
+                if not segs:
+                    raise RuntimeError("转写结果为空")
+                return segs
+            # 这块仍超限（预算过时 / 上下文变了）：按实测值缩块，整条时间线重排
+            new_sec = _budget_sec_from(exceeded.n_prompt, exceeded.n_ctx,
+                                       (f1 - f0) / float(rate))
+            if new_sec >= chunk_sec:
+                raise RuntimeError("llama-server 上下文装不下 %d 秒的音频块（ctx=%d）"
+                                   % (int((f1 - f0) / rate), exceeded.n_ctx))
+            chunk_sec = new_sec
 
 
 register(LlamaASR())
