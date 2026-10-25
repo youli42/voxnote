@@ -50,8 +50,14 @@ public class DetailSheet implements Overlay {
         /** 这场的同步状态（ServerSync.SYNC_*）。 */
         int syncState(RecordVm vm);
 
+        /** 这场是不是从服务器取回的（决定「下载音频」入口是否出现）。 */
+        boolean fromCloud(RecordVm vm);
+
         /** 上传失败后的「重传」按钮。 */
         void onRetryUpload(RecordVm vm);
+
+        /** 云端场次「下载音频」按钮：把服务器上的原始录音拉回本机。 */
+        void onDownloadAudio(RecordVm vm);
     }
 
     private static final int TICK_MS = 100;
@@ -78,6 +84,7 @@ public class DetailSheet implements Overlay {
     private final TextView markAddBtn;
     private TextView transcribeBtn;
     private TextView uploadBtn;
+    private TextView audioBtn;
     private TextView segsHint;
     private TextView markCount;
     private final TextView tabSegs;
@@ -393,6 +400,16 @@ public class DetailSheet implements Overlay {
         segsHint = Ui.text(act, "转写文本", 10.5f, Ui.FAINT);
         segsHint.setLetterSpacing(0.08f);
         header.addView(segsHint, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        // 云端场次才有的「下载音频」（本机只有文稿时给出取回原始录音的入口）
+        audioBtn = Ui.smallButton(act, "下载音频");
+        audioBtn.setVisibility(View.GONE);
+        audioBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (vm != null && listener != null) listener.onDownloadAudio(vm);
+            }
+        });
+        header.addView(audioBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 6, 0));
         // 上传失败才出现的「重传」（同步链路的问题，与转文字分开）
         uploadBtn = Ui.smallButton(act, "重传");
         uploadBtn.setVisibility(View.GONE);
@@ -580,6 +597,8 @@ public class DetailSheet implements Overlay {
         else if (sync == ServerSync.SYNC_WAIT) m += " · 待上传服务器";
         meta.setText(m);
         uploadBtn.setVisibility(sync == ServerSync.SYNC_FAIL ? View.VISIBLE : View.GONE);
+        boolean cloudNoAudio = listener != null && listener.fromCloud(vm) && !vm.hasAudio();
+        audioBtn.setVisibility(cloudNoAudio ? View.VISIBLE : View.GONE);
         boolean hasCat = vm.cat != null && vm.cat.length() > 0;
         catChip.setText(hasCat ? settings.catName(vm.cat) + "  ›" : "未分类  ›");
         catChip.setTextColor(hasCat ? Ui.TEXT : Ui.FAINT);

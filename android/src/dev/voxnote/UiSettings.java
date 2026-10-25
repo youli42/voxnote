@@ -46,6 +46,8 @@ public class UiSettings {
     public volatile String serverUrl = "";
     public volatile String serverToken = "";
     public boolean autoSync = false;
+    /** 云端取回的场次是否连同原始音频一起下载（关 = 只同步转写稿）。 */
+    public boolean autoAudio = false;
     /** 上传时报给服务器的本机设备名；空 = 用 Build.MODEL。控制台按它显示「从哪台设备传的」。 */
     public volatile String deviceName = "";
     public ArrayList<Cat> categories = new ArrayList<Cat>();
@@ -88,6 +90,7 @@ public class UiSettings {
         serverUrl = prefs.getString("serverUrl", "");
         serverToken = prefs.getString("serverToken", "");
         autoSync = prefs.getBoolean("autoSync", false);
+        autoAudio = prefs.getBoolean("autoAudio", false);
         deviceName = prefs.getString("deviceName", "");
 
         categories = new ArrayList<Cat>();
@@ -207,6 +210,7 @@ public class UiSettings {
                 .putString("serverUrl", nz(serverUrl))
                 .putString("serverToken", nz(serverToken))
                 .putBoolean("autoSync", autoSync)
+                .putBoolean("autoAudio", autoAudio)
                 .putString("deviceName", nz(deviceName))
                 .putString(KEY_CATS, a.toString())
                 .apply();
@@ -230,6 +234,7 @@ public class UiSettings {
         markKey = " ";
         sortDesc = true;
         streamAuto = false;
+        autoAudio = false;
         normalize();
         save();
     }
@@ -246,6 +251,7 @@ public class UiSettings {
             JSONObject o = new JSONObject(json);
             if (o.has("showFirstLine")) { showFirstLine = o.optBoolean("showFirstLine", showFirstLine); any = true; }
             if (o.has("autoTranscribe")) { autoTranscribe = o.optBoolean("autoTranscribe", autoTranscribe); any = true; }
+            if (o.has("autoAudio")) { autoAudio = o.optBoolean("autoAudio", autoAudio); any = true; }
             if (o.has("provider")) { provider = o.optString("provider", provider); any = true; }
             if (o.has("apiUrl")) { apiUrl = o.optString("apiUrl", apiUrl); any = true; }
             if (o.has("apiKey")) { apiKey = o.optString("apiKey", apiKey); any = true; }

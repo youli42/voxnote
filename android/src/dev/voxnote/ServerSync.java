@@ -661,108 +661,15 @@ public class ServerSync {
         prefs.edit().remove("cat." + recordId).apply();
     }
 
-    // ------------------------------------------------------------ 云端页：服务器库浏览与取回
+    // ------------------------------------------------------------ 云端取回：音频下载与云端标记
 
-    /** 服务器记录库里的一条（/sync/records 的全量枚举）。 */
-    public static class ServerRec {
-        public String id;
-        public String title = "";
-        public String cat = "";
-        public String device = "";
-        public String status = "";
-        public String audioName = "";
-        public String preview = "";   // 生效转写稿开头一段（云端页几行预览）
-        public long durMs;
-        public long bytes;
-        public long updatedAt;
-
-        /** 记录 id 前 15 位是 yyyyMMdd_HHmmss，可当录音开始时间。 */
-        public long startMs() {
-            try {
-                synchronized (FMT) {
-                    java.text.SimpleDateFormat key =
-                            new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US);
-                    java.util.Date d = key.parse(id);
-                    return d == null ? 0 : d.getTime();
-                }
-            } catch (Throwable t) {
-                return 0;
-            }
-        }
+    /** 这场是不是从服务器取回的（云端标签用）。srv.<id> 在取回文稿/音频时记下。 */
+    public boolean isCloud(String id) {
+        return id != null && prefs.getBoolean("srv." + id, false);
     }
 
-    public interface LibraryListCallback {
-        void onDone(String err, ArrayList<ServerRec> recs);
-    }
-
-    public interface TextCallback {
-        void onDone(String err, String text);
-    }
-
-    /** 拉服务器全库列表（增量端点的 since=0 形态，500 条上限，云端页够用）。 */
-    public void fetchLibrary(final LibraryListCallback cb) {
-        if (!configured()) {
-            ui.post(new Runnable() { public void run() { cb.onDone("未配置服务器地址", null); } });
-            return;
-        }
-        ioLight.execute(new Runnable() {
-            public void run() {
-                try {
-                    JSONObject root = new JSONObject(httpGet(api() + "/records?since=0"));
-                    JSONArray recs = root.optJSONArray("records");
-                    ArrayList<ServerRec> out = new ArrayList<ServerRec>();
-                    if (recs != null) {
-                        for (int i = 0; i < recs.length(); i++) {
-                            JSONObject o = recs.optJSONObject(i);
-                            if (o == null) continue;
-                            ServerRec r = new ServerRec();
-                            r.id = o.optString("id", "");
-                            if (r.id.length() == 0) continue;
-                            r.title = o.optString("title", "");
-                            r.cat = o.optString("cat", "");
-                            r.device = o.optString("device", "");
-                            r.status = o.optString("status", "");
-                            r.audioName = o.optString("audio_name", "");
-                            r.preview = o.optString("preview", "");
-                            r.durMs = o.optLong("dur_ms", 0);
-                            r.bytes = o.optLong("bytes", 0);
-                            r.updatedAt = o.optLong("updated_at", 0);
-                            out.add(r);
-                        }
-                    }
-                    ui.post(new Runnable() {
-                        public void run() { cb.onDone(null, out); }
-                    });
-                } catch (final Throwable t) {
-                    ui.post(new Runnable() { public void run() { cb.onDone(readable(t), null); } });
-                }
-            }
-        });
-    }
-
-    /** 拉一场的生效转写稿（JSONL 原文，云端页查看用）。 */
-    public void fetchTranscript(final String srvId, final TextCallback cb) {
-        if (!configured()) {
-            ui.post(new Runnable() { public void run() { cb.onDone("未配置服务器地址", null); } });
-            return;
-        }
-        ioLight.execute(new Runnable() {
-            public void run() {
-                try {
-                    final String text = httpGet(api() + "/records/" + srvId + "/transcript");
-                    ui.post(new Runnable() { public void run() { cb.onDone(null, text); } });
-                } catch (final Throwable t) {
-                    ui.post(new Runnable() { public void run() { cb.onDone(readable(t), null); } });
-                }
-            }
-        });
-    }
-
-    /** 从服务器取回一场记录到本机：写文稿 md（<服务器id>.md，与同步回填同一目录），
-     *  可选下载音频。下载的音频会被记成"已上传"（up.<id> 标记），同步时不会再推回去。
-     *  本地 id = 服务器 id（含 -2 后缀，Library 认这种文件名）。 */
-    public void importFromServer(final ServerRec rec, final boolean withAudio,
-                                 final ResultCallback cb) {
+    /** 详情页「下载音频」：把云端场次的原始音频拉回本机；成功后宿主重扫，卡片即可播放。 */
+    public void fetchAudio(final String srvId, final ResultCallback cb) {
         if (!configured()) {
             deliver(cb, "未配置服务器地址", "", false);
             return;
@@ -775,64 +682,72 @@ public class ServerSync {
             public void run() {
                 String err = null;
                 try {
-                    File mdDir = storage.privateRecords();
-                    String jsonl = httpGet(api() + "/records/" + rec.id + "/transcript");
-                    if (jsonl.trim().length() > 0) {
-                        writeTranscriptMd(new File(mdDir, rec.id + ".md"), rec.title, jsonl);
-                    } else if (!withAudio) {
-                        err = "服务器还没有转写稿";
-                    }
-                    if (err == null && withAudio) {
-                        String ext = extOfName(rec.audioName);
-                        if (ext.length() == 0) ext = ".m4a";
-                        File dest = new File(mdDir, rec.id + ext);
-                        File tmp = new File(mdDir, "." + rec.id + ext + ".part");
-                        httpDownload(api() + "/records/" + rec.id + "/audio", tmp);
-                        if (dest.exists()) dest.delete();
-                        if (!tmp.renameTo(dest)) {
-                            tmp.delete();
-                            throw new java.io.IOException("音频文件保存失败");
-                        }
-                        // 与 push 的 markerOf 同格式：size:mtime —— 有这个标记就不再推回服务器
-                        prefs.edit().putString("up." + rec.id,
-                                dest.length() + ":" + dest.lastModified()).apply();
-                    }
-                    if (err == null) {
-                        prefs.edit().putLong("tr." + rec.id, rec.updatedAt).apply();
-                    }
+                    downloadAudio(srvId, "");
                 } catch (Throwable t) {
                     err = readable(t);
                 } finally {
                     running.set(false);
                 }
-                deliver(cb, err, err == null ? (withAudio ? "已下载音频和文稿" : "已保存文稿")
-                        : "", err == null);
+                deliver(cb, err, err == null ? "已下载音频" : "", err == null);
             }
         });
     }
 
-    /** 云端页判断：这条服务器记录是否已在本机（同名 id，或 push 时被映射过）。 */
-    public boolean isLocalCopy(String srvId, java.util.Set<String> localIds) {
-        if (localIds != null && localIds.contains(srvId)) return true;
-        for (Map.Entry<String, ?> en : prefs.getAll().entrySet()) {
-            if (en.getKey().startsWith("srvid.") && srvId.equals(String.valueOf(en.getValue()))) {
-                return true;
+    /** 下载一场的原始音频到本机 records 目录（<id><ext>）。记 up.<id> 标记
+     *  （push 不会再推回去）与 srv.<id>（云端标签）。ext 优先取服务器清单里的
+     *  audio_name，没有再从 Content-Disposition 文件名解析，最后退 .m4a。 */
+    private void downloadAudio(String srvId, String audioName) throws Exception {
+        File mdDir = storage.privateRecords();
+        String ext = extOfName(audioName);
+        HttpURLConnection c = open(api() + "/records/" + srvId + "/audio", 600000);
+        File tmp;
+        try {
+            check(c, 200);
+            if (ext.length() == 0) {
+                String cd = c.getHeaderField("Content-Disposition");
+                if (cd != null) {
+                    int i = cd.indexOf("filename=");
+                    if (i >= 0) ext = extOfName(cd.substring(i + 9).replace("\"", ""));
+                }
             }
+            if (ext.length() == 0) ext = ".m4a";
+            tmp = new File(mdDir, "." + srvId + ext + ".part");
+            InputStream in = c.getInputStream();
+            java.io.FileOutputStream out = new java.io.FileOutputStream(tmp);
+            try {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            } finally {
+                try { out.close(); } catch (Throwable ignore) { }
+                try { in.close(); } catch (Throwable ignore) { }
+            }
+        } finally {
+            c.disconnect();
         }
-        return false;
+        File dest = new File(mdDir, srvId + ext);
+        if (dest.exists()) dest.delete();
+        if (!tmp.renameTo(dest)) {
+            tmp.delete();
+            throw new java.io.IOException("音频文件保存失败");
+        }
+        // 与 push 的 markerOf 同格式：size:mtime —— 有这个标记就不再推回服务器
+        prefs.edit().putString("up." + srvId, dest.length() + ":" + dest.lastModified())
+                .putBoolean("srv." + srvId, true).apply();
     }
 
     /**
-     * 云端页的默认取回：把服务器库里本机没有的场次拉成本地文稿（只文稿不音频，
-     * 与「保存文稿到本机」同一落点），并同步服务器上改过的标题/标签。
+     * 云端取回：把服务器库里本机没有的场次直接拉进本地列表（文稿必然拉，
+     * 音频看 autoAudio 开关），并同步服务器上改过的标题/标签。拉回的场次
+     * 记 srv.<id>，列表卡片打「云端」标，按录音时间与本地记录混排。
      *
      * 标题冲突规则（契约「本地人写的永不被覆盖」的延伸）：服务器改名只在本地
      * 没动过标题（仍是默认标题，或就是上次从服务器同步来的那个名字）时才应用；
      * 本地自己改过的名字不动。上次同步来的服务器标题记在 stl.<id>。
      *
-     * 本机已有的场次：标题按上面的规则同步；标签差异与转写稿增量由 pull() 负责，
-     * 这里不重复拉转写（避免整库逐条 GET）。拉回的新场次 tr.<id> 记到 updated_at，
-     * 之后转写更新仍走增量回填；不设 up 标记——没有音频，push 自然跳过。
+     * 本机已有的场次：标题/标签按上面的规则同步；转写稿增量由 pull() 负责，
+     * 这里不重复拉转写（避免整库逐条 GET）。拉回的新场次 tr.<id> 记到
+     * updated_at，之后转写更新仍走增量回填；音频下载后记 up 标记，push 不回推。
      */
     public void syncCloud(final ArrayList<RecordVm> items, final ResultCallback cb) {
         if (!configured()) {
@@ -848,7 +763,7 @@ public class ServerSync {
         final HashMap<String, String> catNames = s.catNameSnapshot();  // UI 线程拍快照（同 syncNow）
         io.execute(new Runnable() {
             public void run() {
-                int imported = 0, meta = 0;
+                int imported = 0, meta = 0, audio = 0;
                 String err = null;
                 ArrayList<String[]> metaUpdates = new ArrayList<String[]>();
                 try {
@@ -879,6 +794,7 @@ public class ServerSync {
                         String status = o.optString("status", "");
                         String srvTitle = o.optString("title", "");
                         String srvCat = o.optString("cat", "");
+                        boolean wantAudio = s.autoAudio && o.optLong("bytes", 0) > 0;
                         RecordVm vm = null;
                         String mapped = bySrv.get(srvId);
                         if (mapped != null) vm = byId.get(mapped);
@@ -887,15 +803,22 @@ public class ServerSync {
                             if (cand != null && !mappedLocal.contains(cand.id)) vm = cand;
                         }
                         if (vm == null) {
-                            // ---- 本机没有这场：默认拉成本地文稿（只拉有稿的）
-                            if (!"done".equals(status) && !"asr".equals(status)) continue;
-                            if (prefs.getLong("tr." + srvId, 0) < upd) {
+                            // ---- 本机没有这场：文稿必拉（有稿的），音频看开关
+                            boolean hasTranscript = "done".equals(status) || "asr".equals(status);
+                            boolean gotAudio = prefs.getString("up." + srvId, "").length() > 0;
+                            if (!hasTranscript && !wantAudio) continue;
+                            if (hasTranscript && prefs.getLong("tr." + srvId, 0) < upd) {
                                 String jsonl = httpGet(api() + "/records/" + srvId + "/transcript");
                                 if (writeTranscriptMd(new File(mdDir, srvId + ".md"), srvTitle, jsonl)) {
                                     ed.putLong("tr." + srvId, upd);
                                     imported++;
                                 }
                             }
+                            if (wantAudio && !gotAudio) {
+                                downloadAudio(srvId, o.optString("audio_name", ""));
+                                audio++;
+                            }
+                            if (!prefs.getBoolean("srv." + srvId, false)) ed.putBoolean("srv." + srvId, true);
                             if (srvCat.length() > 0) {
                                 metaUpdates.add(new String[]{srvId, srvCat, ""});
                                 ed.putString("cat." + srvId, srvCat);
@@ -905,6 +828,14 @@ public class ServerSync {
                         } else {
                             // ---- 本机已有：只同步元数据（转写走增量 pull，不整库重拉）
                             String id = vm.id;
+                            // 没音频又没被本机推过 = 上一版拉回的云端文稿：补记云端标记
+                            if (!vm.hasAudio() && !mappedLocal.contains(id)) {
+                                ed.putBoolean("srv." + id, true);
+                                if (wantAudio && prefs.getString("up." + id, "").length() == 0) {
+                                    downloadAudio(srvId, o.optString("audio_name", ""));
+                                    audio++;
+                                }
+                            }
                             if (srvCat.length() > 0 && !srvCat.equals(nameOf(catNames, vm.cat))) {
                                 metaUpdates.add(new String[]{id, srvCat, ""});
                                 ed.putString("cat." + id, srvCat);
@@ -921,8 +852,10 @@ public class ServerSync {
                 }
                 applyMeta(metaUpdates);
                 String msg = err == null
-                        ? "新回填 " + imported + " 场 · 元数据 " + meta + " 场" : "";
-                deliver(cb, err, msg, imported + meta > 0);
+                        ? "新回填 " + imported + " 场 · 元数据 " + meta + " 场"
+                                + (audio > 0 ? " · 音频 " + audio + " 场" : "")
+                        : "";
+                deliver(cb, err, msg, imported + meta + audio > 0);
             }
         });
     }
@@ -954,25 +887,6 @@ public class ServerSync {
             if (AUDIO_EXTS[i].equals(ext)) return ext;
         }
         return "";
-    }
-
-    private void httpDownload(String url, File dest) throws Exception {
-        HttpURLConnection c = open(url, 600000);
-        try {
-            check(c, 200);
-            InputStream in = c.getInputStream();
-            java.io.FileOutputStream out = new java.io.FileOutputStream(dest);
-            try {
-                byte[] buf = new byte[64 * 1024];
-                int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-            } finally {
-                try { out.close(); } catch (Throwable ignore) { }
-                try { in.close(); } catch (Throwable ignore) { }
-            }
-        } finally {
-            c.disconnect();
-        }
     }
 
     /** 元数据差异交给宿主（主线程）落库；宿主负责标签对上/新建、标题 patch 用户态。 */

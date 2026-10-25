@@ -86,10 +86,8 @@ public class HomeActivity extends Activity implements Picker.Host {
     private TextView emptyText;
     private TabItem tabRecord;
     private TabItem tabStream;
-    private TabItem tabCloud;
     private TabItem tabSettings;
     private StreamScreen streamScreen;
-    private ServerScreen serverScreen;
 
     private EditText recTitle;
     private TextView recTimer;
@@ -163,37 +161,6 @@ public class HomeActivity extends Activity implements Picker.Host {
         public void onSwipeCat(RecordVm vm, String targetCat) {
             // 与列表页滑动归类同一条路：归类/取消语义、patch、刷新和提示都在那边
             rowHost.onSwipe(vm, targetCat);
-        }
-    };
-
-    private final ServerScreen.Host cloudHost = new ServerScreen.Host() {
-        public boolean configured() {
-            return serverSync.configured();
-        }
-
-        public ServerSync sync() {
-            return serverSync;
-        }
-
-        public java.util.Set<String> localIds() {
-            java.util.HashSet<String> ids = new java.util.HashSet<String>();
-            for (int i = 0; i < all.size(); i++) ids.add(all.get(i).id);
-            return ids;
-        }
-
-        public ArrayList<RecordVm> localSnapshot() {
-            return new ArrayList<RecordVm>(all);
-        }
-
-        public void onImported() {
-            load(false, null, false);
-            if (serverScreen != null) serverScreen.refreshPresence();
-        }
-
-        public void open(ServerSync.ServerRec rec) {
-            ServerRecordSheet sheet =
-                    new ServerRecordSheet(HomeActivity.this, serverSync, this, HomeActivity.this, rec);
-            sheet.show();   // show 内部会 pushOverlay
         }
     };
 
@@ -409,14 +376,11 @@ public class HomeActivity extends Activity implements Picker.Host {
         settingsPage = new SettingsScreen(this, settings, storage, settingsHost);
         settingsScreen = settingsPage.view();
         streamScreen = new StreamScreen(this, player, settings, streamHost);
-        serverScreen = new ServerScreen(this, cloudHost);
         content.addView(listScreen);
         content.addView(settingsScreen);
         content.addView(streamScreen);
-        content.addView(serverScreen);
         settingsScreen.setVisibility(View.GONE);
         streamScreen.setVisibility(View.GONE);
-        serverScreen.setVisibility(View.GONE);
         // 批量操作栏在 buildListScreen 里建好后加进来的，这里把它提到最上层，
         // 否则会被后加入的列表页整个盖住。
         if (batchBar != null) content.bringChildToFront(batchBar);
@@ -430,11 +394,9 @@ public class HomeActivity extends Activity implements Picker.Host {
         Ui.TabBar bar = new Ui.TabBar(this, Ui.LINE2);
         tabRecord = new TabItem(this, TabItem.ICON_RECORD, "录音");
         tabStream = new TabItem(this, TabItem.ICON_STREAM, "流");
-        tabCloud = new TabItem(this, TabItem.ICON_CLOUD, "云端");
         tabSettings = new TabItem(this, TabItem.ICON_SETTINGS, "设置");
         bar.addView(tabRecord, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         bar.addView(tabStream, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        bar.addView(tabCloud, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         bar.addView(tabSettings, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         tabRecord.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
@@ -444,11 +406,6 @@ public class HomeActivity extends Activity implements Picker.Host {
         tabStream.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 switchTab("stream");
-            }
-        });
-        tabCloud.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                switchTab("cloud");
             }
         });
         tabSettings.setOnClickListener(new View.OnClickListener() {
@@ -466,9 +423,7 @@ public class HomeActivity extends Activity implements Picker.Host {
         listScreen.setVisibility("record".equals(name) ? View.VISIBLE : View.GONE);
         settingsScreen.setVisibility("settings".equals(name) ? View.VISIBLE : View.GONE);
         streamScreen.setVisibility("stream".equals(name) ? View.VISIBLE : View.GONE);
-        serverScreen.setVisibility("cloud".equals(name) ? View.VISIBLE : View.GONE);
         if ("stream".equals(name)) streamScreen.refresh();
-        if ("cloud".equals(name)) serverScreen.refresh();
         if ("settings".equals(name)) {
             settingsPage.refresh();
             settingsPage.refreshSources(data.sourceInfoBlocking());
@@ -480,7 +435,6 @@ public class HomeActivity extends Activity implements Picker.Host {
     private void setTabActive(String name) {
         tabRecord.setActive("record".equals(name));
         tabStream.setActive("stream".equals(name));
-        tabCloud.setActive("cloud".equals(name));
         tabSettings.setActive("settings".equals(name));
     }
 
@@ -921,6 +875,7 @@ public class HomeActivity extends Activity implements Picker.Host {
                     else toast("同步完成 · " + msg);
                     if (changed) load(false, null, false);   // 回填的文稿要重扫才进列表
                     if (settingsPage != null) settingsPage.refresh();
+                    syncCloudNow();   // 推拉完顺带取回云端库（新场次/改名）
                 }
             });
         }
@@ -1085,7 +1040,6 @@ public class HomeActivity extends Activity implements Picker.Host {
         }
         rebuildFilters();
         if (streamScreen != null) streamScreen.refresh(); // 流页与列表同源，数据变了同步重建
-        if (serverScreen != null) serverScreen.refreshPresence(); // 云端页只重算"已在本机"，不重新请求
         if (keepScroll && keepPos >= 0) {
             list.setSelectionFromTop(keepPos, keepTop);
         } else {
@@ -1315,7 +1269,7 @@ public class HomeActivity extends Activity implements Picker.Host {
             }
             RecordVm vm = shown.get(position);
             String src = vm.fromSource == null ? null : sourceLabels.get(vm.fromSource);
-            row.bind(vm, settings, rowHost, src, syncStateOf(vm.id));
+            row.bind(vm, settings, rowHost, src, syncStateOf(vm.id), serverSync.isCloud(vm.id));
             row.setBatch(batch, selected.contains(vm.id));
             return row;
         }
@@ -1343,6 +1297,24 @@ public class HomeActivity extends Activity implements Picker.Host {
 
         public int syncState(RecordVm vm) {
             return syncStateOf(vm.id);
+        }
+
+        public boolean fromCloud(RecordVm vm) {
+            return serverSync.isCloud(vm.id);
+        }
+
+        public void onDownloadAudio(final RecordVm vm) {
+            toast("正在下载音频…");
+            serverSync.fetchAudio(vm.id, new ServerSync.ResultCallback() {
+                public void onResult(String err, String msg, boolean changed) {
+                    if (err != null) {
+                        toast("下载失败：" + err);
+                        return;
+                    }
+                    toast("音频已下载");
+                    load(false, null, false);   // 重扫后详情自动刷新，播放键亮起
+                }
+            });
         }
 
         public void onRetryUpload(final RecordVm vm) {
@@ -1714,8 +1686,25 @@ public class HomeActivity extends Activity implements Picker.Host {
     // ------------------------------------------------------------ 服务端转写实时回显
     // 前台期间每 6 秒只拉一次转写稿（不推音频）。服务端转写进行中时，
     // 稿子边生成边落库，这里拉回来重写 md 并重扫，列表/详情就能看到内容长出来。
+    // 每 5 轮（约 30 秒）顺带跑一轮云端取回：本机没有的服务器场次直接进列表
+    // （打「云端」标），标题/标签改名同步下来，音频看设置里的自动同步开关。
 
     private final Handler pollHandler = new Handler(Looper.getMainLooper());
+    private int cloudTick;
+
+    /** 云端取回一轮；后台驱动，失败静默（状态行/立即同步里能看到原因）。 */
+    private void syncCloudNow() {
+        try {
+            if (serverSync == null || !serverSync.configured() || loading || isFinishing()) return;
+            serverSync.syncCloud(new ArrayList<RecordVm>(all), new ServerSync.ResultCallback() {
+                public void onResult(String err, String msg, boolean changed) {
+                    if (err != null || !changed) return;
+                    load(false, null, false);
+                }
+            });
+        } catch (Throwable ignore) { }
+    }
+
     private final Runnable livePoll = new Runnable() {
         public void run() {
             try {
@@ -1726,6 +1715,7 @@ public class HomeActivity extends Activity implements Picker.Host {
                                     if (changed && err == null) load(false, null, false);
                                 }
                             });
+                    if (++cloudTick % 5 == 1) syncCloudNow();   // 首轮就取回，之后约 30 秒一轮
                 }
             } catch (Throwable ignore) { }
             pollHandler.postDelayed(this, 6000);
@@ -1825,7 +1815,7 @@ public class HomeActivity extends Activity implements Picker.Host {
             }
             overlays.remove(o);
         }
-        if ("settings".equals(tab) || "cloud".equals(tab)) {
+        if ("settings".equals(tab)) {
             switchTab("record");
             return;
         }

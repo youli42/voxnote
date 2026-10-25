@@ -34,6 +34,7 @@ public class CardRow extends LinearLayout {
     private final TextView marksTag;
     private final TextView modeTag;
     private final TextView sourceTag;
+    private final TextView cloudTag;
     private final TextView syncTag;
     private final TextView transcribe;
     private final TextView check;
@@ -116,6 +117,7 @@ public class CardRow extends LinearLayout {
         marksTag = tagText(c);
         modeTag = tagText(c);
         sourceTag = tagText(c);
+        cloudTag = tagText(c);
         syncTag = tagText(c);
         meta.addView(date);
         meta.addView(dur, metaLp());
@@ -123,6 +125,7 @@ public class CardRow extends LinearLayout {
         meta.addView(marksTag, metaLp());
         meta.addView(modeTag, metaLp());
         meta.addView(sourceTag, metaLp());
+        meta.addView(cloudTag, metaLp());
         meta.addView(syncTag, metaLp());
         main.addView(meta, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 5, 0, 0));
 
@@ -175,7 +178,8 @@ public class CardRow extends LinearLayout {
         more.setOnClickListener(l);
     }
 
-    public void bind(RecordVm vm, UiSettings s, String catName, String sourceLabel, int syncState) {
+    public void bind(RecordVm vm, UiSettings s, String catName, String sourceLabel,
+                     int syncState, boolean fromCloud) {
         boolean defT = vm.isDefaultTitle();
         title.setText(defT ? vm.displayTitle()
                 : (vm.title.length() == 0 ? "未命名录音" : vm.title));
@@ -259,6 +263,13 @@ public class CardRow extends LinearLayout {
         if (src != null) {
             sourceTag.setText(src);
             styleTag(sourceTag, true);
+        }
+
+        // 云端标：这场是从服务器取回的（不是本机录的）。
+        cloudTag.setVisibility(fromCloud ? VISIBLE : GONE);
+        if (fromCloud) {
+            cloudTag.setText("云端");
+            styleTag(cloudTag, true);
         }
 
         // 服务器同步状态（未配服务器/无音频不显示）。失败用红色徽标点出——

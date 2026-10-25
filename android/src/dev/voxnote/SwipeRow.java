@@ -129,7 +129,8 @@ public class SwipeRow extends FrameLayout {
         return t;
     }
 
-    public void bind(RecordVm vm, UiSettings settings, Host host, String sourceLabel, int syncState) {
+    public void bind(RecordVm vm, UiSettings settings, Host host, String sourceLabel,
+                     int syncState, boolean fromCloud) {
         this.vm = vm;
         this.settings = settings;
         this.host = host;
@@ -148,7 +149,8 @@ public class SwipeRow extends FrameLayout {
         String toLeft = settings.catName(settings.swipeLeftCat);
         leftEdgeLabel.setText(toRight.length() > 0 ? toRight : "分类");
         rightEdgeLabel.setText(toLeft.length() > 0 ? toLeft : "分类");
-        card.bind(vm, settings, vm.cat == null ? "" : settings.catName(vm.cat), sourceLabel, syncState);
+        card.bind(vm, settings, vm.cat == null ? "" : settings.catName(vm.cat), sourceLabel,
+                syncState, fromCloud);
     }
 
     /** 批量模式：整行点击变成勾选，滑动归类关掉，勾选圈代替 ⋯。 */

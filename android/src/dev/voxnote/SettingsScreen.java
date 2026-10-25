@@ -353,6 +353,15 @@ public class SettingsScreen {
             }
         }));
         srvGroup.addView(Ui.divider(act));
+        srvGroup.addView(toggleRow("自动同步音频", s.autoAudio, new ToggleListener() {
+            public void onChanged(boolean v) {
+                s.autoAudio = v;
+                s.save();
+            }
+        }));
+        srvGroup.addView(Ui.divider(act));
+        srvGroup.addView(Ui.text(act, "开启后，云端取回的场次连同原始录音一起下载；关闭只同步转写文本", 10.5f, Ui.FAINT));
+        srvGroup.addView(Ui.divider(act));
         serverEngineValue = valueButton();
         srvGroup.addView(selectorRow("服务器转写引擎", serverEngineValue, new Runnable() {
             public void run() {
