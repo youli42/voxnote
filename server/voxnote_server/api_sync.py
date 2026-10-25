@@ -4,7 +4,7 @@
 
 协议是"设备推、设备拉"的最简形态：
   POST /upload          音频 + 元数据（multipart），幂等键 stamp
-  GET  /records?since=  增量枚举（毫秒时间戳游标 = updated_at）
+  GET  /records?since=  增量枚举（毫秒时间戳游标 = updated_at；附 preview 转写预览）
   GET  /records/{id}/audio        下载音频原件
   GET  /records/{id}/transcript   生效转写稿（机器层 + 人工修订合并，JSONL）
   POST /records/{id}/transcribe   设备端触发（重）转写
@@ -159,7 +159,42 @@ def list_records(since: int = 0, _: None = Depends(auth)):
         "SELECT id, title, cat, mode, dur_ms, status, engine, device, src, bytes,"
         " audio_name, updated_at"
         " FROM records WHERE updated_at > ? ORDER BY updated_at, id LIMIT 500", (since,)).fetchall()
-    return {"records": [dict(r) for r in rows], "server_time": db.now_ms()}
+    previews = _previews([r["id"] for r in rows])
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["preview"] = previews.get(r["id"], "")
+        out.append(d)
+    return {"records": out, "server_time": db.now_ms()}
+
+
+def _previews(ids, cap=120):
+    """每条记录生效转写稿的开头一段，设备端云端页当几行预览。
+    单条 SQL 捞齐（按 t_ms, idx 排序，同记录内的相对顺序不变），
+    凑够 cap 字符的记录不再追加，全部凑齐即提前收手。"""
+    out = {i: "" for i in ids}
+    pending = [i for i in ids if i]  # 保持顺序，去重
+    seen = set()
+    pending = [i for i in pending if not (i in seen or seen.add(i))]
+    if not pending:
+        return out
+    qmarks = ",".join("?" * len(pending))
+    waiting = set(pending)
+    for s in db.conn().execute(
+            "SELECT record_id, COALESCE(e_text, m_text) AS text FROM segments"
+            " WHERE record_id IN (%s) ORDER BY t_ms, idx" % qmarks, pending):
+        rid = s["record_id"]
+        if rid not in waiting:
+            continue
+        text = (s["text"] or "").strip()
+        if text:
+            out[rid] = text if not out[rid] else out[rid] + " " + text
+            if len(out[rid]) >= cap:
+                out[rid] = out[rid][:cap]
+                waiting.discard(rid)
+                if not waiting:
+                    break
+    return out
 
 
 @router.get("/records/{rid}/audio")
