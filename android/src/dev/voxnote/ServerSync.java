@@ -157,17 +157,18 @@ public class ServerSync {
         io.execute(new Runnable() {
             public void run() {
                 String err = null;
-                int pushed = 0, pulled = 0, cats = 0;
+                int pushed = 0, pulled = 0, meta = 0, mp = 0;
                 ArrayList<String[]> catUpdates = new ArrayList<String[]>();
                 try {
                     lastPushError = "";
                     int[] p = push(snapshot, catNames);
                     pushed = p[0];
                     if (p[1] > 0) err = "上传失败 " + p[1] + " 场" + (lastPushError.length() > 0 ? "：" + lastPushError : "");
+                    mp = pushMeta(snapshot);   // 改名/打点在音频之后、拉取之前上推
                     try {
                         int[] r = pull(snapshot, catNames, catUpdates);
                         pulled = r[0];
-                        cats = r[1];
+                        meta = r[1];
                     } catch (Throwable t) {
                         err = err == null ? readable(t) : err;
                     }
@@ -183,10 +184,11 @@ public class ServerSync {
                 } finally {
                     running.set(false);
                 }
-                if (cats > 0) applyMeta(catUpdates);
+                if (meta > 0) applyMeta(catUpdates);
                 String msg = "上传 " + pushed + " 场 · 回填 " + pulled + " 场"
-                        + (cats > 0 ? " · 标签 " + cats + " 场" : "");
-                deliver(cb, err, msg, pushed + pulled + cats > 0);
+                        + (meta > 0 ? " · 元数据 " + meta + " 场" : "")
+                        + (mp > 0 ? " · 改名标记上推 " + mp + " 场" : "");
+                deliver(cb, err, msg, pushed + pulled + meta + mp > 0);
             }
         });
     }
@@ -222,6 +224,72 @@ public class ServerSync {
 
     private String lastPushError = "";
 
+    // ------------------------------------------------------------ 元数据上推（改名 / 打点标记）
+
+    /** 标题归一：默认标题（「录音 HH:MM」）或空 → ""，比较基线用。 */
+    private static String normTitle(String t) {
+        String v = t == null ? "" : t.trim();
+        return v.length() == 0 || v.matches("^录音 \\d{1,2}:\\d{2}$") ? "" : v;
+    }
+
+    /** 标记列表 → 可比较的键（"1.5,82.3"；空 = ""）。 */
+    private static String marksKey(ArrayList<Double> m) {
+        if (m == null || m.isEmpty()) return "";
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < m.size(); i++) {
+            if (b.length() > 0) b.append(',');
+            b.append(m.get(i));
+        }
+        return b.toString();
+    }
+
+    private static String marksKey(JSONArray a) {
+        if (a == null || a.length() == 0) return "";
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < a.length(); i++) {
+            if (b.length() > 0) b.append(',');
+            b.append(a.optDouble(i, Double.NaN));
+        }
+        return b.toString();
+    }
+
+    /** 改名/打点后的上推：与"服务器已知值"基线（stl.<id> / mk.<id>）不同的场次
+     *  POST /records/{srvId}/meta。标题只在本地非默认时上推（不支持远程清成默认名）；
+     *  标记整表推（[] = 清空）。返回成功场数；单场失败静默，下轮重试。 */
+    private int pushMeta(ArrayList<RecordVm> items) {
+        int n = 0;
+        for (int i = 0; i < items.size(); i++) {
+            RecordVm vm = items.get(i);
+            // 服务器认识这场（传过/取回过/拉取时见过）才谈得上推
+            boolean known = prefs.contains("up." + vm.id) || prefs.contains("srvid." + vm.id)
+                    || prefs.getBoolean("srvup." + vm.id, false);
+            if (!known) continue;
+            String nt = normTitle(vm.title);
+            String mk = marksKey(vm.marks);
+            boolean pushT = nt.length() > 0 && !nt.equals(prefs.getString("stl." + vm.id, ""));
+            boolean pushM = !mk.equals(prefs.getString("mk." + vm.id, ""));
+            if (!pushT && !pushM) continue;
+            String srvId = prefs.getString("srvid." + vm.id, vm.id);
+            try {
+                JSONObject p = new JSONObject();
+                if (pushT) p.put("title", vm.title.trim());
+                if (pushM) {
+                    JSONArray arr = new JSONArray();
+                    for (int j = 0; j < vm.marks.size(); j++) arr.put(vm.marks.get(j));
+                    p.put("marks", arr);
+                }
+                JSONObject echo = new JSONObject(
+                        httpPost(api() + "/records/" + srvId + "/meta", p.toString()));
+                prefs.edit()
+                        .putString("stl." + vm.id, normTitle(echo.optString("title", "")))
+                        .putString("mk." + vm.id, marksKey(echo.optJSONArray("marks")))
+                        .apply();
+                n++;
+            } catch (Throwable ignore) { }
+        }
+        return n;
+    }
+
     /** 传一场的音频；成功记 up 标记并清失败原因，失败把原因记到 uperr（卡片/详情显示用）。
      *  返回服务器端的真实记录 id（同秒撞车时与本地 id 不同，映射同时记进 srvid）。 */
     private String pushOne(RecordVm vm, Map<String, String> catNames) throws Exception {
@@ -239,6 +307,9 @@ public class ServerSync {
             meta.put("device", deviceName());
             meta.put("recorded_at", vm.startMs);
             meta.put("dur_ms", vm.durMs);
+            JSONArray mk = new JSONArray();   // 已打过的标记随录音一起上来
+            for (int i = 0; i < vm.marks.size(); i++) mk.put(vm.marks.get(i));
+            meta.put("marks", mk);
             String resp = postMultipart(api() + "/upload", meta.toString(), vm.id + ext, in);
             // 服务器可能给这条记录换了 id（同秒撞车加 -2 后缀）：记下映射，
             // 拉取时按映射对回本地记录，否则会拿别的设备的稿子错位回填。
@@ -250,7 +321,10 @@ public class ServerSync {
             if (!srvId.equals(vm.id)) {
                 prefs.edit().putString("srvid." + vm.id, srvId).apply();
             }
-            prefs.edit().putString("up." + vm.id, markerOf(vm)).remove("uperr." + vm.id).apply();
+            // 标题/标记的"服务器已知值"基线：上传时的本地值就是服务器现在有的
+            prefs.edit().putString("up." + vm.id, markerOf(vm)).remove("uperr." + vm.id)
+                    .putString("stl." + vm.id, normTitle(vm.title))
+                    .putString("mk." + vm.id, marksKey(vm.marks)).apply();
             return srvId;
         } catch (Throwable t) {
             prefs.edit().putString("uperr." + vm.id, readable(t)).apply();
@@ -588,13 +662,25 @@ public class ServerSync {
                 continue;
             }
             String id = vm.id;                     // 本地 id：md 文件名与持久标记都按它
+            ed.putBoolean("srvup." + id, true);    // 服务器认识这场：改名/打点可以上推
             // 标签回填：与转写回填独立，本地稿子受保护也不影响
             String srvCat = o.optString("cat", "");
             if (srvCat.length() > 0 && !srvCat.equals(nameOf(catNames, vm.cat))) {
-                catUpdates.add(new String[]{id, srvCat, ""});
-                ed.putString("cat." + id, srvCat);  // 落库成功才清（markCatDone）
+                catUpdates.add(new String[]{id, srvCat, "", ""});
+                ed.putString("cat." + id, srvCat);  // 落库成功才清（markMetaDone）
                 nCat++;
             }
+            // 打点标记回填：与标题同规则——本地没动过（等于基线）才收服务器的
+            JSONArray sm = o.optJSONArray("marks");
+            String srvMk = marksKey(sm);
+            String mkBase = prefs.getString("mk." + id, "");
+            if (!srvMk.equals(mkBase) && marksKey(vm.marks).equals(mkBase) && sm != null) {
+                catUpdates.add(new String[]{id, "", "", sm.toString()});
+                ed.putString("mkp." + id, srvMk);   // 落库成功才提交成基线（markMetaDone）
+                nCat++;
+            }
+            // 标题回填（服务器改名，本地没动过才收）
+            if (applyServerTitle(id, o.optString("title", ""), vm.title, catUpdates, ed)) nCat++;
             if (!"done".equals(status) && !"asr".equals(status)) {
                 // raw/queued/fail：出不了稿，不用再看
                 if (upd > processed) processed = upd;
@@ -648,7 +734,7 @@ public class ServerSync {
                 if (ed == null) ed = prefs.edit(); // 已经落上（上轮 patch 生效）
                 ed.remove(k);
             } else {
-                catUpdates.add(new String[]{id, tag, ""});
+                catUpdates.add(new String[]{id, tag, "", ""});
                 added++;
             }
         }
@@ -656,9 +742,16 @@ public class ServerSync {
         return added;
     }
 
-    /** 标签已在本地落库（CatApplier 的 patch 回调里调）：清持久标记。 */
-    public void markCatDone(String recordId) {
-        prefs.edit().remove("cat." + recordId).apply();
+    /** 元数据已在本地落库（MetaApplier 的 patch 回调里调）：清标签待落库标记，
+     *  并把回填采纳的标题/标记基线（stp/mkp 暂存）提交成"服务器已知值"（stl/mk）。 */
+    public void markMetaDone(String recordId) {
+        String stp = prefs.getString("stp." + recordId, null);
+        String mkp = prefs.getString("mkp." + recordId, null);
+        SharedPreferences.Editor ed = prefs.edit().remove("cat." + recordId)
+                .remove("stp." + recordId).remove("mkp." + recordId);
+        if (stp != null) ed.putString("stl." + recordId, stp);
+        if (mkp != null) ed.putString("mk." + recordId, mkp);
+        ed.apply();
     }
 
     // ------------------------------------------------------------ 云端取回：音频下载与云端标记
@@ -763,7 +856,7 @@ public class ServerSync {
         final HashMap<String, String> catNames = s.catNameSnapshot();  // UI 线程拍快照（同 syncNow）
         io.execute(new Runnable() {
             public void run() {
-                int imported = 0, meta = 0, audio = 0;
+                int imported = 0, meta = 0, audio = 0, mp = 0;
                 String err = null;
                 ArrayList<String[]> metaUpdates = new ArrayList<String[]>();
                 try {
@@ -818,16 +911,24 @@ public class ServerSync {
                                 downloadAudio(srvId, o.optString("audio_name", ""));
                                 audio++;
                             }
+                            ed.putBoolean("srvup." + srvId, true);   // 服务器认识：本地改名可推
                             if (!prefs.getBoolean("srv." + srvId, false)) ed.putBoolean("srv." + srvId, true);
                             if (srvCat.length() > 0) {
-                                metaUpdates.add(new String[]{srvId, srvCat, ""});
+                                metaUpdates.add(new String[]{srvId, srvCat, "", ""});
                                 ed.putString("cat." + srvId, srvCat);
+                                meta++;
+                            }
+                            JSONArray sm = o.optJSONArray("marks");
+                            if (sm != null && sm.length() > 0) {   // 新场次收服务器标记
+                                metaUpdates.add(new String[]{srvId, "", "", sm.toString()});
+                                ed.putString("mkp." + srvId, marksKey(sm));
                                 meta++;
                             }
                             if (applyServerTitle(srvId, srvTitle, "", metaUpdates, ed)) meta++;
                         } else {
                             // ---- 本机已有：只同步元数据（转写走增量 pull，不整库重拉）
                             String id = vm.id;
+                            ed.putBoolean("srvup." + id, true);
                             // 没音频又没被本机推过 = 上一版拉回的云端文稿：补记云端标记
                             if (!vm.hasAudio() && !mappedLocal.contains(id)) {
                                 ed.putBoolean("srv." + id, true);
@@ -837,14 +938,24 @@ public class ServerSync {
                                 }
                             }
                             if (srvCat.length() > 0 && !srvCat.equals(nameOf(catNames, vm.cat))) {
-                                metaUpdates.add(new String[]{id, srvCat, ""});
+                                metaUpdates.add(new String[]{id, srvCat, "", ""});
                                 ed.putString("cat." + id, srvCat);
+                                meta++;
+                            }
+                            // 打点标记：本地没动过（等于基线）才收服务器的（与 pull 同规则）
+                            JSONArray sm = o.optJSONArray("marks");
+                            String srvMk = marksKey(sm);
+                            String mkBase = prefs.getString("mk." + id, "");
+                            if (sm != null && !srvMk.equals(mkBase) && marksKey(vm.marks).equals(mkBase)) {
+                                metaUpdates.add(new String[]{id, "", "", sm.toString()});
+                                ed.putString("mkp." + id, srvMk);
                                 meta++;
                             }
                             if (applyServerTitle(id, srvTitle, vm.title, metaUpdates, ed)) meta++;
                         }
                     }
                     ed.apply();
+                    mp = pushMeta(snapshot);   // 本地改名/打点也借这轮（约 30 秒一次）上推
                 } catch (Throwable t) {
                     err = readable(t);
                 } finally {
@@ -854,14 +965,16 @@ public class ServerSync {
                 String msg = err == null
                         ? "新回填 " + imported + " 场 · 元数据 " + meta + " 场"
                                 + (audio > 0 ? " · 音频 " + audio + " 场" : "")
+                                + (mp > 0 ? " · 改名标记上推 " + mp + " 场" : "")
                         : "";
-                deliver(cb, err, msg, imported + meta + audio > 0);
+                deliver(cb, err, msg, imported + meta + audio + mp > 0);
             }
         });
     }
 
     /** 服务器标题同步判定：非默认标题、与上次同步来的不同、且本地没自己改过
-     *  （curTitle 传空 = 新场次没有本地标题，直接收）才入队；记 stl 标记。
+     *  （curTitle 传空 = 新场次没有本地标题，直接收）才入队；记 stp 暂存，
+     *  宿主落库成功后（markMetaDone）提交成 stl 基线。
      *  返回是否收集了一条。 */
     private boolean applyServerTitle(String id, String srvTitle, String curTitle,
                                      ArrayList<String[]> updates, SharedPreferences.Editor ed) {
@@ -871,10 +984,10 @@ public class ServerSync {
         if (t.equals(last)) return false;
         if (curTitle.length() > 0 && !curTitle.matches("^录音 \\d{1,2}:\\d{2}$")
                 && !curTitle.equals(last)) {
-            return false;   // 本地自己改过名：不动
+            return false;   // 本地自己改过名：不动（下轮 pushMeta 会把本地名推上去）
         }
-        updates.add(new String[]{id, "", t});
-        ed.putString("stl." + id, t);
+        updates.add(new String[]{id, "", t, ""});
+        ed.putString("stp." + id, t);
         return true;
     }
 
@@ -929,7 +1042,7 @@ public class ServerSync {
                     deliver(cb, null,
                             (pulled > 0 ? "转写更新 " + pulled + " 场" : "")
                                     + (pulled > 0 && cats > 0 ? " · " : "")
-                                    + (cats > 0 ? "标签更新 " + cats + " 场" : ""), true);
+                                    + (cats > 0 ? "元数据更新 " + cats + " 场" : ""), true);
             }
         });
     }

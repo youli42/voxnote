@@ -184,10 +184,10 @@ public class HomeActivity extends Activity implements Picker.Host {
         player = new Player(this);
         serverSync = new ServerSync(this, settings, storage);
         serverSync.setMetaApplier(new ServerSync.MetaApplier() {
-            /** 服务器拉回的元数据差异（[记录id, 标签名, 标题]，空串 = 该项没变）：
+            /** 服务器拉回的元数据差异（[记录id, 标签名, 标题, 标记JSON]，空串 = 该项没变）：
              *  标签按名字对上本地分类，对不上就新建一个（服务端标签是自由字符串）；
-             *  标题直接 patch 用户态（是否覆盖由同步侧按"本地没改过"判定）。
-             *  每条 patch 完成后清掉同步侧的待落库标签标记（没清的话下一轮同步会重试），
+             *  标题、打点标记直接 patch 用户态（是否覆盖由同步侧按"本地没改过"判定）。
+             *  每条 patch 完成后提交同步侧的基线暂存（没提交的话下一轮同步会重试），
              *  最后一条的回调顺带重扫列表亮出新分类/新标题。 */
             public void apply(ArrayList<String[]> updates) {
                 boolean catsAdded = false;
@@ -206,12 +206,13 @@ public class HomeActivity extends Activity implements Picker.Host {
                             p.put("cat", catId);
                         }
                         if (u.length > 2 && u[2].length() > 0) p.put("title", u[2]);
+                        if (u.length > 3 && u[3].length() > 0) p.put("marks", new JSONArray(u[3]));
                     } catch (Throwable ignore) { }
                     if (p.length() == 0) continue;
                     final boolean last = i == updates.size() - 1;
                     data.patch(u[0], p, new DataCenter.DoneCallback() {
                         public void onDone() {
-                            if (u[1].length() > 0) serverSync.markCatDone(u[0]);
+                            serverSync.markMetaDone(u[0]);
                             if (last) load(false, null, false);  // patch 异步落库，完成后重扫让列表亮出新分类/标题
                         }
                     });
