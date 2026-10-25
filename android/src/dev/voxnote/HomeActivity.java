@@ -181,6 +181,10 @@ public class HomeActivity extends Activity implements Picker.Host {
             return ids;
         }
 
+        public ArrayList<RecordVm> localSnapshot() {
+            return new ArrayList<RecordVm>(all);
+        }
+
         public void onImported() {
             load(false, null, false);
             if (serverScreen != null) serverScreen.refreshPresence();
@@ -207,33 +211,38 @@ public class HomeActivity extends Activity implements Picker.Host {
         data = new DataCenter(this, state, storage);
         player = new Player(this);
         serverSync = new ServerSync(this, settings, storage);
-        serverSync.setCatApplier(new ServerSync.CatApplier() {
-            /** 服务器拉回的标签（[记录id, 标签名]）：按名字对上本地分类，
-             *  对不上就新建一个（服务端标签是自由字符串），再 patch 用户态。
-             *  每条 patch 完成后清掉同步侧的待落库标记（没清的话下一轮同步会重试），
-             *  最后一条的回调顺带重扫列表亮出新分类。 */
+        serverSync.setMetaApplier(new ServerSync.MetaApplier() {
+            /** 服务器拉回的元数据差异（[记录id, 标签名, 标题]，空串 = 该项没变）：
+             *  标签按名字对上本地分类，对不上就新建一个（服务端标签是自由字符串）；
+             *  标题直接 patch 用户态（是否覆盖由同步侧按"本地没改过"判定）。
+             *  每条 patch 完成后清掉同步侧的待落库标签标记（没清的话下一轮同步会重试），
+             *  最后一条的回调顺带重扫列表亮出新分类/新标题。 */
             public void apply(ArrayList<String[]> updates) {
                 boolean catsAdded = false;
                 for (int i = 0; i < updates.size(); i++) {
                     final String[] u = updates.get(i);
-                    String catId = settings.catIdByName(u[1]);
-                    if (catId == null) {
-                        UiSettings.Cat c = new UiSettings.Cat(settings.newCatId(), u[1]);
-                        settings.categories.add(c);   // 批量追加，循环外一次 save
-                        catsAdded = true;
-                        catId = c.id;
-                    }
+                    JSONObject p = new JSONObject();
                     try {
-                        JSONObject p = new JSONObject();
-                        p.put("cat", catId);
-                        final boolean last = i == updates.size() - 1;
-                        data.patch(u[0], p, new DataCenter.DoneCallback() {
-                            public void onDone() {
-                                serverSync.markCatDone(u[0]);
-                                if (last) load(false, null, false);  // patch 异步落库，完成后重扫让列表亮出新分类
+                        if (u[1].length() > 0) {
+                            String catId = settings.catIdByName(u[1]);
+                            if (catId == null) {
+                                UiSettings.Cat c = new UiSettings.Cat(settings.newCatId(), u[1]);
+                                settings.categories.add(c);   // 批量追加，循环外一次 save
+                                catsAdded = true;
+                                catId = c.id;
                             }
-                        });
+                            p.put("cat", catId);
+                        }
+                        if (u.length > 2 && u[2].length() > 0) p.put("title", u[2]);
                     } catch (Throwable ignore) { }
+                    if (p.length() == 0) continue;
+                    final boolean last = i == updates.size() - 1;
+                    data.patch(u[0], p, new DataCenter.DoneCallback() {
+                        public void onDone() {
+                            if (u[1].length() > 0) serverSync.markCatDone(u[0]);
+                            if (last) load(false, null, false);  // patch 异步落库，完成后重扫让列表亮出新分类/标题
+                        }
+                    });
                 }
                 if (catsAdded) settings.save();
             }

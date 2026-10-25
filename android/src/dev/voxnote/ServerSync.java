@@ -57,16 +57,16 @@ public class ServerSync {
         void onResult(String err, String msg, boolean changed);
     }
 
-    /** 服务器拉回的标签差异（[记录id, 标签名]），宿主在主线程落库（按名对上/新建本地分类）。
-     *  传 null = 不关心标签同步。 */
-    public interface CatApplier {
+    /** 服务器拉回的元数据差异，宿主在主线程落库（标签按名对上/新建本地分类，标题 patch 用户态）。
+     *  每条 = [记录id, 标签名, 标题]：空串表示该项没变化。传 null = 不关心元数据同步。 */
+    public interface MetaApplier {
         void apply(ArrayList<String[]> updates);
     }
 
-    private CatApplier catApplier;
+    private MetaApplier metaApplier;
 
-    public void setCatApplier(CatApplier applier) {
-        catApplier = applier;
+    public void setMetaApplier(MetaApplier applier) {
+        metaApplier = applier;
     }
 
     private static final SimpleDateFormat FMT = new SimpleDateFormat("MM-dd HH:mm", Locale.US);
@@ -183,7 +183,7 @@ public class ServerSync {
                 } finally {
                     running.set(false);
                 }
-                if (cats > 0) applyCats(catUpdates);
+                if (cats > 0) applyMeta(catUpdates);
                 String msg = "上传 " + pushed + " 场 · 回填 " + pulled + " 场"
                         + (cats > 0 ? " · 标签 " + cats + " 场" : "");
                 deliver(cb, err, msg, pushed + pulled + cats > 0);
@@ -591,7 +591,7 @@ public class ServerSync {
             // 标签回填：与转写回填独立，本地稿子受保护也不影响
             String srvCat = o.optString("cat", "");
             if (srvCat.length() > 0 && !srvCat.equals(nameOf(catNames, vm.cat))) {
-                catUpdates.add(new String[]{id, srvCat});
+                catUpdates.add(new String[]{id, srvCat, ""});
                 ed.putString("cat." + id, srvCat);  // 落库成功才清（markCatDone）
                 nCat++;
             }
@@ -648,7 +648,7 @@ public class ServerSync {
                 if (ed == null) ed = prefs.edit(); // 已经落上（上轮 patch 生效）
                 ed.remove(k);
             } else {
-                catUpdates.add(new String[]{id, tag});
+                catUpdates.add(new String[]{id, tag, ""});
                 added++;
             }
         }
@@ -671,6 +671,7 @@ public class ServerSync {
         public String device = "";
         public String status = "";
         public String audioName = "";
+        public String preview = "";   // 生效转写稿开头一段（云端页几行预览）
         public long durMs;
         public long bytes;
         public long updatedAt;
@@ -722,6 +723,7 @@ public class ServerSync {
                             r.device = o.optString("device", "");
                             r.status = o.optString("status", "");
                             r.audioName = o.optString("audio_name", "");
+                            r.preview = o.optString("preview", "");
                             r.durMs = o.optLong("dur_ms", 0);
                             r.bytes = o.optLong("bytes", 0);
                             r.updatedAt = o.optLong("updated_at", 0);
@@ -820,6 +822,129 @@ public class ServerSync {
         return false;
     }
 
+    /**
+     * 云端页的默认取回：把服务器库里本机没有的场次拉成本地文稿（只文稿不音频，
+     * 与「保存文稿到本机」同一落点），并同步服务器上改过的标题/标签。
+     *
+     * 标题冲突规则（契约「本地人写的永不被覆盖」的延伸）：服务器改名只在本地
+     * 没动过标题（仍是默认标题，或就是上次从服务器同步来的那个名字）时才应用；
+     * 本地自己改过的名字不动。上次同步来的服务器标题记在 stl.<id>。
+     *
+     * 本机已有的场次：标题按上面的规则同步；标签差异与转写稿增量由 pull() 负责，
+     * 这里不重复拉转写（避免整库逐条 GET）。拉回的新场次 tr.<id> 记到 updated_at，
+     * 之后转写更新仍走增量回填；不设 up 标记——没有音频，push 自然跳过。
+     */
+    public void syncCloud(final ArrayList<RecordVm> items, final ResultCallback cb) {
+        if (!configured()) {
+            deliver(cb, "未配置服务器地址", "", false);
+            return;
+        }
+        if (!running.compareAndSet(false, true)) {
+            deliver(cb, "上一次同步还没跑完", "", false);
+            return;
+        }
+        final ArrayList<RecordVm> snapshot =
+                items == null ? new ArrayList<RecordVm>() : new ArrayList<RecordVm>(items);
+        final HashMap<String, String> catNames = s.catNameSnapshot();  // UI 线程拍快照（同 syncNow）
+        io.execute(new Runnable() {
+            public void run() {
+                int imported = 0, meta = 0;
+                String err = null;
+                ArrayList<String[]> metaUpdates = new ArrayList<String[]>();
+                try {
+                    JSONObject root = new JSONObject(httpGet(api() + "/records?since=0"));
+                    JSONArray recs = root.optJSONArray("records");
+                    if (recs == null) recs = new JSONArray();
+
+                    Map<String, RecordVm> byId = new HashMap<String, RecordVm>();
+                    for (int i = 0; i < snapshot.size(); i++) byId.put(snapshot.get(i).id, snapshot.get(i));
+                    Map<String, String> bySrv = new HashMap<String, String>();
+                    java.util.Set<String> mappedLocal = new java.util.HashSet<String>();
+                    for (Map.Entry<String, ?> en : prefs.getAll().entrySet()) {
+                        String k = en.getKey();
+                        if (k.startsWith("srvid.")) {
+                            bySrv.put(String.valueOf(en.getValue()), k.substring(6));
+                            mappedLocal.add(k.substring(6));
+                        }
+                    }
+
+                    File mdDir = storage.privateRecords();
+                    SharedPreferences.Editor ed = prefs.edit();
+                    for (int i = 0; i < recs.length(); i++) {
+                        JSONObject o = recs.optJSONObject(i);
+                        if (o == null) continue;
+                        String srvId = o.optString("id", "");
+                        if (srvId.length() == 0) continue;
+                        long upd = o.optLong("updated_at", 0);
+                        String status = o.optString("status", "");
+                        String srvTitle = o.optString("title", "");
+                        String srvCat = o.optString("cat", "");
+                        RecordVm vm = null;
+                        String mapped = bySrv.get(srvId);
+                        if (mapped != null) vm = byId.get(mapped);
+                        if (vm == null) {
+                            RecordVm cand = byId.get(srvId);
+                            if (cand != null && !mappedLocal.contains(cand.id)) vm = cand;
+                        }
+                        if (vm == null) {
+                            // ---- 本机没有这场：默认拉成本地文稿（只拉有稿的）
+                            if (!"done".equals(status) && !"asr".equals(status)) continue;
+                            if (prefs.getLong("tr." + srvId, 0) < upd) {
+                                String jsonl = httpGet(api() + "/records/" + srvId + "/transcript");
+                                if (writeTranscriptMd(new File(mdDir, srvId + ".md"), srvTitle, jsonl)) {
+                                    ed.putLong("tr." + srvId, upd);
+                                    imported++;
+                                }
+                            }
+                            if (srvCat.length() > 0) {
+                                metaUpdates.add(new String[]{srvId, srvCat, ""});
+                                ed.putString("cat." + srvId, srvCat);
+                                meta++;
+                            }
+                            if (applyServerTitle(srvId, srvTitle, "", metaUpdates, ed)) meta++;
+                        } else {
+                            // ---- 本机已有：只同步元数据（转写走增量 pull，不整库重拉）
+                            String id = vm.id;
+                            if (srvCat.length() > 0 && !srvCat.equals(nameOf(catNames, vm.cat))) {
+                                metaUpdates.add(new String[]{id, srvCat, ""});
+                                ed.putString("cat." + id, srvCat);
+                                meta++;
+                            }
+                            if (applyServerTitle(id, srvTitle, vm.title, metaUpdates, ed)) meta++;
+                        }
+                    }
+                    ed.apply();
+                } catch (Throwable t) {
+                    err = readable(t);
+                } finally {
+                    running.set(false);
+                }
+                applyMeta(metaUpdates);
+                String msg = err == null
+                        ? "新回填 " + imported + " 场 · 元数据 " + meta + " 场" : "";
+                deliver(cb, err, msg, imported + meta > 0);
+            }
+        });
+    }
+
+    /** 服务器标题同步判定：非默认标题、与上次同步来的不同、且本地没自己改过
+     *  （curTitle 传空 = 新场次没有本地标题，直接收）才入队；记 stl 标记。
+     *  返回是否收集了一条。 */
+    private boolean applyServerTitle(String id, String srvTitle, String curTitle,
+                                     ArrayList<String[]> updates, SharedPreferences.Editor ed) {
+        String t = srvTitle == null ? "" : srvTitle.trim();
+        if (t.length() == 0 || t.matches("^录音 \\d{1,2}:\\d{2}$")) return false;
+        String last = prefs.getString("stl." + id, "");
+        if (t.equals(last)) return false;
+        if (curTitle.length() > 0 && !curTitle.matches("^录音 \\d{1,2}:\\d{2}$")
+                && !curTitle.equals(last)) {
+            return false;   // 本地自己改过名：不动
+        }
+        updates.add(new String[]{id, "", t});
+        ed.putString("stl." + id, t);
+        return true;
+    }
+
     private static String extOfName(String name) {
         String n = name == null ? "" : name.toLowerCase(Locale.US);
         int dot = n.lastIndexOf('.');
@@ -850,13 +975,13 @@ public class ServerSync {
         }
     }
 
-    /** 标签差异交给宿主（主线程）落库；宿主负责对上/新建本地分类并 patch 用户态。 */
-    private void applyCats(final ArrayList<String[]> updates) {
-        if (catApplier == null || updates.isEmpty()) return;
+    /** 元数据差异交给宿主（主线程）落库；宿主负责标签对上/新建、标题 patch 用户态。 */
+    private void applyMeta(final ArrayList<String[]> updates) {
+        if (metaApplier == null || updates.isEmpty()) return;
         ui.post(new Runnable() {
             public void run() {
                 try {
-                    catApplier.apply(updates);
+                    metaApplier.apply(updates);
                 } catch (Throwable ignore) { }
             }
         });
@@ -884,7 +1009,7 @@ public class ServerSync {
                 } finally {
                     running.set(false);
                 }
-                if (cats > 0) applyCats(catUpdates);
+                if (cats > 0) applyMeta(catUpdates);
                 if (err != null) deliver(cb, err, "", false);
                 else if (pulled > 0 || cats > 0)
                     deliver(cb, null,

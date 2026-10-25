@@ -30,6 +30,8 @@ public class ServerScreen extends LinearLayout {
         ServerSync sync();
         /** 本机记录 id 集合（判断"已在本机"用，配合 ServerSync.isLocalCopy）。 */
         java.util.Set<String> localIds();
+        /** 本机记录快照（云端默认取回 syncCloud 用，UI 线程调）。 */
+        ArrayList<RecordVm> localSnapshot();
         /** 取回成功后让宿主重扫本地列表。 */
         void onImported();
         /** 点开一条服务器记录（宿主负责弹 ServerRecordSheet 并入 overlay 栈）。 */
@@ -44,7 +46,9 @@ public class ServerScreen extends LinearLayout {
     private final TextView emptyText;
     private final ArrayList<ServerSync.ServerRec> list = new ArrayList<ServerSync.ServerRec>();
     private String deviceFilter = "";   // 空 = 全部设备
+    private String syncNote = "";       // 云端取回结果附注（拼在条数后面）
     private boolean loading;
+    private boolean cloudSyncing;
 
     public ServerScreen(Context c, Host h) {
         super(c);
@@ -129,6 +133,29 @@ public class ServerScreen extends LinearLayout {
                 if (recs != null) list.addAll(recs);
                 emptyText.setText("服务器还没有记录");
                 repaint();
+                // 列表拿到了就顺手默认取回：本机没有的场次拉文稿，服务器上改过的
+                // 标题/标签同步下来（增量——已取回且没更新的自动跳过）。
+                pullCloud();
+            }
+        });
+    }
+
+    /** 云端默认取回一轮；结果拼在条数后面，有新场次才让宿主重扫。 */
+    private void pullCloud() {
+        if (cloudSyncing) return;
+        cloudSyncing = true;
+        syncNote = " · 云端取回中…";
+        repaint();
+        host.sync().syncCloud(host.localSnapshot(), new ServerSync.ResultCallback() {
+            public void onResult(String err, String msg, boolean changed) {
+                cloudSyncing = false;
+                syncNote = err != null ? " · 云端取回失败：" + err
+                        : (msg == null || msg.length() == 0 ? "" : " · " + msg);
+                if (changed) {
+                    host.onImported();   // 重扫本地列表（新文稿进库），回来顺带 refreshPresence 重画
+                } else {
+                    repaint();
+                }
             }
         });
     }
@@ -167,7 +194,7 @@ public class ServerScreen extends LinearLayout {
         if (list.isEmpty()) {
             countText.setText("");
         } else {
-            countText.setText(shown + " / " + list.size() + " 条 · 点开可看转写并取回本机");
+            countText.setText(shown + " / " + list.size() + " 条" + syncNote);
         }
     }
 
@@ -198,6 +225,7 @@ public class ServerScreen extends LinearLayout {
 
         private final TextView title;
         private final TextView meta;
+        private final TextView preview;
         private ServerSync.ServerRec rec;
 
         ServerCard(Context c) {
@@ -222,6 +250,14 @@ public class ServerScreen extends LinearLayout {
             meta.setEllipsize(TextUtils.TruncateAt.END);
             addView(meta, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 0));
+
+            preview = Ui.text(c, "", 11f, Ui.DIM);
+            preview.setLineSpacing(Ui.dp(1), 1f);
+            preview.setMaxLines(3);
+            preview.setEllipsize(TextUtils.TruncateAt.END);
+            preview.setVisibility(GONE);
+            addView(preview, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 0, 5, 0, 0));
         }
 
         void bind(ServerSync.ServerRec r) {
@@ -237,6 +273,13 @@ public class ServerScreen extends LinearLayout {
                     + " · " + statusLabel(r.status)
                     + (r.bytes > 0 ? " · " + fmtBytes(r.bytes) : "")
                     + (local ? " · 已在本机" : ""));
+            String pv = r.preview == null ? "" : r.preview.trim();
+            if (pv.length() > 0) {
+                preview.setText(pv);
+                preview.setVisibility(VISIBLE);
+            } else {
+                preview.setVisibility(GONE);
+            }
         }
 
         private String fmtStart(ServerSync.ServerRec r) {
