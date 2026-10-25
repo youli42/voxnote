@@ -154,6 +154,11 @@ public class HomeActivity extends Activity implements Picker.Host {
             return settings.catName(vm.cat);
         }
 
+        public String sourceLabel(String fromSourceId) {
+            String l = sourceLabels.get(fromSourceId);
+            return l == null || l.length() == 0 ? fromSourceId : l;
+        }
+
         public void openDetail(RecordVm vm) {
             HomeActivity.this.openDetail(vm);
         }

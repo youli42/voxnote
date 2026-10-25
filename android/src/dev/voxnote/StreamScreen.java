@@ -8,12 +8,16 @@ import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.HorizontalScrollView;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 录音流（与 Web 控制台流页同一交互）：平铺全部记录的转写正文，批量 review。
@@ -33,6 +37,8 @@ public class StreamScreen extends LinearLayout {
         /** 全量记录（时间序，与列表页同源）。 */
         ArrayList<RecordVm> records();
         String catName(RecordVm vm);
+        /** 外部来源的显示名（筛选 chips 用；未知 id 返回 id 本身）。 */
+        String sourceLabel(String fromSourceId);
         void openDetail(RecordVm vm);
         /** 左右滑归类（与列表页 onSwipe 同语义：滑回原分类＝取消）。 */
         void onSwipeCat(RecordVm vm, String targetCat);
@@ -43,10 +49,17 @@ public class StreamScreen extends LinearLayout {
     private final UiSettings settings;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final LinearLayout listBox;
+    private final LinearLayout filterPanel;
+    private final LinearLayout chipsCat;
+    private final LinearLayout chipsSrc;
+    private final TextView filterBtn;
     private final TextView countText;
     private final TextView autoBtn;
     private final TextView emptyText;
     private final ArrayList<RecordVm> list = new ArrayList<RecordVm>();
+    /** 筛选状态（内存态）：cat = all / none / 分类 id；src = null(全部) / ""(无来源) / 来源 id。 */
+    private String filterCat = "all";
+    private String filterSrc = null;
     private int playingIdx = -1;
     private boolean session;
     private boolean tickerRun;
@@ -68,6 +81,18 @@ public class StreamScreen extends LinearLayout {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 8, 2, 0, 0));
         View stretch = new View(c);
         head.addView(stretch, Ui.lp(0, 1, 1f));
+        filterBtn = Ui.text(c, "", 10.5f, Ui.DIM);
+        filterBtn.setGravity(Gravity.CENTER);
+        filterBtn.setClickable(true);
+        Ui.pad(filterBtn, 10, 5, 10, 5);
+        filterBtn.setOnClickListener(new OnClickListener() {
+            public void onClick(View v) {
+                filterPanel.setVisibility(
+                        filterPanel.getVisibility() == VISIBLE ? GONE : VISIBLE);
+                paintFilterBtn();
+            }
+        });
+        head.addView(filterBtn, Ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         autoBtn = Ui.text(c, "", 10.5f, Ui.DIM);
         autoBtn.setGravity(Gravity.CENTER);
         autoBtn.setClickable(true);
@@ -81,8 +106,17 @@ public class StreamScreen extends LinearLayout {
                         settings.streamAuto ? "已开启连播" : "已关闭连播", Toast.LENGTH_SHORT).show();
             }
         });
-        head.addView(autoBtn, Ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        head.addView(autoBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8, 0, 0, 0));
         addView(head, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // 筛选面板：标签一行 + 来源一行，按库内出现过的值生成，点 chip 即筛。
+        filterPanel = Ui.col(c);
+        filterPanel.setVisibility(GONE);
+        chipsCat = Ui.row(c);
+        chipsSrc = Ui.row(c);
+        filterPanel.addView(chipScroll(c, chipsCat));
+        filterPanel.addView(chipScroll(c, chipsSrc));
+        addView(filterPanel, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         ScrollView scroller = new ScrollView(c);
         listBox = Ui.col(c);
@@ -97,21 +131,58 @@ public class StreamScreen extends LinearLayout {
         listBox.addView(emptyText, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         paintAutoBtn();
+        paintFilterBtn();
     }
 
-    /** 数据刷新（切到本页 / 列表数据变化后调用）。重建卡片；正在播的按 id 对回位置。 */
+    private static HorizontalScrollView chipScroll(Context c, LinearLayout row) {
+        Ui.pad(row, 12, 4, 12, 4);
+        HorizontalScrollView hs = new HorizontalScrollView(c);
+        hs.setHorizontalScrollBarEnabled(false);
+        hs.addView(row, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return hs;
+    }
+
+    private boolean filtering() {
+        return !"all".equals(filterCat) || filterSrc != null;
+    }
+
+    private boolean matches(RecordVm vm) {
+        if (!"all".equals(filterCat)) {
+            if ("none".equals(filterCat)) {
+                if (vm.cat != null && vm.cat.length() > 0) return false;
+            } else if (!filterCat.equals(vm.cat)) {
+                return false;
+            }
+        }
+        if (filterSrc != null) {
+            String fs = vm.fromSource == null ? "" : vm.fromSource;
+            if (!filterSrc.equals(fs)) return false;
+        }
+        return true;
+    }
+
+    /** 数据刷新（切到本页 / 列表数据变化后调用）。按当前筛选重建卡片；正在播的按 id 对回位置。 */
     public void refresh() {
         String keepId = session && playingIdx >= 0 && playingIdx < list.size()
                 ? list.get(playingIdx).id : null;
+        ArrayList<RecordVm> all = host.records();
         list.clear();
-        list.addAll(host.records());
-        int keep = -1;
+        for (int i = 0; i < all.size(); i++) {
+            if (matches(all.get(i))) list.add(all.get(i));
+        }
+        // 正在播的场次被筛掉了：结束会话，不让播放器悬在一张看不见的卡上
         if (keepId != null) {
+            int keep = -1;
             for (int i = 0; i < list.size(); i++) {
                 if (list.get(i).id.equals(keepId)) { keep = i; break; }
             }
+            playingIdx = keep;
+            if (keep < 0) stopSession();
+        } else {
+            playingIdx = -1;
         }
-        playingIdx = keep;
+        rebuildFilterChips(all);
         listBox.removeAllViews();
         listBox.addView(emptyText, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         for (int i = 0; i < list.size(); i++) {
@@ -127,9 +198,107 @@ public class StreamScreen extends LinearLayout {
                     ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 7));
             card.bind();
         }
+        emptyText.setText(list.isEmpty() ? (filtering() ? "没有符合筛选的录音" : "还没有录音") : "");
         emptyText.setVisibility(list.isEmpty() ? VISIBLE : GONE);
-        countText.setText(list.size() + " 场 · 从上往下连播 review");
+        countText.setText(filtering()
+                ? list.size() + " / " + all.size() + " 场 · 从上往下连播 review"
+                : list.size() + " 场 · 从上往下连播 review");
         if (playingIdx >= 0) scrollCardVisible(playingIdx);
+    }
+
+    /** 筛选 chips：标签行（全部/未分类/各分类）+ 来源行（全部/各来源/无来源）。
+     *  来源按库内出现过的 fromSource 生成；没有外部来源时整行不显示。 */
+    private void rebuildFilterChips(ArrayList<RecordVm> all) {
+        LinkedHashMap<String, Integer> cats = new LinkedHashMap<String, Integer>();
+        int none = 0;
+        LinkedHashMap<String, Integer> srcs = new LinkedHashMap<String, Integer>();
+        int noSrc = 0;
+        for (int i = 0; i < all.size(); i++) {
+            RecordVm vm = all.get(i);
+            String c = vm.cat == null || vm.cat.length() == 0 ? null : vm.cat;
+            if (c == null) none++;
+            else cats.put(c, (cats.containsKey(c) ? cats.get(c) : 0) + 1);
+            String s = vm.fromSource == null ? "" : vm.fromSource;
+            if (s.length() == 0) noSrc++;
+            else srcs.put(s, (srcs.containsKey(s) ? srcs.get(s) : 0) + 1);
+        }
+        chipsCat.removeAllViews();
+        chipsSrc.removeAllViews();
+        addChip(chipsCat, "全部 " + all.size(), "all".equals(filterCat), new Runnable() {
+            public void run() {
+                filterCat = "all";
+                refresh();
+            }
+        });
+        addChip(chipsCat, "未分类 " + none, "none".equals(filterCat), new Runnable() {
+            public void run() {
+                filterCat = "none";
+                refresh();
+            }
+        });
+        for (final Map.Entry<String, Integer> en : cats.entrySet()) {
+            addChip(chipsCat, settings.catName(en.getKey()) + " " + en.getValue(),
+                    filterCat.equals(en.getKey()), new Runnable() {
+                public void run() {
+                    filterCat = en.getKey();
+                    refresh();
+                }
+            });
+        }
+        addChip(chipsSrc, "全部来源", filterSrc == null, new Runnable() {
+            public void run() {
+                filterSrc = null;
+                refresh();
+            }
+        });
+        for (final Map.Entry<String, Integer> en : srcs.entrySet()) {
+            addChip(chipsSrc, host.sourceLabel(en.getKey()) + " " + en.getValue(),
+                    filterSrc != null && filterSrc.equals(en.getKey()), new Runnable() {
+                public void run() {
+                    filterSrc = en.getKey();
+                    refresh();
+                }
+            });
+        }
+        if (noSrc > 0 || (filterSrc != null && filterSrc.length() == 0)) {
+            addChip(chipsSrc, "无来源 " + noSrc, filterSrc != null && filterSrc.length() == 0,
+                    new Runnable() {
+                public void run() {
+                    filterSrc = "";
+                    refresh();
+                }
+            });
+        }
+        chipsSrc.getParent().requestLayout();
+        ((View) chipsSrc.getParent()).setVisibility(srcs.isEmpty() ? GONE : VISIBLE);
+        paintFilterBtn();
+    }
+
+    private void addChip(LinearLayout row, String label, boolean active, final Runnable pick) {
+        TextView chip = Ui.text(getContext(), label, 12f, active ? Ui.TEXT : Ui.FAINT);
+        chip.setSingleLine(true);
+        chip.setBackground(active
+                ? Ui.pressable(Ui.rounded(14, Ui.SURFACE2, Ui.LINE2, 1), 0x22FFFFFF)
+                : Ui.pressable(Ui.rounded(14, 0x00000000, Ui.LINE, 1), 0x22FFFFFF));
+        chip.setGravity(Gravity.CENTER);
+        Ui.pad(chip, 11, 5, 11, 5);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.rightMargin = Ui.dp(6);
+        chip.setOnClickListener(new OnClickListener() {
+            public void onClick(View v) {
+                pick.run();
+            }
+        });
+        row.addView(chip, p);
+    }
+
+    private void paintFilterBtn() {
+        boolean open = filterPanel.getVisibility() == VISIBLE;
+        filterBtn.setText(filtering() ? "筛选 ●" : (open ? "收起" : "筛选"));
+        filterBtn.setTextColor(filtering() || open ? Ui.TEXT : Ui.FAINT);
+        filterBtn.setBackground(Ui.pressable(Ui.rounded(9,
+                filtering() ? Ui.SURFACE3 : Ui.SURFACE2, Ui.LINE2, 1), 0x22FFFFFF));
     }
 
     private void paintAutoBtn() {
