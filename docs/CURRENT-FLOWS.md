@@ -1,0 +1,354 @@
+# 现在的流程（只读推导）
+
+> 2026-10-26。**只读代码推导，未改任何代码。**
+> 画的是**当前实现实际怎么跑**，不是应该怎么跑；目标形态见 [合理使用流程](USER-FLOWS.md)，
+> 问题清单见 [体检报告](DIAGNOSIS.md)。所有 mermaid 图可在 GitHub / Typora / Obsidian /
+> mermaid.live 渲染。
+
+## 0. 一句话总览
+
+现在不是一个流程，而是**三条流程并行**，靠 `<id>.md` 文件在中间对账：
+
+```mermaid
+flowchart LR
+  A["① 本机文件流<br/>录音 / 扫描 / md 解析 / 用户态"]
+  B["② 服务器任务流<br/>上传 / 排队 / 引擎转写 / 镜像"]
+  C["③ 手机轮询回填流<br/>6 秒拉稿 / 30 秒全库枚举 / 写 md"]
+  A <-->|"md / app-state"| C
+  B <-->|"HTTP + SQLite"| C
+  A -.->|"录音只在本地"| B
+```
+
+三条流各自有状态、各自写数据；用户看到的界面，是第 ① 条流把文件系统重新解析一遍的结果。
+这就是"为什么同步和转写总是对不上"的结构原因。
+
+## 1. 入口地图（手机 App）
+
+```mermaid
+flowchart LR
+  subgraph APP [手机 App]
+    subgraph TABS [底部三个 tab]
+      T1["录音页<br/>列表 + 搜索 + 筛选 + 刷新 + 管理 + 录音按钮"]
+      T2["流页<br/>平铺转写正文 + 连播 + 跳过静音 + 按标签/来源筛选"]
+      T3["设置页<br/>分类 / 按键 / 转写 API / 服务器 / 存储 / 录音 / 数据 / 外部来源 / 关于"]
+    end
+    D["详情页（全屏覆盖）<br/>播放条 + 转写/标记分页<br/>改名 / 分类 / 打点<br/>转文字·重新转写 / 重传 / 下载音频"]
+    S["扫码页（全屏覆盖）"]
+    P["选择器 / 分类菜单（覆盖）"]
+  end
+  T1 -->|点卡片| D
+  T2 -->|点标题| D
+  T3 -->|扫码配对| S
+  T3 -->|测试连接 / 立即同步 / 服务器转写引擎| T3
+  T3 -->|分类 / 存储方式 / 按键| P
+```
+
+证据：`HomeActivity.java:374-445`（三个 tab）、`:447` 列表页、`:232` 详情、`:315-331`
+扫码、`SettingsScreen.java:176-496`（九组设置）。控制台另有 6 个页面（见 §8）。
+
+## 2. 启动与列表：每次都是"全库重解析"
+
+```mermaid
+flowchart TD
+  A["onCreate"] --> B["初始化 settings / State / Storage<br/>DataCenter / Player / ServerSync / DetailSheet"]
+  B --> C["旧版设置迁移 LegacySettingsImporter"]
+  C --> D["请求权限"]
+  D --> E["load(false)"]
+  E --> F{"loading 中?"}
+  F -- 是 --> F1["直接 return<br/>本次请求被丢弃"]
+  F -- 否 --> G["后台线程 DataCenter.load"]
+  G --> H["外部来源 scan（厂商日志插件）"]
+  H --> I["Library.scan：列目录 + 解析每个 md + 探测每个音频时长"]
+  I --> J["合成 Item + 应用 app-state → RecordVm"]
+  J --> K["主线程 applyResult"]
+  K --> L["rebuildSyncStates：逐条 stat 音频"]
+  L --> M["applyFilter：筛选 + 搜索"]
+  M --> N["列表绑定"]
+  O["onResume"] --> P{"距上次加载 >1.5 秒?"}
+  P -- 是 --> E
+```
+
+证据：`HomeActivity.java:172-247, 929-933, 1676-1684`；`DataCenter.java:97-162`；
+`Library.java:59-84, 88-116, 242-263`；`MdParser.java:57-125`。
+注意：没有缓存/增量，"刷新"和"同步回填后"走的都是这一整条。
+
+## 3. 录音：本机成功，后续是"待办标记"
+
+```mermaid
+flowchart TD
+  A["按录音按钮"] --> B{"有麦克风权限?"}
+  B -- 否 --> B1["请求权限 + toast"] --> Z["结束"]
+  B -- 是 --> C["startRecording<br/>记 stamp / 标题，写临时 m4a"]
+  C --> D["再按一次，或到时长上限自动停"]
+  D --> E["stopRecording → recorder.stop"]
+  E --> F{"文件有效?"}
+  F -- 否 --> F1["toast 录音失败"] --> Z
+  F -- 是 --> G["后台 publish<br/>公共 / SAF / 私有（失败自动降级）"]
+  G --> H["有标题则写 app-state"]
+  H --> I["load 全库重扫"]
+  I --> J["applyResult"]
+  J --> K{"autoTranscribe 开?"}
+  K -- 是 --> L["pendingTranscribe → transcribe(该场)"]
+  K -- 否 --> M["不动作"]
+  J --> N{"autoSync 开?"}
+  N -- 是 --> O["pendingSync → syncNow(当前列表快照)"]
+  N -- 否 --> P["不动作"]
+```
+
+证据：`HomeActivity.java:1508-1592`；默认值见 `UiSettings.java:29,48,50`（自动转写/自动上传/自动音频**默认关**）。
+`transcribe()` 的分支见 §7：有服务器走服务器，没有服务器就变成"重扫外部来源"。
+
+## 4. 同步：三种触发、两条线程、靠 md 对账
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant P as 手机
+  participant H as 服务器
+
+  Note over P: 触发：设置页立即同步 / 录完 pendingSync / 配对 sync_now=1 / 详情重传 / 转写前补传
+  P->>P: 抢 running 锁（已在跑就提示"上一次没跑完"）
+  P->>P: 快照当前列表 + 分类名
+
+  loop 列表里每一场有音频且上传标记变了
+    P->>H: POST /sync/upload（multipart 音频 + meta）
+    H-->>P: 返回真实 id（同秒撞车给 -2 后缀）
+    P->>P: 记 up / srvid 标记
+  end
+
+  P->>H: POST /records/{id}/meta（改名 / 打点，逐场）
+  P->>H: GET /sync/records?since=cursor
+  H-->>P: 最多 500 条（无分页）
+  loop 每条 done / asr 且有更新
+    P->>H: GET /records/{id}/transcript（整篇 JSONL）
+    P->>P: 重写 <id>.md
+    P->>P: 记 tr / 推进 cursor
+  end
+  P->>P: 有变化 → 再 load 全库重扫 → 列表刷新
+```
+
+三种触发器各自独立：
+
+```mermaid
+flowchart TD
+  A["设置页「立即同步」"] --> S["syncNow：推 + 拉 + 云端取回"]
+  B["录完且 autoSync"] --> S
+  C["配对意图 sync_now=1"] --> S
+  D["前台每 6 秒"] --> P["pollLive：只拉不推"]
+  E["每第 5 轮（约 30 秒）"] --> Q["syncCloud：GET /sync/records?since=0<br/>全库枚举，500 条封顶"]
+  F["详情「重传」"] --> R["retryUpload：单场推"]
+  G["详情「转文字」"] --> T["transcribeRemote：必要时补传 + 触发服务器转写"]
+```
+
+证据：`ServerSync.java:143-194`（syncNow）、`:206-223`（push）、`:278-310`（pushMeta）、
+`:642-730`（pull）、`:868-1003`（syncCloud）、`:1049-1078`（pollLive）、
+`HomeActivity.java:1714-1728`（6 秒 / 30 秒）；`api_sync.py:161-174`（LIMIT 500）。
+
+## 5. 服务端转写：单 worker + 每 3 秒全量落库
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant P as 手机
+  participant S as 服务器 API
+  participant W as 转写 worker
+  participant E as 引擎
+
+  P->>S: POST /sync/upload
+  S->>S: 落盘音频 → insert records(status=raw) → enqueue_default
+  alt 自动转写关 / 引擎不可用
+    S-->>S: 静默返回，记录停在 raw（无任务、无错误）
+  else 已入队
+    W->>W: claim 任务 → records.status=asr
+    W->>E: transcribe(audio)
+    loop 每 8 句左右
+      E-->>W: on_partial（部分结果）
+      W->>W: 每 3 秒：全量替换 segments，updated_at 变
+      W->>W: 同时重写 transcripts 镜像 3 个文件
+    end
+    E-->>W: 完成
+    W->>W: 存档旧版本（有差异才存）→ 整层替换 → status=done
+  end
+  P->>S: GET /sync/records?since=…
+  S-->>P: 该场 updated_at 变了
+  P->>S: GET /records/{id}/transcript
+  S-->>P: 生效稿 JSONL
+  P->>P: 重写 md → 全库重扫 → 列表可见
+```
+
+失败时：异常被归类成人话写进 `records.error`，记录 `status=fail`；**同步 feed 不返回失败原因**，
+手机 pull 又直接跳过非 done/asr 的记录——所以手机端无感（见 §6、§10）。
+
+证据：`api_sync.py:72-140`；`jobs.py:96-106, 173-283`；`db.py:224-255, 400-436`；
+`ServerSync.java:707-711`。
+
+## 6. 手机上的"状态"全是推导出来的
+
+```mermaid
+flowchart LR
+  subgraph STATUS [卡片与详情的状态]
+    S1["已转写"]
+    S2["转写失败"]
+    S3["待转写"]
+    S4["无正文"]
+  end
+  M["md 里有句?"] -->|有| S1
+  M -->|没有| E{"errorCount > 0?"}
+  E -->|是| S2
+  E -->|否| A{"有音频?"}
+  A -->|是| S3
+  A -->|否| S4
+
+  subgraph SYNC [同步标签]
+    Y1["已同步"]
+    Y2["待上传"]
+    Y3["上传失败"]
+  end
+  MK["文件 size:mtime 与 up 标记一致?"] -->|是| Y1
+  MK -->|否| UE{"uperr 有原因?"}
+  UE -->|是| Y3
+  UE -->|否| Y2
+```
+
+关键：手机**没有** `queued / asr / 转写进度 / 服务器失败原因` 这些状态——它们只存在于服务器，
+`/sync/records` 也不返回，所以手机不可能显示。
+证据：`RecordVm.java:92-97`；`ServerSync.java:358-371, 707-711`；`api_sync.py:161-174`。
+
+## 7. 详情页：打开、刷新、以及"转文字"的真实分支
+
+```mermaid
+flowchart TD
+  A["点卡片 openDetail"] --> B["bind：标题/元信息/分类/播放条/标记"]
+  B --> C["rebuildMarks + rebuildSegs<br/>为每一句 new 一行 View"]
+  C --> D["100ms ticker 更新进度 / 当前句高亮"]
+  E["外部数据变化（同步/轮询）"] --> F["load 全库重扫 → detail.refresh"]
+  F --> B
+  G["点「转文字 / 重新转写」"] --> H{"配了服务器且有音频?"}
+  H -- 是 --> I["transcribeRemote<br/>必要时先补传，再 POST /transcribe"]
+  H -- 否 --> J["data.load(true) 强制重扫外部来源"]
+  J --> K["toast：外部来源里没有这场的内容"]
+```
+
+按钮的显示规则也是推导的：`uploadBtn` 只在同步状态=FAIL 时出现；`audioBtn` 只在
+"云端场次且本机没音频"时出现；`transcribeBtn` 文案由本地状态决定。
+证据：`DetailSheet.java:573-627, 870-927`；`HomeActivity.java:1352-1386`。
+
+## 8. 控制台：6 个页面 + 3 秒轮询 + 整块重建
+
+```mermaid
+flowchart TD
+  T["setInterval 每 3 秒"] --> A["loadStats"]
+  A --> B{"记录总数变了?"}
+  B -- 是 --> C["当前页重拉：loadList / loadStream"]
+  A --> D["当前页是 asr → loadAsr"]
+  A --> E["当前页是 set → loadModel"]
+  T --> F["页面切换 go(p)"]
+  F --> G["#/home 工作台"]
+  F --> H["#/lib 记录库：列表 + 详情联动"]
+  F --> I["#/stream 录音流"]
+  F --> J["#/asr 转写任务：上传 + 队列"]
+  F --> K["#/ai AI 助手"]
+  F --> L["#/set 设置：语音转文本模型 / AI 与 MCP / 存储与安全"]
+  H --> M["改标题 / 归类 / 逐句修订 / 重转 / 删除 / 导出"]
+  J --> N["拖入音频导入 / 重试 / 取消"]
+```
+
+证据：`index.html:633-666`（hash 路由）、`:2379`（3 秒轮询）、`:700-753`（stats 驱动刷新）、
+`:954-1164`（记录库 + 详情）、`:1780-1812`（任务页）、`:1925-2063`（设置三 tab）。
+
+控制台改一次东西到手机看到，要走两步完全不同的同步：
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant W as 控制台
+  participant H as 服务器
+  participant P as 手机
+
+  W->>H: PATCH /records/{id}（标题/标签）或 PATCH segments（逐句）
+  H->>H: update_record（只改 updated_at）
+  Note over H: 没有版本号、没有墓碑、没有变更流
+  P->>H: 下一次 6 秒轮询：GET /sync/records?since=cursor
+  H-->>P: 变化的记录（最多 500 条）
+  P->>P: 比较"本地是否改过"（stl / mk 基线）→ 决定收不收
+  P->>P: 写 app-state / 重写 md → 全库重扫
+```
+
+## 9. 五处真相：同一件事存在五个地方
+
+```mermaid
+flowchart TB
+  subgraph PHONE [手机]
+    MD["<id>.md<br/>转写稿（又被当事实解析）"]
+    AS["app-state.json<br/>标题 / 分类 / 标记 / 删除屏蔽"]
+    SP["SharedPreferences voxnote.sync<br/>每条 11 类键：up / uperr / srvid /<br/>stl / mk / cat / stp / mkp / srv / srvup / tr<br/>+ cursor / lastError"]
+    AUD["音频文件<br/>公共 / SAF / 私有"]
+  end
+  subgraph SERVER [服务器]
+    DB["SQLite records / segments / jobs / settings"]
+    MIR["transcripts/<id>/<br/>segments.jsonl + md + srt 镜像"]
+    SAUD["audio/<yyyy.MM>/ 副本"]
+  end
+  subgraph SOURCE [外部]
+    VENDOR["厂商日志 / 录音（只读）"]
+  end
+  VENDOR -->|扫描导入| PHONE
+  AUD -->|上传| SAUD
+  MD <-->|pull 重写 / 上传时读| DB
+  AS <-->|meta 回填 / 上推| DB
+  SP <-->|基线比对 / 游标| DB
+  DB -->|导出镜像| MIR
+  MD -. 被当成事实 .-> UI["列表 / 卡片 / 详情"]
+  AS -. 用户态 .-> UI
+  SP -. 同步标签 .-> UI
+  DB -. 状态与进度 .-> CONSOLE["控制台"]
+```
+
+这就是"改了又变、删了回来、两端不一致"的结构来源：没有单一真相，只有一组规则在维持同步。
+
+## 10. 现在的用户实际会走到的分支（死路图）
+
+```mermaid
+flowchart TD
+  A["用户点「转文字」"] --> B{"配了服务器?"}
+  B -- 没有 --> C["重扫外部来源<br/>toast：自录的录音只有声音，没有字"] --> Z["没有结果"]
+  B -- 有 --> D{"引擎已就绪?"}
+  D -- 没有 --> E["记录停在 raw<br/>无任务、无错误"] --> Z2["看起来像还没开始"]
+  D -- 有 --> F["入队转写"]
+  F --> G{"转写成功?"}
+  G -- 失败 --> H["服务器记录 fail + 原因<br/>手机看不到"] --> Z3["用户不知道失败"]
+  G -- 成功 --> I["手机轮询写 md → 能读"]
+
+  J["控制台删除一条"] --> K["手机不知道<br/>仍显示旧记录"]
+  K --> L["手机点重转"] --> M["HTTP 404 记录不存在"]
+  N["手机删除一条"] --> O["服务器仍保留"]
+  O --> P["之后云端取回可能重新写回"]
+  Q["上传成功但响应超时"] --> R["客户端重试"] --> S["服务器生成 -2 副本"]
+```
+
+证据：§5、§6 与 [体检报告](DIAGNOSIS.md) 的 A1/A3/A4/C2/C3。
+
+## 11. 现状 vs 目标：差在哪
+
+| 维度 | 现在（本文推导） | 目标（USER-FLOWS） |
+| --- | --- | --- |
+| 流程数量 | 三条并行，md 对账 | 一条主线，状态驱动 |
+| 手机状态 | 由文件推导（4 种） | 由服务器 + 本地合并（一套状态） |
+| 转写可见性 | 只看到"有/没有 md" | 排队/进度/快稿/精稿/失败原因 |
+| 同步方式 | 6 秒 + 30 秒轮询、全库枚举 | 变更流 + 游标增量 |
+| 删除 | 不传播 | 墓碑双向 |
+| 多来源转写 | 后写覆盖（无位置） | 尝试 + 生效指针 |
+| 数据真相 | 5 处 | 每类事实 1 处 |
+| 失败 | 多数无感/误报 | 统一失败卡 + 下一步 |
+
+## 12. 只读推导结论
+
+1. **现状不是一个"软件流程"，是三段各自成立的机制**：文件扫描、服务器队列、客户端轮询。
+   它们之间唯一的合同是 `<id>.md` 和 `updated_at`，所以任何一处改动都容易对不上。
+2. **手机没有"服务器状态"这个概念**，一切靠文件推导；所以排队、进度、失败原因在手机上根本无处显示，
+   不是 UI 没做，是数据没来。
+3. **同步是"轮询 + 全量重放 + 基线比较"**，不是变更流；删除、幂等、分页、多来源都没有位置，
+   只能继续加规则/加键来补，复杂度会继续涨。
+4. **控制台和手机是两套完全不同的读写路径**（SQLite vs 文件），所以"改了又变"是结构必然。
+5. 因此重设计的顺序必须是：**先定真相（库）→ 再定状态机 → 再定变更流 → 最后才是界面**；
+   在现状上继续加功能，只会把这三条流程越拉越远。

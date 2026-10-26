@@ -124,8 +124,14 @@ tools/     工具链获取脚本
 ## 文档
 
 - [需求与边界](docs/REQUIREMENTS.md)
-- [架构与路线](docs/ARCHITECTURE.md)
+- [结构设计 v1（定稿）](docs/ARCHITECTURE.md)（分层 / 角色与部署 / 领域模型 / 存储 / 同步 / 转写 / 客户端 / IA / 安全）
 - [数据契约](docs/DATA-CONTRACT.md)
+- [体检报告：同步与转录的现状问题](docs/DIAGNOSIS.md)（2026-10，含实测与证据索引）
+- [重设计准备：同步与转录主干](docs/REDESIGN.md)（目标架构 / 协议 v2 / 迁移路线 / 待拍板决策）
+- [设计手册：从功能拼装到一条主路径](docs/DESIGN-PLAYBOOK.md)（为什么难用 / 设计顺序 / 功能准入 / 验收脚本）
+- [合理使用流程](docs/USER-FLOWS.md)（主线 / 首次配对 / 转写时序 / 状态机 / 同步 / 失败恢复，含 mermaid 图）
+- [现在的流程（只读推导）](docs/CURRENT-FLOWS.md)（入口地图 / 录音 / 同步 / 转写 / 状态推导 / 五处真相 / 死路，含 mermaid 图）
+- [全局缺口清单](docs/GAP-ANALYSIS.md)（时间 / 录音生命周期 / 转写质量 / 修订重挂接 / 协议边界 / 安全 / 运维 / 测试，含优先级）
 
 ## 隐私边界
 

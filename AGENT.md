@@ -34,8 +34,16 @@ pwsh -NoProfile -File android/build.ps1 -Toolchain <jdk> -Sdk <sdk>   # 构建�
 - 端到端验证不碰真实数据：把 `server/data/` 复制成临时目录，
   `VOXNOTE_DATA=<临时目录> python run.py --port <空闲端口>` 起临时实例，
   浏览器走查完删掉临时目录。
+- 同步/转录正在重设计（2026-10）：**结构以 docs/ARCHITECTURE.md（v1）为准**；
+  现状问题见 docs/DIAGNOSIS.md，现流程见 docs/CURRENT-FLOWS.md，目标交互见 docs/USER-FLOWS.md，
+  迁移与决策见 docs/REDESIGN.md。改这几块前先读，别在旧模型上继续加补丁。
+- 加功能/改交互前先读 docs/DESIGN-PLAYBOOK.md（一条主线、一套状态、一处真相）；
+  功能准入过不了就别做，别把设置项和入口继续堆上去。
+- 开工前看 docs/GAP-ANALYSIS.md：P0 细节（修订重挂接 / 游标过期 / 保留策略 /
+  安全边界 / 转写质量）没定之前，不要动同步与转写的实现。
 
 ## 提交
 
 - 中文 commit message，前缀 `feat|fix|ui|docs|refactor|build|test(scope):`。
 - 隐私红线：日志、数据库、抓包、录音一律不进仓库（.gitignore 已拦）。
+- 内容要精简，便于回顾。如果有对应issues，要记录在前缀后

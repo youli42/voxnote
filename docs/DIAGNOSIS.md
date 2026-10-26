@@ -1,0 +1,308 @@
+# 体检报告：同步与转录为什么"不好操作"
+
+> 日期：2026-10-26　范围：`android/` + `server/` 全量静态审阅，外加一个临时实例的接口实测
+> （`VOXNOTE_DATA=<临时目录>`，不动真实数据；实例与临时数据已删除）。
+> 结论用于**重设计准备**，不是修复清单；具体方案见 [REDESIGN.md](REDESIGN.md)。
+
+## 0. 一句话结论
+
+录音/存储/导入这条线是**完整且有边界**的；同步与转录是后加的**跨机流程**，缺三样东西：
+**单一真相源、统一状态机、可增量可恢复的协议**。所以"不流畅"不是 UI 打磨能解决的，
+是数据模型和同步语义的问题。
+
+五类体感症状，对应五类根因：
+
+| 体感 | 实际发生的事 |
+| --- | --- |
+| 「按了没反应」 | 引擎不可用时自动转写**静默停在 raw**；手机设置里有一组**完全不生效**的转写 API；未配对时「转文字」变成重扫外部来源；失败原因从未显示 |
+| 「不知道同步到哪了」 | 没有队列/进度/失败原因；只有设置页一行字和卡片上三个词；手机根本收不到服务端任务状态 |
+| 「越用越卡」 | 6 秒轮询 + 30 秒全库枚举；任何变化都触发**全库重扫**（解析所有 md、探测所有音频元数据）和**详情全量重建** |
+| 「改来改去、删了回来」 | 无墓碑、无版本号、上传不幂等、增量游标用 `max` 而不是水位线、增量 feed 500 条硬截断 |
+| 「转写本身不稳」 | `available()` 只查 import；模型散落在全局 HuggingFace 缓存；依赖 pin 与实际环境不符；错误归类会把权限错误说成网络问题 |
+
+规模事实：4 天 149 次提交、约 1.1 万行 Android Java + 3600 行服务端 Python + 2400 行单文件
+控制台、**0 个测试**。单体文件：`ServerSync` 1308 行、`HomeActivity` 1865 行、
+`server/web/index.html` 2382 行。→ 已经过了"顺手修一下"的阶段，重设计前必须先定事实和决策。
+
+## 1. 检查方法
+
+### 1.1 做了什么
+
+- 通读 `docs/` 三份契约、README、AGENT，再对照代码逐条核对"文档说的"和"代码做的"；
+- 读完全部同步/转录相关代码：`ServerSync`、`DataCenter`、`Library`、`MdParser`、`State`、
+  `Storage`、`DetailSheet`、`HomeActivity`、`SettingsScreen`、`CardRow`，以及服务端
+  `api_sync`、`api_records`、`api_jobs`、`jobs`、`db`、`engines/*`、`api_models`、`web/index.html`；
+- 用临时数据目录起一个实例，做了 7 组接口实测（见下），验证"静默失败/截断/重复/删除"等行为。
+
+### 1.2 实测清单（全部可复现）
+
+| # | 场景 | 观察结果 |
+| --- | --- | --- |
+| 1 | 上传 4 秒 wav，服务器默认引擎 Whisper | 任务执行，模型下载失败；`records.error` 显示 **"模型下载失败：访问 HuggingFace 超时或不可达（检查网络…）"**，但 `error_detail` 是 `[WinError 5] 拒绝访问`——**不是网络问题** |
+| 2 | 把默认引擎切成未安装的 sherpa 后上传（`auto_transcribe=1`） | 记录**停在 `raw`**：没有 job、没有 error、队列为空。界面上这与"还没轮到"完全无法区分 |
+| 3 | 同一 `stamp` 连续上传两次（模拟"上传成功但响应丢了，客户端重试"） | 服务器生成两条记录：`20261026_150000` 与 `20261026_150000-2`——**文档说的"幂等键 stamp"实际不幂等** |
+| 4 | 先造 601 条记录，再请求 `GET /sync/records?since=0` | 只返回 **500** 条，且不支持 `offset`；手机 `syncCloud` 固定用 `since=0`，**第 501 条起永远同步不到** |
+| 5 | 控制台删除一条记录，手机再请求它的转写稿/重转写 | `404 记录不存在`；同步 feed 里**没有任何"已删除"事件**——手机端不会知道，也不会删本地副本 |
+| 6 | 601 条记录下量 `GET /sync/records?since=0` 的代价 | 约 **106 KB / 次**（预览为空时）；每 30 秒一次 = 持续轮询；真实库带预览还会更大 |
+| 7 | 临时实例里检查数据契约提到的文件 | 设备端只写 `<id>.md` + `app-state.json`，**`index.jsonl` / `record.json` / `segments.jsonl` / `edits.jsonl` 全都不存在**；契约是目标形态，未落地 |
+
+### 1.3 环境说明（避免误读实测 #1）
+
+实测机是 Python 3.11 + 系统级 `faster-whisper 1.2.1` / `huggingface_hub 1.25.1` / `av 18.0.0`，
+与 `server/requirements.txt` 里 `hub<1.0`、`av<17` 的 pin **不一致**；沙箱又让模型缓存目录不可写。
+所以"下载失败"的直接原因不是用户环境。但它暴露了两个真实问题：
+错误归类规则会把**本地权限/路径问题误报成网络问题**；以及"引擎可用"并不等于"真的能转"。
+
+### 1.4 没做的验证（重设计前建议补）
+
+真机走查（1k 记录滚动/详情打开）、1 小时真实录音端到端、弱网/杀进程/断电、
+多设备同秒并发、浏览器内控制台视觉走查——本机沙箱无法启动无头浏览器，也不持有真实数据。
+
+## 2. 现状链路
+
+### 2.1 录音 → 列表（这段是好的）
+
+```
+Recorder 写临时文件 → Storage.publish（公共/SAF/私有，自动降级）
+  → DataCenter.load（后台线程）→ 插件 scan（厂商日志）→ Library.scan（文件系统）
+  → State.apply（改名/分类/标记）→ RecordVm → 列表
+```
+
+边界清楚、失败有降级、主线程不读盘。问题从"录音离开本机"开始。
+
+### 2.2 同步 + 转录的真实时序（问题都在这张图里）
+
+```
+手机                                        服务端
+── 录完 ─────────────────────────────────────────────────────────────
+publish → 触发 DataCenter.load（全库重扫）
+  → applyResult 里若 autoSync：syncNow(all)
+     ├─ push：逐场 POST /sync/upload（multipart，120s 超时，无断点/无校验）
+     ├─ pushMeta：改名/标记逐场 POST /meta
+     └─ pull：GET /sync/records?since=<cursor>
+                                └─ 每条 status∈{done,asr} 且 updated_at 变了：
+                                   GET /records/{id}/transcript（**整篇 JSONL**）
+                                     → 重写 <id>.md
+     → changed=true → 再触发一次 DataCenter.load（**全库重扫**）
+                                   POST /sync/upload
+                                     → 落盘 → records 插入
+                                     → enqueue_default（引擎不可用则**静默返回 0**）
+                                     → 单 worker 取任务 → 引擎转写
+                                        → 每 3 秒 partial：全量替换 segments
+                                          + update_record（updated_at 变）
+                                          + export_mirror（**整篇重写 3 个文件**）
+── 前台常驻轮询 ──────────────────────────────────────────────────────
+每 6s：pull()（写 md → 全库重扫 → 可能重建详情）
+每 30s：syncCloud() = GET /sync/records?since=0（**全库枚举**，500 条封顶）
+```
+
+也就是说：**一次转写进度更新** = 服务端每 3 秒写一次全量镜像 + 手机每 6 秒拉整篇稿 +
+重写 md + 重扫全库 + 重建详情；同时每 30 秒再全量枚举一次库。越用越卡是结构性的。
+
+## 3. 问题清单
+
+严重度：**P0** = 阻断体验或产生错误数据；**P1** = 明显难受；**P2** = 可维护性/次级体验。
+证据里 `文件:行` 指向当前代码。
+
+### A. 「按了没反应」
+
+**A1（P0）引擎不可用时自动转写静默停在 raw。**
+`jobs.enqueue_default()` 在默认引擎不可用时直接 `return 0`，不写记录状态、不写错误
+（`server/voxnote_server/jobs.py:96-106`）。上传接口已经返回 200，控制台列表显示"仅音频"，
+手机上显示"待转写 + 已同步"。实测 #2 复现。
+→ 用户无法判断：是没排上队、没开自动转写、还是引擎坏了。
+
+**A2（P1）手机设置里的「转写 API」是一组死配置。**
+`SettingsScreen.java:220-280` 仍然展示服务类型/接口地址/API Key/模型/语言，并带"测试连接"
+（`SettingsScreen.java:1113` 起）；但全仓库除 `UiSettings` 读取和 `NetProbe` 探测外，
+**没有任何代码用它发起转写**。统一转写入口只有服务端（`HomeActivity.java:1352-1365`）。
+→ 用户按最直观看得懂的设置填了半天，按「转文字」还是走服务器/没反应。
+
+**A3（P1）未配对服务器时，「转文字」变成了"重扫外部来源"。**
+`HomeActivity.java:1366-1385`：没有服务器就 `data.load(true, …)`，自录音频必然得到
+"外部来源里没有这场的内容（自录的录音只有声音，没有字）"。
+→ 对自录音频来说这是一个必死的死胡同，且提示与用户意图完全不匹配。
+
+**A4（P0）服务端转写失败在手机端完全不可见。**
+`ServerSync.pull()` 只处理 `status` 为 `done/asr` 的记录，`fail/queued/raw` 直接跳过
+（`ServerSync.java:707-711`），且 `/sync/records` 的响应里根本没有 job/error 字段
+（`api_sync.py:161-174`）。手机本地状态由"有没有 md"推断（`RecordVm.java:92-97`）。
+→ 服务器上转写失败 → 手机显示"待转写/已转写"、同步状态"已同步"，没有任何错误。
+手机上再按「重新转写」只是再次入队，仍然看不到上次为什么失败。
+
+**A5（P1）上传失败原因从不显示。**
+`ServerSync.syncError()`（`ServerSync.java:374`）在全仓库**没有调用点**；卡片只显示"上传失败"
+（`CardRow.java:277-281`），详情只追加" · 上传失败"（`DetailSheet.java:594-599`）。
+→ 用户只被告知失败，永远看不到 `uperr` 里已经存好的原因。
+
+**A6（P1）错误归类会误导。**
+`jobs._classify_error()` 用子串匹配把异常链归到固定文案（`jobs.py:125-151`）。
+实测 #1 中 `PermissionError: [WinError 5]` 命中了 "huggingface" 规则，被报成
+"访问 HuggingFace 超时或不可达（检查网络…）"，用户按提示排查网络永远修不好。
+
+**A7（P1）手动重转写没有闭环反馈。**
+`transcribeRemote()` 成功只代表"请求已入队"（`ServerSync.java:414-438`），之后没有任何
+"排队中/进行中/失败"的本地状态；控制台有进度条（`index.html:820-853`），手机没有。
+
+### B. 「不知道同步在做什么」
+
+**B1（P0）没有同步中心。**
+同步入口只有：设置页「立即同步」按钮 + 一行状态（`SettingsScreen.java:322-348`）、
+卡片上一个词（`CardRow.java:275-287`）。没有待上传列表、没有失败队列、没有"上次同步结果详情"、
+没有暂停/重试全部。录音完成后自动上传是**静默后台**的。
+
+**B2（P1）双轮询 + 30 秒全库枚举。**
+`HomeActivity.java:1714-1728`：前台每 6 秒 `pollLive`，每 5 轮（≈30 秒）`syncCloud`；
+而 `syncCloud` 固定 `since=0`（`ServerSync.java:886`），服务端一次最多回 500 条
+（`api_sync.py:166`）。实测 #6：601 条库时每次约 106 KB。→ 耗电、占网、还是漏数据。
+
+**B3（P1）任何变化都触发全库重扫。**
+`DataCenter.load()` 每次都让 `Storage.scanOwn()` 列出全部文件、`MdParser.parse()` 解析每个 md
+（`Library.java:88-116`，`:111`）、对每个音频走 `MediaMetadataRetriever` 取时长
+（`Library.java:242-263`）。没有缓存、没有"只更新变化的那几条"。
+同步回填、轮询有更新、录音保存、回前台都会走这一遍。
+
+**B4（P1）`load()` 会静默丢弃请求。**
+`HomeActivity.java:929-933`：`if (loading) return;`。同步回调里 `changed=true` 触发的重扫，
+很容易撞上正在进行的扫描而被丢掉；没有"待重扫"标记，界面就停在旧数据。
+
+**B5（P1）详情页每次都全量重建。**
+`DetailSheet.refresh() → bind() → rebuildSegs()`（`DetailSheet.java:573-585, 870-927`）：
+`removeAllViews()` 后为每一句重新 new 一个 `LinearLayout + TextView`。转写中每 6 秒内容变化
+就重建一次；1 小时录音上千句时，滚动位置和播放阅读都会被打断。
+
+**B6（P1）控制台 3 秒轮询 + 整页重拉。**
+`server/web/index.html:2379` 每 3 秒 `loadStats()`；记录数一变就 `loadList()`
+（`index.html:743-748`），`loadList` 又拉详情（`index.html:965`）。
+列表/详情都是 `innerHTML` 整体重建（全文 48 处），没有虚拟列表和增量渲染。
+
+### C. 「改来改去、删了会回来」
+
+**C1（P0）五个真相源 + 11 类逐记录状态键。**
+标题/分类/标记同时存在于：手机 `app-state.json`、手机 md 头部、服务器 SQLite、服务器镜像文件、
+以及 `SharedPreferences("voxnote.sync")` 里的基线。同步客户端为每条记录维护
+`up / uperr / srvid / stl / mk / cat / stp / mkp / srv / srvup / tr` 十一种键
+（`ServerSync.java` 全文）+ `cursor / lastSyncAt / lastError`。冲突靠"本地没动过才收服务器的"
+这类散落规则判定（`ServerSync.java:700-717, 975-984, 1009-1022`）。
+→ 任何一条规则漏掉一个分支，就是"改了又变回去 / 被覆盖 / 显示不一致"。
+
+**C2（P0）删除不传播，也没有墓碑。**
+服务端 `records` 表没有 `deleted_at`；同步 API 没有删除端点（`api_sync.py` 无 delete）；
+`/sync/records` 只返回还在的记录。手机端删除只删本地文件/记屏蔽（`DataCenter.java:211-237`），
+不会告诉服务器。实测 #5：控制台删了记录，手机端仍持有它，之后对它的任何操作都是
+`404 记录不存在`。反过来，手机删掉的自录音频，服务器仍保留，下一轮 `syncCloud(since=0)`
+仍可能把它的转写稿重新写回本地（`ServerSync.java:921-953`）。→ "删了又回来"和"幽灵记录"。
+
+**C3（P0）上传不是幂等的。**
+文档称 `stamp` 是幂等键，但服务端遇到已存在的 stamp 会生成 `-2/-3` 新记录并重新落一份音频
+（`api_sync.py:113-133`，`db.unique_record_id`）。实测 #3 复现。
+→ 弱网下"上传成功但响应超时"→ 客户端重试 → 服务器两条记录、两份音频，手机只认其中一条，
+另一条成为控制台里的重复/幽灵。
+
+**C4（P0）增量游标语义错误。**
+`ServerSync.pull()` 用 `processed = max(已处理记录的 updated_at)` 推进游标
+（`ServerSync.java:661-663, 727`）。如果第 100 条写 md 失败（磁盘满/文件被占用），
+但第 200 条成功，游标会越过 100 —— 这一条更新**永久丢失**。
+注释写的"被保护跳过的场次仍留在窗口里"并不成立，因为窗口是 `updated_at > 全局 max`。
+
+**C5（P1）增量 feed 500 条硬上限且无分页。**
+服务端 `LIMIT 500`（`api_sync.py:166`），没有 `offset/next_cursor`；手机也不分页。
+实测 #4。→ 大库首轮取回、批量打标、批量重转写等场景会静默漏记录。
+
+**C6（P1）状态枚举多套、契约未落地。**
+- 契约：`ok / summary / error / audio_only / empty`（`DATA-CONTRACT.md §4`）
+- 服务端：`raw / queued / asr / done / fail`（`db.py:53`）+ job `queued/running/done/fail/cancel`
+- 手机：由"有没有句/有没有错/有没有音频"**推断** `done/failed/raw/empty`（`RecordVm.java:92-97`）
+- 同步层再加一套：`NONE/OK/WAIT/FAIL`（`ServerSync.java:358-371`）
+
+四套状态要对齐只能靠人脑。契约里的 `index.jsonl / record.json / segments.jsonl / edits.jsonl`
+也都没有实现（实测 #7）。
+
+**C7（P1）同一条记录的元数据被写两遍。**
+服务器回填时，标题既写进 md 头部（`ServerSync.java:1124`），又通过 `MetaApplier` 写进
+`app-state.json`（`ServerSync.java:1035-1045`）；分类名又是另一条通道（`cat.<id>` 暂存）。
+任一通道失败就是"md 里是新名、列表显示旧名"。
+
+### D. 转写本身
+
+**D1（P0）"引擎可用"是假阳性。**
+`WhisperLocal.available()` 只 `import faster_whisper`（`server/voxnote_server/engines/local_whisper.py:31-36`），
+不检查模型是否已下载、运行库是否完整。`jobs.enqueue_default()` 据此判定"可用"并入队，
+错误要到执行时才炸，且炸了只落一个记录级 error（见 A1/A4）。
+
+**D2（P1）模型与依赖不受控。**
+Whisper 模型在全局 `~/.cache/huggingface`（`api_models.py:33-38`），不在 `data/` 下，
+不随数据目录迁移/备份，控制台只能按仓库名猜。`requirements.txt` 明确 pin 了
+`huggingface_hub<1.0`、`av<17`，但没有任何启动校验；README 写 Python 3.12+，本机是 3.11。
+→ "换台机器/重装后能不能转"无法回答。
+
+**D3（P1）队列能力太薄。**
+单 worker 顺序消费（`jobs.py:173-209`）；没有优先级（手动重转写要排在自动任务后面）、
+没有等待时间估计、手机端没有取消入口；`queued` 任务取消只在控制台（`api_jobs.py:56-61`）。
+
+**D4（P1）增量落库把"派生数据"写进热路径。**
+每次 partial（≤3 秒一次）都全量 `DELETE+INSERT segments`、`update_record` 触碰 `updated_at`、
+`export_mirror` 重写 3 个文件（`jobs.py:242-260`，`db.py:400-436`）。手机端又据此判定"有更新"
+→ 拉整篇稿 → 写 md → 全库重扫。一个 1 小时录音会放大成几十轮全量操作。
+
+**D5（P2）大文件上传只有一次机会。**
+连接超时 8 秒、上传读超时 120 秒（`ServerSync.java:1171-1178, 1221`），
+无 Range/断点续传、无 hash 校验、无进度回调；失败只能整场重来，再叠加 C3 的重复问题。
+
+### E. 结构 / 可维护性
+
+- **E1（P1）** 4 天 149 次提交堆出约 1.7 万行（含控制台）；零测试；`HomeActivity` 1865 行、
+  `ServerSync` 1308 行、`index.html` 2382 行。同步规则靠注释解释，改一处要通读三处。
+- **E2（P2）** 构建/运行环境没有自检：Python 版本、依赖 pin、模型、CUDA 都靠人记。
+- **E3（P2）** 安全边界：默认 `0.0.0.0` 明文 HTTP；控制台默认免鉴权；
+  设备令牌长期不过期、无设备列表/吊销。重设计应一并收口（不展开）。
+
+## 4. 根因归纳
+
+1. **没有单一真相源。** 同一事实在文件系统、两条 SQLite（服务端库 vs 客户端 SharedPreferences+md）、
+   镜像文件里各存一份，靠规则同步，不变量无法验证。
+2. **没有统一状态机。** 记录的生命周期被拆成"服务器 record.status / job.state / 手机推断状态 /
+   同步状态"，没有任何一层能回答"这条现在到底怎么了，下一步该干嘛"。
+3. **同步是"轮询 + 全量重放"，不是"变更流 + 增量应用"。** 于是既慢又容易漏，还无法解释。
+4. **协议缺 5 个必需语义：** 版本（rev）、墓碑（删除）、幂等（重试）、分页（游标续取）、
+   进度/失败原因（可观测）。
+5. **配置与失败不可观测。** 死配置、误导性错误文案、不显示失败原因、模型就绪状态不可见，
+   把"能修的问题"变成"玄学"。
+6. **原型速度留下的债。** 快速把可演示变成可用，但契约文档、测试、状态模型没跟上。
+
+## 5. 重设计时不要动的东西（已验证是资产）
+
+- 录音与三种存储位置 + 自动降级（`Storage`、`Recorder`）；
+- 导入插件边界：厂商相关只放 `plugin/`，核心不认识设备（`Plugins`、`ContentSource`）；
+- **人机分层**不变量：机器派生可无限重放，人写内容永不被覆盖（`db.py` 的 `m_*`/`e_*` 是正确方向）；
+- Android 端**纯 Java / 无 Gradle / 无第三方依赖**；服务端**单进程 FastAPI + SQLite + 可整目录带走**；
+- 数据目录名 `/sdcard/s1rec/` 的兼容（要动就写迁移）。
+
+## 6. 证据索引
+
+| 问题 | 主要证据 |
+| --- | --- |
+| A1 静默 raw | `server/voxnote_server/jobs.py:96-106`；实测 #2 |
+| A2 死配置 | `android/.../SettingsScreen.java:220-280,1113`；`NetProbe.java` 仅此一处调用 |
+| A3 转文字死胡同 | `android/.../HomeActivity.java:1352-1386` |
+| A4 远端失败不可见 | `android/.../ServerSync.java:707-711`；`api_sync.py:161-174` |
+| A5 原因不显示 | `ServerSync.java:374`（无调用点）；`CardRow.java:275-287` |
+| A6 错误误报 | `jobs.py:125-151`；实测 #1 |
+| B1 无同步中心 | `SettingsScreen.java:322-348`；`CardRow.java:275-287` |
+| B2 双轮询 | `HomeActivity.java:1714-1728`；`ServerSync.java:886`；`api_sync.py:166` |
+| B3 全库重扫 | `DataCenter.java:97-162`；`Library.java:88-116,242-263` |
+| B4 丢 load | `HomeActivity.java:929-933` |
+| B5 详情重建 | `DetailSheet.java:573-585,870-927` |
+| B6 控制台轮询 | `server/web/index.html:2379,743-748,965` |
+| C1 多真相源 | `State.java`；`ServerSync.java` 全文；`db.py` |
+| C2 删除不传播 | `api_sync.py`（无 delete）；`DataCenter.java:211-237`；实测 #5 |
+| C3 非幂等 | `api_sync.py:113-133`；实测 #3 |
+| C4 游标错误 | `ServerSync.java:661-663,727` |
+| C5 500 截断 | `api_sync.py:166`；实测 #4 |
+| C6 状态/契约漂移 | `DATA-CONTRACT.md:60-70`；`db.py:53`；`RecordVm.java:92-97`；`ServerSync.java:358-371` |
+| C7 元数据双写 | `ServerSync.java:1035-1045,1124` |
+| D1 可用性假阳性 | `server/voxnote_server/engines/local_whisper.py:31-36` |
+| D2 模型/依赖 | `api_models.py:33-38`；`server/requirements.txt` |
+| D3 队列薄 | `jobs.py:173-209`；`api_jobs.py:56-61` |
+| D4 热路径写镜像 | `jobs.py:242-260`；`db.py:400-436` |
+| D5 上传无续传 | `ServerSync.java:1171-1178,1221` |
