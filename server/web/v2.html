@@ -30,6 +30,9 @@
   pre{background:#0b0d11;border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;max-height:360px;white-space:pre-wrap}
   .seg{padding:4px 8px;border-left:2px solid var(--line);margin:2px 0}
   .seg b{color:var(--dim);font-weight:400;font-size:12px;margin-right:8px}
+  .wave{height:64px;margin:8px 0 4px;min-width:0}
+  .player{display:flex;align-items:center;gap:10px;margin-top:10px}
+  .player .wave{flex:1;margin:0}
   .pill{display:inline-block;padding:1px 8px;border-radius:999px;border:1px solid var(--line);font-size:12px}
   .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   #toast{position:fixed;right:16px;bottom:16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;display:none;max-width:420px}
@@ -111,8 +114,11 @@
 </main>
 <div id="toast"></div>
 <script src="/vendor/qrcode.min.js"></script>
+<script src="/vendor/wavesurfer.min.js"></script>
 <script>
 const state = { token: localStorage.getItem('voxnote.v2.token') || '', tab: 'records', records: [], detailId: null };
+let detailWs = null;
+let detailWsUrl = null;
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -234,15 +240,59 @@ async function openRecord(id) {
         <button class="btn" id="exSrt">导出 srt</button><button class="btn" id="exMd">导出 md</button>
         <button class="btn" id="closeDetail">关闭</button></div>
       <div class="muted">${esc(rec.id)} · ${Math.round((rec.dur_ms||0)/1000)}s · ${rec.recorded_at ? new Date(rec.recorded_at).toLocaleString() : ''}</div>
+      <div class="player"><button class="btn primary" id="playPause">播放</button>
+        <span id="ptime" class="muted">00:00</span>
+        <div id="wave" class="wave"></div></div>
       <h4>生效稿</h4>${segs || '<div class="muted">还没有转写稿</div>'}
       <h4>修订（${edits.edits ? edits.edits.length : 0}）</h4>
       <pre>${esc(JSON.stringify(edits.edits || [], null, 2))}</pre>
     </div>`;
-    $('#closeDetail').onclick = () => { box.innerHTML = ''; state.detailId = null; };
+    $('#closeDetail').onclick = () => { destroyDetailPlayer(); box.innerHTML = ''; state.detailId = null; };
     $('#exSrt').onclick = () => exportRecord(id, 'srt');
     $('#exMd').onclick = () => exportRecord(id, 'md');
+    setupDetailPlayer(id);
   } catch (e) {
     box.innerHTML = '<div class="card bad">' + esc(e.message) + '</div>';
+  }
+}
+
+async function setupDetailPlayer(id) {
+  destroyDetailPlayer();
+  const waveEl = $('#wave');
+  if (!waveEl || typeof WaveSurfer === 'undefined') return;
+  try {
+    const r = await fetch('/api/v2/records/' + encodeURIComponent(id) + '/audio',
+      { headers: { 'Authorization': 'Bearer ' + state.token } });
+    if (!r.ok) return;
+    const blob = await r.blob();
+    detailWsUrl = URL.createObjectURL(blob);
+    detailWs = WaveSurfer.create({
+      container: waveEl, waveColor: '#3a404b', progressColor: '#7aa2ff',
+      cursorColor: '#e7e9ee', height: 64, barWidth: 2, barGap: 1, normalize: true
+    });
+    detailWs.load(detailWsUrl);
+    detailWs.on('timeupdate', t => {
+      const e = $('#ptime');
+      if (e) e.textContent = fmtMs(t * 1000);
+    });
+    const setBtn = txt => { const b = $('#playPause'); if (b) b.textContent = txt; };
+    detailWs.on('play', () => setBtn('暂停'));
+    detailWs.on('pause', () => setBtn('播放'));
+    detailWs.on('finish', () => setBtn('播放'));
+    $('#playPause').onclick = () => detailWs && detailWs.playPause();
+  } catch (e) {
+    /* 没有音频或解码失败：保留详情，不弹错 */
+  }
+}
+
+function destroyDetailPlayer() {
+  if (detailWs) {
+    try { detailWs.destroy(); } catch (e) { }
+    detailWs = null;
+  }
+  if (detailWsUrl) {
+    URL.revokeObjectURL(detailWsUrl);
+    detailWsUrl = null;
   }
 }
 
