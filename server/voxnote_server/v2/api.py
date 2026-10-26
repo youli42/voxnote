@@ -4,13 +4,17 @@
 当前提供：health / changes / records / upload（设备令牌鉴权）。
 """
 import json
+import mimetypes
+import os
 
 from fastapi import (
     APIRouter, Body, Depends, File, Form, Header, HTTPException, Query, UploadFile,
 )
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from . import (
-    attempts, auth, config, conflicts, db, manifest, ops, service, store, uploads,
+    attempts, auth, config, conflicts, db, edits, export, manifest, ops,
+    service, store, uploads,
 )
 
 router = APIRouter()
@@ -83,10 +87,49 @@ def create_attempt(record_id: str, payload: dict = Body(...)):
 
 @router.get("/records/{record_id}/transcript", dependencies=[Depends(auth.require_device)])
 def record_transcript(record_id: str):
-    out = attempts.transcript(db.conn(), record_id)
+    out = edits.transcript(db.conn(), record_id)
     if out is None:
         raise HTTPException(404, "记录不存在")
     return out
+
+
+@router.get("/records/{record_id}/edits", dependencies=[Depends(auth.require_device)])
+def record_edits(record_id: str):
+    if service.get_record(db.conn(), record_id) is None:
+        raise HTTPException(404, "记录不存在")
+    return {"edits": edits.list_for_record(db.conn(), record_id)}
+
+
+@router.post("/records/{record_id}/edits", dependencies=[Depends(auth.require_device)])
+def create_edit(record_id: str, payload: dict = Body(...)):
+    try:
+        out = edits.create(db.conn(), record_id, payload)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if out is None:
+        raise HTTPException(404, "记录不存在")
+    return out
+
+
+@router.get("/records/{record_id}/audio", dependencies=[Depends(auth.require_device)])
+def record_audio(record_id: str):
+    rec = service.get_record(db.conn(), record_id)
+    if rec is None:
+        raise HTTPException(404, "记录不存在")
+    path = rec.get("audio_path")
+    if not path or not os.path.isfile(path):
+        raise HTTPException(404, "音频文件不存在")
+    media = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=media,
+                        filename=rec.get("audio_name") or None)
+
+
+@router.get("/records/{record_id}/export", dependencies=[Depends(auth.require_device)])
+def record_export(record_id: str, format: str = Query("srt")):
+    body, media, filename = export.build(db.conn(), record_id, format)
+    return PlainTextResponse(
+        body, media_type=media,
+        headers={"Content-Disposition": 'attachment; filename="%s"' % filename})
 
 
 @router.post("/records/{record_id}/active-attempt",
