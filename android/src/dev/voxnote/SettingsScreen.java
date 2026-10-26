@@ -1,6 +1,8 @@
 package dev.voxnote;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.graphics.Typeface;
 import android.text.Editable;
 import android.text.InputType;
@@ -72,6 +74,18 @@ public class SettingsScreen {
 
         /** 恢复所有被屏蔽的场次。 */
         void onRestoreIgnored();
+
+        /** v2 同步状态一行字（未配对 / 已连接 + 待上传/失败/冲突）。 */
+        String v2Status();
+
+        /** 打开 v2 同步中心（引擎、诊断、备份、清理）。 */
+        void onOpenSyncCenter();
+
+        /** 波形缓存占用描述，如「1.2 MB」。 */
+        String cacheSummary();
+
+        /** 清空波形缓存。 */
+        void onClearWaveCache();
     }
 
     private final Activity act;
@@ -131,7 +145,6 @@ public class SettingsScreen {
                 toggleToc();
             }
         });
-        head.addView(tocBtn);
         page.addView(head, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         page.addView(Ui.divider(act));
@@ -189,10 +202,13 @@ public class SettingsScreen {
         }));
         catGroup.addView(Ui.divider(act));
         catGroup.addView(catListBox());
-        content.addView(catGroup, groupLp());
+        // catGroup 统一在构造末尾排版
 
-        // ---------------- 按键
-        keyGroup = Ui.group(act, "按键");
+        // ---------------- 按键（所有手机通用，可自定义）
+        keyGroup = Ui.group(act, "快捷键");
+        keyGroup.addView(Ui.text(act, "所有手机通用：可绑定音量键、蓝牙耳机/外接键盘按键等（部分系统键可能被系统占用）",
+                10.5f, Ui.FAINT), Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 6));
         TextView startKeyValue = valueButton();
         keyGroup.addView(selectorRow("开始录音", startKeyValue, new Runnable() {
             public void run() {
@@ -215,7 +231,7 @@ public class SettingsScreen {
         }));
         this.startKeyValue = startKeyValue;
         this.markKeyValue = markKeyValue;
-        content.addView(keyGroup, groupLp());
+        // keyGroup 统一在构造末尾排版
 
         // ---------------- 转写 API
         LinearLayout apiGroup = Ui.group(act, "转写 API");
@@ -277,101 +293,103 @@ public class SettingsScreen {
         });
         apiGroup.addView(test, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 10));
-        content.addView(apiGroup, groupLp());
+        // apiGroup 统一在构造末尾排版
 
-        // ---------------- 服务器（自托管 voxnote server：推音频、拉转写稿）
-        LinearLayout srvGroup = Ui.group(act, "服务器");
-        LinearLayout scanRow = Ui.row(act);
-        Ui.pad(scanRow, 0, 8, 0, 8);
-        TextView scanBtn = Ui.button(act, "扫码配对", 12f, false);
-        scanBtn.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                host.onScanPair();
-            }
-        });
-        scanRow.addView(scanBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
-        scanRow.addView(Ui.text(act, "扫控制台上的配对二维码，地址与令牌自动填入", 10.5f, Ui.FAINT),
-                Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        srvGroup.addView(scanRow);
-        srvGroup.addView(Ui.divider(act));
-        srvGroup.addView(inputBlock("服务器地址", s.serverUrl, InputType.TYPE_TEXT_VARIATION_URI, true, new OnText() {
-            public void onText(String v) {
-                s.serverUrl = v;
-                s.save();
-            }
-        }));
-        srvGroup.addView(Ui.divider(act));
-        srvGroup.addView(inputBlock("配对令牌", s.serverToken,
-                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, true,
-                "扫码配对自动填入；也可手填令牌或自设连接密码", new OnText() {
-                    public void onText(String v) {
-                        s.serverToken = v;
-                        s.save();
-                    }
-                }));
-        srvGroup.addView(Ui.divider(act));
-        srvGroup.addView(inputBlock("本机设备名", s.deviceName, InputType.TYPE_CLASS_TEXT, false,
-                "留空自动取设备名（当前会取到「" + host.autoDeviceName() + "」）", new OnText() {
-                    public void onText(String v) {
-                        s.deviceName = v;
-                        s.save();
-                    }
-                }));
-        srvGroup.addView(Ui.divider(act));
+        // ---------------- 服务器与同步（v2）
+        LinearLayout srvGroup = Ui.group(act, "服务器与同步");
+        serverEngineValue = valueButton();   // 旧 v1 引擎行已移除，占位避免旧刷新方法空指针
         LinearLayout srvStatusRow = Ui.row(act);
         Ui.pad(srvStatusRow, 0, 8, 0, 8);
         srvStatusRow.addView(Ui.text(act, "状态", 12.5f, Ui.TEXT), Ui.lp(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         serverStatusValue = Ui.text(act, "", 11.5f, Ui.FAINT);
-        serverStatusValue.setMaxWidth(Ui.dp(220));
-        srvStatusRow.addView(serverStatusValue);
+        serverStatusValue.setGravity(Gravity.END);
+        srvStatusRow.addView(serverStatusValue, Ui.lp(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         srvGroup.addView(srvStatusRow);
+        srvGroup.addView(Ui.text(act, "配对后：录音自动上传，转写引擎在控制台/同步中心配置", 10.5f, Ui.FAINT),
+                Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 8));
+
         LinearLayout srvBtns = Ui.row(act);
-        Ui.pad(srvBtns, 0, 8, 0, 8);
-        TextView srvTest = Ui.button(act, "测试连接", 12.5f, false);
-        srvTest.setOnClickListener(new View.OnClickListener() {
+        Ui.pad(srvBtns, 0, 4, 0, 8);
+        TextView scanBtn = Ui.button(act, "扫码配对", 12.5f, false);
+        scanBtn.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                host.onServerTest();
+                host.onScanPair();
             }
         });
-        srvBtns.addView(srvTest);
+        srvBtns.addView(scanBtn, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView centerBtn = Ui.button(act, "同步中心", 12.5f, false);
+        centerBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                host.onOpenSyncCenter();
+            }
+        });
+        srvBtns.addView(centerBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 8, 0, 0, 0));
+        srvGroup.addView(srvBtns);
+
+        LinearLayout srvBtns2 = Ui.row(act);
+        Ui.pad(srvBtns2, 0, 0, 0, 8);
         TextView srvSync = Ui.button(act, "立即同步", 12.5f, false);
         srvSync.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 host.onSyncNow();
             }
         });
-        srvBtns.addView(srvSync, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
+        srvBtns2.addView(srvSync, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView srvTest = Ui.button(act, "测试连接", 12.5f, false);
+        srvTest.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                host.onServerTest();
+            }
+        });
+        srvBtns2.addView(srvTest, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 8, 0, 0, 0));
-        srvGroup.addView(srvBtns, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 2, 0, 4));
-        srvGroup.addView(toggleRow("录完自动上传", s.autoSync, new ToggleListener() {
-            public void onChanged(boolean v) {
-                s.autoSync = v;
-                s.save();
-            }
-        }));
-        srvGroup.addView(Ui.divider(act));
-        srvGroup.addView(toggleRow("自动同步音频", s.autoAudio, new ToggleListener() {
-            public void onChanged(boolean v) {
-                s.autoAudio = v;
-                s.save();
-            }
-        }));
-        srvGroup.addView(Ui.divider(act));
-        srvGroup.addView(Ui.text(act, "开启后，云端取回的场次连同原始录音一起下载；关闭只同步转写文本", 10.5f, Ui.FAINT));
-        srvGroup.addView(Ui.divider(act));
-        serverEngineValue = valueButton();
-        srvGroup.addView(selectorRow("服务器转写引擎", serverEngineValue, new Runnable() {
-            public void run() {
-                host.onPickServerEngine();
-            }
-        }));
-        content.addView(srvGroup, groupLp());
+        srvGroup.addView(srvBtns2);
 
-        // ---------------- 存储位置
-        storageGroup = Ui.group(act, "存储位置");
+        final LinearLayout srvAdvanced = Ui.col(act);
+        srvAdvanced.setVisibility(View.GONE);
+        srvAdvanced.addView(Ui.divider(act));
+        srvAdvanced.addView(inputBlock("服务器地址", s.serverUrl,
+                InputType.TYPE_TEXT_VARIATION_URI, true, new OnText() {
+                    public void onText(String v) {
+                        s.serverUrl = v;
+                        s.save();
+                    }
+                }));
+        srvAdvanced.addView(Ui.divider(act));
+        srvAdvanced.addView(inputBlock("配对令牌", s.serverToken,
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, true,
+                "扫码自动填入；也可手填", new OnText() {
+                    public void onText(String v) {
+                        s.serverToken = v;
+                        s.save();
+                    }
+                }));
+        srvAdvanced.addView(Ui.divider(act));
+        srvAdvanced.addView(inputBlock("本机设备名", s.deviceName, InputType.TYPE_CLASS_TEXT, false,
+                "留空自动取「" + host.autoDeviceName() + "」", new OnText() {
+                    public void onText(String v) {
+                        s.deviceName = v;
+                        s.save();
+                    }
+                }));
+        TextView advBtn = Ui.smallButton(act, "高级：地址 / 令牌 / 设备名");
+        advBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                srvAdvanced.setVisibility(
+                        srvAdvanced.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+            }
+        });
+        srvGroup.addView(advBtn, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 4));
+        srvGroup.addView(srvAdvanced);
+        // srvGroup 统一在构造末尾排版
+
+        // ---------------- 录音存储（高级设置）
+        storageGroup = Ui.group(act, "录音存储");
         TextView modeValue = valueButton();
         storageGroup.addView(selectorRow("录音放在", modeValue, new Runnable() {
             public void run() {
@@ -456,7 +474,7 @@ public class SettingsScreen {
         dateDirValue = Ui.text(act, s == null ? "" : storage.dateDir(), 11.5f, Ui.FAINT);
         ddRow.addView(dateDirValue);
         storageGroup.addView(ddRow);
-        content.addView(storageGroup, groupLp());
+        // storageGroup 统一在构造末尾排版
 
         // ---------------- 录音
         LinearLayout recGroup = Ui.group(act, "录音");
@@ -474,7 +492,7 @@ public class SettingsScreen {
                 host.onSettingsChanged();
             }
         }));
-        content.addView(recGroup, groupLp());
+        // recGroup 统一在构造末尾排版
 
         // ---------------- 数据（删除进来的"屏蔽"在这里撤销）
         LinearLayout dataGroup = Ui.group(act, "数据");
@@ -484,13 +502,32 @@ public class SettingsScreen {
                 host.onRestoreIgnored();
             }
         }));
-        content.addView(dataGroup, groupLp());
+        dataGroup.addView(Ui.divider(act));
+        LinearLayout cacheRow = Ui.row(act);
+        Ui.pad(cacheRow, 0, 8, 0, 8);
+        cacheRow.addView(Ui.text(act, "波形缓存", 12.5f, Ui.TEXT), Ui.lp(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        cacheValue = Ui.text(act, "", 11.5f, Ui.FAINT);
+        cacheRow.addView(cacheValue);
+        TextView clearCache = Ui.smallButton(act, "清理");
+        clearCache.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                host.onClearWaveCache();
+            }
+        });
+        cacheRow.addView(clearCache, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 8, 0, 0, 0));
+        dataGroup.addView(cacheRow);
+        dataGroup.addView(Ui.text(act, "波形缓存只用于播放器显示，清理不会删除录音或转写", 10.5f, Ui.FAINT),
+                Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 6));
+        // dataGroup 统一在构造末尾排版
 
         // ---------------- 外部来源
         sourcesGroup = Ui.group(act, "外部来源");
         sourcesList = Ui.col(act);
         sourcesGroup.addView(sourcesList);
-        content.addView(sourcesGroup, groupLp());
+        // sourcesGroup 统一在构造末尾排版
 
         // ---------------- 关于
         LinearLayout about = Ui.group(act, "关于");
@@ -516,11 +553,29 @@ public class SettingsScreen {
         reset.setBackground(Ui.pressable(Ui.rounded(8, Ui.SURFACE2, Ui.DANGER_LINE, 1), 0x22FFFFFF));
         reset.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                host.onResetDefaults();
+                new AlertDialog.Builder(act)
+                        .setTitle("恢复默认设置？")
+                        .setMessage("会重置录音/同步/快捷键等偏好，不会删除录音与转写。")
+                        .setPositiveButton("恢复默认", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface d, int w) {
+                                host.onResetDefaults();
+                            }
+                        })
+                        .setNegativeButton("取消", null)
+                        .show();
             }
         });
         about.addView(reset, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 10));
+        // about 统一在构造末尾排版
+
+        // ---------------- 按新信息架构排版
+        content.addView(srvGroup, groupLp());
+        content.addView(recGroup, groupLp());
+        content.addView(storageGroup, groupLp());
+        content.addView(keyGroup, groupLp());
+        content.addView(catGroup, groupLp());
+        content.addView(dataGroup, groupLp());
         content.addView(about, groupLp());
 
         // ---------------- 目录注册表：顺序 = 页面顺序；打开目录时按可见性过滤
@@ -542,6 +597,7 @@ public class SettingsScreen {
     private TextView markKeyValue;
     private TextView providerValue;
     private TextView langValue;
+    private TextView cacheValue;
     private TextView storageModeValue;
     private TextView serverStatusValue;
 
@@ -565,7 +621,8 @@ public class SettingsScreen {
         keyConflict.setVisibility(conflict ? View.VISIBLE : View.GONE);
         providerValue.setText(providerLabel(s.provider));
         langValue.setText(langLabel(s.lang));
-        serverStatusValue.setText(host.serverStatus());
+        serverStatusValue.setText(host.v2Status());
+        cacheValue.setText(host.cacheSummary());
         storageModeValue.setText(storageModeLabel(storage.mode()));
         safLabel.setText(storage.safTree().length() > 0 ? storage.safTree() : "未选择");
         storageTarget.setText(storage.describe());

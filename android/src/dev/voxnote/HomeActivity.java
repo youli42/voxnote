@@ -969,34 +969,75 @@ public class HomeActivity extends Activity implements Picker.Host {
         }
 
         public void onServerTest() {
-            if (!serverSync.configured()) {
-                toast("先填服务器地址");
+            if (!V2Sync.hasServer(HomeActivity.this)) {
+                toast("先扫码配对或填服务器地址");
                 return;
             }
             toast("正在连接…");
-            serverSync.ping(new ServerSync.ResultCallback() {
-                public void onResult(String err, String msg, boolean changed) {
-                    toast(err == null ? "连接成功 · " + msg : "连接失败：" + err);
-                    if (settingsPage != null) settingsPage.refresh();
+            new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        long t0 = System.currentTimeMillis();
+                        V2Sync.admin(HomeActivity.this, "GET", "/api/v2/health", null);
+                        final long ms = System.currentTimeMillis() - t0;
+                        runOnUiThread(new Runnable() {
+                            public void run() {
+                                toast("连接正常 · " + ms + "ms");
+                                if (settingsPage != null) settingsPage.refresh();
+                            }
+                        });
+                    } catch (final Throwable t) {
+                        runOnUiThread(new Runnable() {
+                            public void run() {
+                                toast("连接失败：" + t.getMessage());
+                            }
+                        });
+                    }
                 }
-            });
+            }, "v2-settings-test").start();
         }
 
         public void onSyncNow() {
-            if (!serverSync.configured()) {
-                toast("先填服务器地址和配对令牌");
+            if (!V2Sync.hasServer(HomeActivity.this)) {
+                toast("先扫码配对或填服务器地址");
                 return;
             }
             toast("正在同步…");
-            serverSync.syncNow(new ArrayList<RecordVm>(all), new ServerSync.ResultCallback() {
-                public void onResult(String err, String msg, boolean changed) {
-                    if (err != null) toast("同步失败：" + err);
-                    else toast("同步完成 · " + msg);
-                    if (changed) load(false, null, false);   // 回填的文稿要重扫才进列表
+            V2Sync.syncAsync(HomeActivity.this);
+            ui.postDelayed(new Runnable() {
+                public void run() {
                     if (settingsPage != null) settingsPage.refresh();
-                    syncCloudNow();   // 推拉完顺带取回云端库（新场次/改名）
                 }
-            });
+            }, 1500);
+        }
+
+        public String v2Status() {
+            if (!V2Sync.hasServer(HomeActivity.this)) return "未配对";
+            V2Store st = V2Store.get(HomeActivity.this);
+            int pending = st.pendingTotal();
+            int failed = st.failedTotal();
+            int conflicts = st.conflictCount();
+            if (conflicts > 0) return "已连接 · 冲突 " + conflicts + "（去同步中心处理）";
+            if (failed > 0) return "已连接 · 失败 " + failed + " · 待上传 " + pending;
+            if (pending > 0) return "已连接 · 待上传 " + pending;
+            return "已连接";
+        }
+
+        public void onOpenSyncCenter() {
+            V2SyncCenter.show(HomeActivity.this);
+        }
+
+        public String cacheSummary() {
+            long n = AudioPeaks.cacheSize(HomeActivity.this);
+            if (n < 1024) return n + " B";
+            if (n < 1024 * 1024) return (n / 1024) + " KB";
+            return String.format(java.util.Locale.US, "%.1f MB", n / 1024.0 / 1024.0);
+        }
+
+        public void onClearWaveCache() {
+            int n = AudioPeaks.clearCache(HomeActivity.this);
+            toast("已清理波形缓存（" + n + " 个文件）");
+            if (settingsPage != null) settingsPage.refresh();
         }
 
         public void onPickServerEngine() {

@@ -30,8 +30,7 @@ public final class AudioPeaks {
 
     private AudioPeaks() { }
 
-    public static float[] load(Context ctx, String path, String uri, int buckets) {
-        if (buckets < 16) buckets = 16;
+    public static float[] load(Context ctx, String path, String uri, int buckets) {        if (buckets < 16) buckets = 16;
         final String key;
         try {
             key = keyOf(ctx, path, uri) + ":" + buckets;
@@ -57,6 +56,31 @@ public final class AudioPeaks {
     }
 
     // ------------------------------------------------------------ 缓存
+
+    /** 清空波形缓存，返回删除的文件数。 */
+    public static int clearCache(Context ctx) {
+        synchronized (MEM) { MEM.clear(); }
+        File dir = new File(ctx.getCacheDir(), "waveform");
+        File[] files = dir.listFiles();
+        int n = 0;
+        if (files != null) {
+            for (File f : files) {
+                if (f.isFile() && f.delete()) n++;
+            }
+        }
+        return n;
+    }
+
+    /** 波形缓存占用字节数。 */
+    public static long cacheSize(Context ctx) {
+        File dir = new File(ctx.getCacheDir(), "waveform");
+        File[] files = dir.listFiles();
+        long n = 0;
+        if (files != null) {
+            for (File f : files) if (f.isFile()) n += f.length();
+        }
+        return n;
+    }
 
     private static String keyOf(Context ctx, String path, String uri) {
         String desc;
