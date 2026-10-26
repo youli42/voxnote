@@ -144,6 +144,15 @@ def check_v2_server(tmp: Path) -> list:
         wait_http(base + "/api/v2/health")
         results.append(("v2 服务端启动", True, ""))
 
+        page = httpx.get(base + "/v2", timeout=20)
+        ok = page.status_code == 200 and "voxnote 控制台" in page.text
+        results.append(("v2 控制台页面", ok, "" if ok else "status=%s" % page.status_code))
+
+        pair = httpx.get(base + "/api/v2/console/pair", timeout=20)
+        ok = pair.status_code == 200 and pair.json().get("token")
+        results.append(("v2 控制台自动取令牌", bool(ok),
+                        "" if ok else "status=%s body=%s" % (pair.status_code, pair.text[:200])))
+
         token = read_sync_token(data_dir / "voxnote-v2.db")
         h = {"Authorization": "Bearer " + token}
         r = httpx.get(base + "/api/v2/sync/changes?cursor=0&limit=10", headers=h, timeout=20)
