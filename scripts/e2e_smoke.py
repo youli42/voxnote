@@ -127,6 +127,35 @@ def check_fake_engine(tmp: Path) -> list:
     return results
 
 
+def check_v2_server(tmp: Path) -> list:
+    """v2 开发路由：VOXNOTE_V2=1 时挂载 /api/v2，验证空库 changes。"""
+    results = []
+    port = free_port()
+    data_dir = tmp / "v2-data"
+    env = os.environ.copy()
+    env["VOXNOTE_DATA"] = str(data_dir)
+    env["VOXNOTE_V2"] = "1"
+    env["VOXNOTE_V2_DB"] = str(data_dir / "voxnote-v2.db")
+    log_path = tmp / "server-v2.log"
+    p, log = start([sys.executable, "run.py", "--host", "127.0.0.1", "--port", port],
+                   SERVER_DIR, log_path, env)
+    try:
+        wait_http("http://127.0.0.1:%d/api/v2/health" % port)
+        results.append(("v2 服务端启动", True, ""))
+        r = httpx.get("http://127.0.0.1:%d/api/v2/sync/changes?cursor=0&limit=10" % port,
+                      timeout=20)
+        body = r.json()
+        ok = (r.status_code == 200 and body.get("changes") == []
+              and body.get("next_cursor") == 0 and body.get("has_more") is False)
+        results.append(("v2 changes 空库", ok,
+                        "" if ok else "status=%s body=%s" % (r.status_code, body)))
+    finally:
+        stop(p, log)
+    if not all(x[1] for x in results):
+        print("[v2 server log]\n" + tail(log_path, 40))
+    return results
+
+
 def read_sync_token(db_path: Path, timeout: float = 20.0) -> str:
     last = ""
     end = time.time() + timeout
@@ -201,6 +230,7 @@ def main():
     ap.add_argument("--keep", action="store_true", help="保留临时目录与日志")
     ap.add_argument("--skip-server", action="store_true")
     ap.add_argument("--skip-engine", action="store_true")
+    ap.add_argument("--skip-v2", action="store_true")
     args = ap.parse_args()
 
     base = ROOT / ".tmp"
@@ -214,6 +244,8 @@ def main():
             results += check_fake_engine(tmp)
         if not args.skip_server:
             results += check_server(tmp)
+        if not args.skip_v2:
+            results += check_v2_server(tmp)
     except Exception as e:
         print("[FATAL] %s" % e)
         failed = True
