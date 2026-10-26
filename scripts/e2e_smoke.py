@@ -290,6 +290,24 @@ def check_v2_server(tmp: Path) -> list:
             ch = httpx.get(base + "/api/v2/sync/changes?cursor=0&limit=10", headers=h, timeout=20).json()
             results.append(("v2 resync_required=false", ch.get("resync_required") is False,
                             "" if ch.get("resync_required") is False else str(ch)))
+
+            # 维护：备份 / 存储 / 诊断 / 清理 dry-run
+            bk = httpx.post(base + "/api/v2/backups", headers=h, timeout=30).json()
+            ok = bool(bk.get("path")) and Path(bk["path"]).is_file()
+            results.append(("v2 备份", ok, "" if ok else str(bk)))
+            bl = httpx.get(base + "/api/v2/backups", headers=h, timeout=20).json()
+            results.append(("v2 备份列表", len(bl.get("backups", [])) >= 1,
+                            "" if bl.get("backups") else str(bl)))
+
+            st = httpx.get(base + "/api/v2/storage", headers=h, timeout=20).json()
+            dg = httpx.get(base + "/api/v2/diagnostics", headers=h, timeout=20).json()
+            ok = st.get("records") == 1 and dg.get("schema_version") == 1
+            results.append(("v2 存储/诊断", bool(ok), "" if ok else str(dg)[:300]))
+
+            cl = httpx.post(base + "/api/v2/cleanup", headers=h,
+                            json={"dry_run": True}, timeout=20).json()
+            ok = cl.get("dry_run") is True and cl.get("tombstones") == 0
+            results.append(("v2 清理 dry-run", bool(ok), "" if ok else str(cl)))
     finally:
         stop(p, log)
     if not all(x[1] for x in results):
