@@ -1,6 +1,8 @@
 package dev.voxnote;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.graphics.Typeface;
 import android.os.Handler;
 import android.os.Looper;
@@ -27,6 +29,7 @@ import java.io.FileOutputStream;
 import java.util.ArrayList;
 
 import dev.voxnote.v2.V2Store;
+import dev.voxnote.v2.V2Sync;
 import dev.voxnote.v2.V2SyncCenter;
 
 /**
@@ -277,6 +280,16 @@ public class DetailSheet implements Overlay {
             }
         });
         v2Row.addView(v2Status, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView transcribeBtn = Ui.text(act, "转写", 11f, Ui.FAINT);
+        transcribeBtn.setBackground(Ui.pressable(Ui.rounded(8, Ui.SURFACE2, Ui.LINE, 1), 0x22FFFFFF));
+        Ui.pad(transcribeBtn, 9, 5, 9, 5);
+        transcribeBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                transcribeV2();
+            }
+        });
+        v2Row.addView(transcribeBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
         TextView exportBtn = Ui.text(act, "导出", 11f, Ui.FAINT);
         exportBtn.setBackground(Ui.pressable(Ui.rounded(8, Ui.SURFACE2, Ui.LINE, 1), 0x22FFFFFF));
         Ui.pad(exportBtn, 9, 5, 9, 5);
@@ -643,6 +656,49 @@ public class DetailSheet implements Overlay {
         if (conflict != null) text += " · 有冲突，点此选择";
         v2Status.setText(text);
         v2Status.setVisibility(View.VISIBLE);
+    }
+
+    private void transcribeV2() {
+        if (vm == null) return;
+        final JSONObject rec = V2Store.get(act).findByLegacy(vm.id);
+        if (rec == null) {
+            toast("这条记录还没有 v2 本地数据");
+            return;
+        }
+        new AlertDialog.Builder(act)
+                .setTitle("开始转写")
+                .setMessage("将调用服务器配置的转写引擎。若配置的是云 API，"
+                        + "音频会交给第三方服务处理。")
+                .setPositiveButton("继续", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        doTranscribeV2(rec.optString("id"));
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void doTranscribeV2(final String recordId) {
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    V2Sync.admin(act, "POST", "/api/v2/records/"
+                            + recordId + "/transcribe", new JSONObject());
+                    act.runOnUiThread(new Runnable() {
+                        public void run() {
+                            toast("已加入转写队列");
+                            V2Sync.syncAsync(act);
+                        }
+                    });
+                } catch (final Throwable t) {
+                    act.runOnUiThread(new Runnable() {
+                        public void run() {
+                            toast("转写请求失败：" + t.getMessage());
+                        }
+                    });
+                }
+            }
+        }, "v2-transcribe").start();
     }
 
     /** 单条导出：写到应用私有导出目录，先用最省事的本地文件交付。 */
