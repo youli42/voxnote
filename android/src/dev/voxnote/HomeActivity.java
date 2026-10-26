@@ -28,6 +28,9 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import dev.voxnote.v2.V2Store;
+import dev.voxnote.v2.V2Sync;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -1563,7 +1566,17 @@ public class HomeActivity extends Activity implements Picker.Host {
         toast("正在保存…");
         data.post(new Runnable() {
             public void run() {
-                storage.publish(tmp, tmp.getName(), "audio/mp4");
+                // v2：先算 hash/大小（publish 可能删除临时文件），再落本地库
+                final String sha = V2Store.sha256(tmp);
+                final long bytes = tmp.length();
+                final String loc = storage.publish(tmp, tmp.getName(), "audio/mp4");
+                try {
+                    V2Store.get(HomeActivity.this).recordCaptured(
+                            stamp, title, loc, bytes, durSecF * 1000, sha);
+                } catch (Throwable ignore) { }
+                if (settings.serverUrl != null && settings.serverUrl.trim().length() > 0) {
+                    V2Sync.syncAsync(HomeActivity.this);
+                }
                 if (title.length() > 0 && stamp != null) {
                     try {
                         JSONObject p = new JSONObject();
