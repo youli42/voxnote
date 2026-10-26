@@ -3,6 +3,8 @@ package dev.voxnote;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RectF;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -17,6 +19,11 @@ public class WaveformView extends View {
     private float progress;
     private Listener listener;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path wavePath = new Path();
+    private final RectF clip = new RectF();
+    private int builtW = -1;
+    private int builtH = -1;
+    private float[] builtPeaks = null;
 
     public WaveformView(Context c) {
         super(c);
@@ -51,21 +58,46 @@ public class WaveformView extends View {
             canvas.drawRoundRect(0, h / 2f - 1, w, h / 2f + 1, 1, 1, paint);
             return;
         }
-        int n = peaks.length;
-        float gap = Math.max(1f, w / n / 4f);
-        float barW = Math.max(1f, (w - gap * (n - 1)) / n);
-        float mid = h / 2f;
-        float maxBar = h * 0.92f;
-        for (int i = 0; i < n; i++) {
-            float bh = Math.max(barW, peaks[i] * maxBar);
-            float x = i * (barW + gap);
-            paint.setColor(i < (int) (progress * n) ? 0xFFE7E9EE : 0xFF3A404B);
-            canvas.drawRoundRect(x, mid - bh / 2f, x + barW, mid + bh / 2f,
-                    barW / 2f, barW / 2f, paint);
+        if (wavePath.isEmpty() || builtW != (int) w || builtH != (int) h
+                || builtPeaks != peaks) {
+            buildPath(w, h);
         }
+        // 未播部分
+        paint.setColor(0xFF3A404B);
+        canvas.drawPath(wavePath, paint);
+        // 已播部分：裁剪后重绘
+        paint.setColor(0xFFE7E9EE);
+        canvas.save();
+        clip.set(0, 0, progress * w, h);
+        canvas.clipRect(clip);
+        canvas.drawPath(wavePath, paint);
+        canvas.restore();
+        // 播放位置
         paint.setColor(0xFF7AA2FF);
         float px = progress * w;
         canvas.drawRoundRect(px - 1, 0, px + 1, h, 1, 1, paint);
+    }
+
+    /** 连续镜像填充轮廓，和 Web 端 WaveSurfer 的观感一致。 */
+    private void buildPath(float w, float h) {
+        wavePath.reset();
+        int n = peaks.length;
+        float mid = h / 2f;
+        float maxBar = h * 0.94f;
+        float step = Math.max(1f, w / Math.max(1, n - 1));
+        // 上沿：左 → 右
+        wavePath.moveTo(0, mid - peaks[0] * maxBar / 2f);
+        for (int i = 1; i < n; i++) {
+            wavePath.lineTo(i * step, mid - peaks[i] * maxBar / 2f);
+        }
+        // 下沿：右 → 左
+        for (int i = n - 1; i >= 0; i--) {
+            wavePath.lineTo(i * step, mid + peaks[i] * maxBar / 2f);
+        }
+        wavePath.close();
+        builtW = (int) w;
+        builtH = (int) h;
+        builtPeaks = peaks;
     }
 
     @Override

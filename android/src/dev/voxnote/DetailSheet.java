@@ -874,7 +874,7 @@ public class DetailSheet implements Overlay {
         final int token = ++waveToken;
         new Thread(new Runnable() {
             public void run() {
-                final float[] p = AudioPeaks.load(act, v.audioPath, v.audioUri, 120);
+                final float[] p = AudioPeaks.load(act, v.audioPath, v.audioUri, 260);
                 if (act == null) return;
                 act.runOnUiThread(new Runnable() {
                     public void run() {
