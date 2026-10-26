@@ -178,10 +178,40 @@ def check_v2_server(tmp: Path) -> list:
             results.append(("v2 记录进 changes", b1["id"] in ids,
                             "" if b1["id"] in ids else str(ids)))
 
-            # ops：改记录（base_rev 匹配）
+            # 转写尝试：两条并存 + 指针切换
+            segs = [{"t_ms": 0, "e_ms": 2000, "text": "假引擎第一句"},
+                    {"t_ms": 2000, "e_ms": 4000, "text": "假引擎第二句"}]
+            a1_payload = {"audio_sha256": "e2e-sha-1", "source": "hub", "engine": "fake",
+                          "model": "fake-whisper", "quality_tier": 2,
+                          "duration_ms": 4000, "segments": segs}
+            a1 = httpx.post(base + "/api/v2/records/%s/attempts" % b1["id"],
+                            headers=h, json=a1_payload, timeout=20).json()
+            tr = httpx.get(base + "/api/v2/records/%s/transcript" % b1["id"],
+                           headers=h, timeout=20).json()
+            ok = (a1.get("id") and tr.get("attempt", {}).get("id") == a1["id"]
+                  and len(tr.get("segments", [])) == 2)
+            results.append(("v2 转写尝试", bool(ok), "" if ok else str(tr)[:300]))
+
+            a2_payload = dict(a1_payload, source="remote", engine="strong",
+                              audio_sha256="e2e-sha-2", activate=True,
+                              segments=[{"t_ms": 0, "e_ms": 4000, "text": "强机精稿"}])
+            a2 = httpx.post(base + "/api/v2/records/%s/attempts" % b1["id"],
+                            headers=h, json=a2_payload, timeout=20).json()
+            httpx.post(base + "/api/v2/records/%s/active-attempt" % b1["id"],
+                       headers=h, json={"attempt_id": a1["id"]}, timeout=20)
+            tr = httpx.get(base + "/api/v2/records/%s/transcript" % b1["id"],
+                           headers=h, timeout=20).json()
+            attempts = httpx.get(base + "/api/v2/records/%s/attempts" % b1["id"],
+                                 headers=h, timeout=20).json().get("attempts", [])
+            ok = (tr.get("attempt", {}).get("id") == a1["id"] and len(attempts) == 2
+                  and tr["segments"][0]["text"] == "假引擎第一句")
+            results.append(("v2 切换尝试", bool(ok), "" if ok else str(tr)[:300]))
+
+            # ops：改记录（base_rev 取当前 rev；前面的尝试/指针切换会 bump rev）
+            cur = httpx.get(base + "/api/v2/records/%s" % b1["id"], headers=h, timeout=20).json()
             body = {"device_id": "e2e", "ops": [{
                 "op_id": "e2e-op-1", "kind": "update_record", "record_id": b1["id"],
-                "base_rev": b1["rev"], "fields": {"title": "v2 改名"},
+                "base_rev": cur["rev"], "fields": {"title": "v2 改名"},
             }]}
             op1 = httpx.post(base + "/api/v2/sync/ops", headers=h, json=body, timeout=20).json()
             rec = httpx.get(base + "/api/v2/records/%s" % b1["id"], headers=h, timeout=20).json()
