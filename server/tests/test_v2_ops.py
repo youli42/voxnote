@@ -127,6 +127,14 @@ class OpsTest(unittest.TestCase):
         rec = self.client.get("/api/v2/records/%s" % up["id"], headers=self.h).json()
         self.assertTrue(rec["deleted"])
 
+    def test_update_cat_and_marks(self):
+        up = self.upload()
+        r = self.op(up["id"], up["rev"], {"cat": "工作", "marks": "[1.5,3]"})
+        self.assertEqual(r["status"], "applied")
+        rec = self.client.get("/api/v2/records/%s" % up["id"], headers=self.h).json()
+        self.assertEqual(rec["cat"], "工作")
+        self.assertEqual(rec["marks"], "[1.5,3]")
+
     def test_bad_op_and_limits(self):
         up = self.upload()
         r = self.op(up["id"], up["rev"], kind="unknown")
