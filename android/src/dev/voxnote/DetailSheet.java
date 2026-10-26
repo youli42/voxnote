@@ -712,7 +712,11 @@ public class DetailSheet implements Overlay {
         }
         String rid = rec.optString("id");
         String body = st.exportSrt(rid);
-        if (body.length() == 0) body = st.exportMd(rid);
+        String ext = "srt";
+        if (body.length() == 0) {
+            body = st.exportMd(rid);
+            ext = "md";
+        }
         if (body.length() == 0) {
             toast("还没有转写稿可导出");
             return;
@@ -722,7 +726,7 @@ public class DetailSheet implements Overlay {
             if (!dir.exists()) dir.mkdirs();
             String name = (vm.title == null || vm.title.length() == 0
                     ? vm.id : vm.title).replaceAll("[\\\\/:*?\"<>|]", "_");
-            File f = new File(dir, name + ".srt");
+            File f = new File(dir, name + "." + ext);
             FileOutputStream out = new FileOutputStream(f);
             out.write(body.getBytes("UTF-8"));
             out.close();
