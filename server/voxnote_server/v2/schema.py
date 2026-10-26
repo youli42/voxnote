@@ -95,8 +95,10 @@ CREATE INDEX IF NOT EXISTS idx_edits_record ON edits(record_id, anchor_t_ms);
 CREATE TABLE IF NOT EXISTS jobs(
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
   record_id        TEXT NOT NULL REFERENCES records(id) ON DELETE CASCADE,
+  engine_id        TEXT NOT NULL DEFAULT '',
   engine           TEXT NOT NULL DEFAULT '',
   source           TEXT NOT NULL DEFAULT 'hub',
+  language         TEXT NOT NULL DEFAULT 'zh',
   state            TEXT NOT NULL DEFAULT 'queued',
   stage            TEXT NOT NULL DEFAULT '',
   progress         REAL NOT NULL DEFAULT 0,

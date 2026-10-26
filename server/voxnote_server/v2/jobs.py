@@ -5,12 +5,14 @@
 from . import db, service
 
 
-def create(conn, record_id: str, engine: str = "", source: str = "hub") -> int:
+def create(conn, record_id: str, engine_id: str = "", engine: str = "",
+           source: str = "hub", language: str = "zh") -> int:
     with db.lock, conn:
         cur = conn.execute(
-            """INSERT INTO jobs(record_id, engine, source, state, stage, progress, queued_at)
-               VALUES(?,?,?,'queued','queued',0,?)""",
-            (record_id, engine, source, service.now_ms()),
+            """INSERT INTO jobs(record_id, engine_id, engine, source, language,
+                                state, stage, progress, queued_at)
+               VALUES(?,?,?,?,?,'queued','queued',0,?)""",
+            (record_id, engine_id, engine, source, language, service.now_ms()),
         )
         return int(cur.lastrowid)
 

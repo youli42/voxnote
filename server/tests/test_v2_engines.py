@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 SERVER_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVER_DIR))
 
-from voxnote_server.v2 import api, db  # noqa: E402
+from voxnote_server.v2 import api, db, worker  # noqa: E402
 
 
 def wav_bytes(seconds: float = 1.0) -> bytes:
@@ -102,32 +102,46 @@ class EnginesTest(unittest.TestCase):
                                  headers=self.h, json={"engine_id": e["id"]})
         self.assertEqual(r.status_code, 200, r.text)
         out = r.json()
+        self.assertEqual(out["state"], "queued")
         self.assertTrue(out["job_id"])
-        self.assertEqual(out["attempt"]["engine"], "假引擎")
-        self.assertEqual(len(out["attempt"]["segments"]), 2)
+
+        # 后台 worker 单步执行（测试里同步跑，避免线程时序）
+        with patch("voxnote_server.v2.engines.call_engine", return_value=body):
+            self.assertTrue(worker.run_once(db.conn()))
+        job = self.client.get("/api/v2/jobs/%s" % out["job_id"], headers=self.h).json()
+        self.assertEqual(job["state"], "done")
+        self.assertEqual(job["engine_id"], e["id"])
 
         tr = self.client.get("/api/v2/records/%s/transcript" % up["id"],
                              headers=self.h).json()
         self.assertEqual(tr["segments"][1]["text"], "这是第 2 句测试转写。")
         rec = self.client.get("/api/v2/records/%s" % up["id"], headers=self.h).json()
         self.assertEqual(rec["status"], "done")
-        job = self.client.get("/api/v2/jobs/%s" % out["job_id"], headers=self.h).json()
-        self.assertEqual(job["state"], "done")
 
     def test_transcribe_failure_marks_record(self):
         up = self.upload()
         e = self.add_engine()
+        r = self.client.post("/api/v2/records/%s/transcribe" % up["id"],
+                             headers=self.h, json={"engine_id": e["id"]})
+        self.assertEqual(r.status_code, 200, r.text)
+        job_id = r.json()["job_id"]
         with patch("voxnote_server.v2.engines.call_engine",
                    side_effect=RuntimeError("引擎挂了")):
-            r = self.client.post("/api/v2/records/%s/transcribe" % up["id"],
-                                 headers=self.h, json={"engine_id": e["id"]})
-        self.assertEqual(r.status_code, 502)
+            self.assertTrue(worker.run_once(db.conn()))
         rec = self.client.get("/api/v2/records/%s" % up["id"], headers=self.h).json()
         self.assertEqual(rec["status"], "failed")
         self.assertEqual(rec["error_code"], "engine_error")
         self.assertIn("引擎挂了", rec["error_hint"])
-        jobs = self.client.get("/api/v2/records/%s/jobs" % up["id"], headers=self.h).json()["jobs"]
-        self.assertEqual(jobs[0]["state"], "failed")
+        job = self.client.get("/api/v2/jobs/%s" % job_id, headers=self.h).json()
+        self.assertEqual(job["state"], "failed")
+
+    def test_engine_probe(self):
+        e = self.add_engine()
+        with patch("voxnote_server.v2.engines.probe",
+                   return_value={"ready": True, "latency_ms": 1}):
+            r = self.client.get("/api/v2/engines/%s/probe" % e["id"], headers=self.h)
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()["ready"])
 
     def test_transcribe_requires_engine(self):
         up = self.upload()

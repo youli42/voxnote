@@ -8,6 +8,7 @@ v1 不做自动切换：由调用方指定 engine_id（不指定就取第一个�
 """
 import hashlib
 import json
+import time
 import uuid
 from pathlib import Path
 
@@ -102,6 +103,27 @@ def pick(conn, engine_id=None):
     if row is None:
         raise ValueError("没有可用引擎，请先在设置里添加")
     return dict(row)
+
+
+def probe(engine: dict, timeout: float = 3.0) -> dict:
+    """轻量健康探测：/health 或 /v1/models 任一 2xx/3xx 即视为就绪。"""
+    base = engine["url"].rstrip("/")
+    headers = {}
+    if engine.get("token"):
+        headers["Authorization"] = "Bearer " + engine["token"]
+    last = ""
+    for url in (base + "/health", base + "/v1/models"):
+        t0 = time.time()
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                r = client.get(url, headers=headers)
+            ms = int((time.time() - t0) * 1000)
+            if r.status_code < 400:
+                return {"ready": True, "url": url, "latency_ms": ms}
+            last = "HTTP %d" % r.status_code
+        except Exception as e:
+            last = str(e)
+    return {"ready": False, "detail": last}
 
 
 def call_engine(engine: dict, audio_path: str, language: str = "zh") -> dict:

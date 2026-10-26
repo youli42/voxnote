@@ -225,20 +225,36 @@ def engine_delete(engine_id: str):
     return {"deleted": True}
 
 
+@router.get("/engines/{engine_id}/probe", dependencies=[Depends(auth.require_device)])
+def engine_probe(engine_id: str):
+    e = engines.get(db.conn(), engine_id)
+    if e is None:
+        raise HTTPException(404, "引擎不存在")
+    return engines.probe(e)
+
+
 @router.post("/records/{record_id}/transcribe", dependencies=[Depends(auth.require_device)])
 def transcribe_record(record_id: str, payload: dict = Body(default={})):
+    conn = db.conn()
+    if service.get_record(conn, record_id) is None:
+        raise HTTPException(404, "记录不存在")
     try:
-        out = engines.transcribe(
-            db.conn(), record_id,
-            engine_id=payload.get("engine_id"),
-            language=str(payload.get("language") or "zh"))
+        engine = engines.pick(conn, payload.get("engine_id"))
     except ValueError as e:
         raise HTTPException(400, str(e))
-    except Exception as e:
-        raise HTTPException(502, "转写失败：%s" % e)
-    if out is None:
-        raise HTTPException(404, "记录不存在")
-    return out
+    job_id = jobs.create(
+        conn, record_id,
+        engine_id=engine["id"],
+        engine=engine["name"] or engine["id"],
+        source="hub",
+        language=str(payload.get("language") or "zh"),
+    )
+    service.update_record(conn, record_id, {
+        "status": "queued",
+        "engine": engine["name"] or engine["id"],
+        "error_code": "", "error_hint": "",
+    })
+    return {"job_id": job_id, "state": "queued", "engine": engines.public(engine)}
 
 
 @router.get("/jobs/{job_id}", dependencies=[Depends(auth.require_device)])

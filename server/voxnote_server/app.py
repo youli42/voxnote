@@ -75,7 +75,19 @@ async def _lifespan(app: FastAPI):
     except Exception:
         # worker 起不来时所有任务会永远停在 queued，必须留痕
         logging.exception("转写 worker 启动失败，新任务将停留在排队状态")
+    if os.environ.get("VOXNOTE_V2", "").strip() == "1":
+        try:
+            from .v2 import worker as v2_worker
+            v2_worker.start()
+        except Exception:
+            logging.exception("v2 转写 worker 启动失败")
     yield
+    if os.environ.get("VOXNOTE_V2", "").strip() == "1":
+        try:
+            from .v2 import worker as v2_worker
+            v2_worker.stop()
+        except Exception:
+            logging.exception("v2 转写 worker 停止失败")
     try:
         from . import jobs
         jobs.stop_worker()
