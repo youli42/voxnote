@@ -203,6 +203,18 @@ def check_v2_server(tmp: Path) -> list:
                 rec = httpx.get(base + "/api/v2/records/%s" % b1["id"], headers=h, timeout=20).json()
                 ok = rr.get("resolution") == "local" and rec.get("title") == "冲突版本"
                 results.append(("v2 冲突解决", ok, "" if ok else str(rr)))
+
+            # manifest 全量对账清单
+            mf = httpx.get(base + "/api/v2/sync/manifest?limit=10", headers=h, timeout=20).json()
+            items = mf.get("items", [])
+            ok = (len(items) == 1 and items[0]["id"] == b1["id"]
+                  and len(str(items[0].get("sync_hash", ""))) == 64
+                  and items[0]["deleted"] is False)
+            results.append(("v2 manifest", ok, "" if ok else str(mf)))
+
+            ch = httpx.get(base + "/api/v2/sync/changes?cursor=0&limit=10", headers=h, timeout=20).json()
+            results.append(("v2 resync_required=false", ch.get("resync_required") is False,
+                            "" if ch.get("resync_required") is False else str(ch)))
     finally:
         stop(p, log)
     if not all(x[1] for x in results):
