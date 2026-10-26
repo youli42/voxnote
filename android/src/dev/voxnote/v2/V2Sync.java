@@ -121,6 +121,18 @@ public class V2Sync {
         store.setSyncValue("last_sync_at", String.valueOf(System.currentTimeMillis()));
     }
 
+    /** 同步中心/设置页用的管理请求（诊断/引擎/备份/清理）。 */
+    public static JSONObject admin(Context ctx, String method, String path,
+                                   JSONObject body) throws Exception {
+        String base = base(ctx);
+        String token = token(ctx);
+        if (base.length() == 0 || token.length() == 0) {
+            throw new IllegalStateException("未配置 v2 服务器地址或令牌");
+        }
+        if ("GET".equalsIgnoreCase(method)) return getJson(base + path, token);
+        return postJson(base + path, token, body == null ? new JSONObject() : body);
+    }
+
     // ------------------------------------------------------------ push
 
     private static void pushOutbox(V2Store store, String base, String token,
