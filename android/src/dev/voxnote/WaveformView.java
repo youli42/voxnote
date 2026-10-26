@@ -14,7 +14,11 @@ import java.util.List;
 public class WaveformView extends View {
 
     public interface Listener {
+        void onSeekStart();
+
         void onSeek(float fraction);
+
+        void onSeekEnd(float fraction);
     }
 
     private float[] peaks;
@@ -145,9 +149,15 @@ public class WaveformView extends View {
         if (listener == null || getWidth() <= 0) return false;
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-            case MotionEvent.ACTION_MOVE:
-            case MotionEvent.ACTION_UP:
+                listener.onSeekStart();
                 listener.onSeek(Math.max(0f, Math.min(1f, e.getX() / getWidth())));
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                listener.onSeek(Math.max(0f, Math.min(1f, e.getX() / getWidth())));
+                return true;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                listener.onSeekEnd(Math.max(0f, Math.min(1f, e.getX() / getWidth())));
                 return true;
             default:
                 return super.onTouchEvent(e);

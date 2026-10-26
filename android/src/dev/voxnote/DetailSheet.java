@@ -94,6 +94,10 @@ public class DetailSheet implements Overlay {
     private WaveformView waveView;
     private ProgressBar waveSpinner;
     private ToggleView autoplayToggle;
+    /** 拖动波形期间不改变播放/暂停状态，只做定位。 */
+    private boolean scrubbing;
+    private boolean wasPlayingOnScrub;
+    private long seekSettleUntil;
     private String waveKey = "";
     private int waveToken = 0;
     private final TextView timeText;
@@ -165,6 +169,11 @@ public class DetailSheet implements Overlay {
                 int p = player.position();
                 if (p >= 0) playPos = p;
                 boolean playing = player.playing();
+                // 拖动/seek 落位期间 MediaPlayer 可能瞬时报告 false，UI 不应闪成暂停
+                if (scrubbing) playing = wasPlayingOnScrub;
+                else if (seekSettleUntil > System.currentTimeMillis() && wasPlayingOnScrub) {
+                    playing = true;
+                }
                 playBtn.setText(playing ? "❚❚" : "▶");
                 markAddBtn.setEnabled(playing);
                 markAddBtn.setAlpha(playing ? 1f : 0.35f);
@@ -322,8 +331,20 @@ public class DetailSheet implements Overlay {
         LinearLayout playerMain = Ui.col(act);
         waveView = new WaveformView(act);
         waveView.setListener(new WaveformView.Listener() {
+            public void onSeekStart() {
+                scrubbing = true;
+                wasPlayingOnScrub = playerOpened && player.playing();
+            }
+
             public void onSeek(float fraction) {
                 if (totalMs > 0) seekTo((int) (fraction * totalMs));
+            }
+
+            public void onSeekEnd(float fraction) {
+                if (totalMs > 0) seekTo((int) (fraction * totalMs));
+                scrubbing = false;
+                seekSettleUntil = System.currentTimeMillis() + 700;
+                updateProgress();
             }
         });
         FrameLayout waveWrap = new FrameLayout(act);
@@ -931,7 +952,7 @@ public class DetailSheet implements Overlay {
         }
         if (playerOpened) {
             player.seek(playPos);
-            if (!player.playing()) player.play();
+            // 只定位，不改变播放/暂停：暂停时拖动仍暂停，播放时拖动继续播
         }
         updateProgress();
     }
