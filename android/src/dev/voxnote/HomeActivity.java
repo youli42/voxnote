@@ -129,8 +129,6 @@ public class HomeActivity extends Activity implements Picker.Host {
     private String pendingTitle = "";
     /** v2 同步条（记录页顶部）：待上传/失败/冲突一眼可见，点击进同步中心。 */
     private TextView v2SyncBar;
-    /** 记录页「自动连播」开关。 */
-    private ToggleView autoplayToggle;
     /** 设置了"录完自动转写"时，保存后等扫描结果出现该场次再触发（替代固定 400ms 延时）。 */
     private String pendingTranscribe;
     /** 设置了"录完自动上传"时，保存后等重扫把新场次进列表再同步（快照里才有它）。 */
@@ -864,23 +862,7 @@ public class HomeActivity extends Activity implements Picker.Host {
         });
         panel.addView(btnWrap, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 0));
 
-        // 自动连播开关：播完一条自动打开下一条（替代独立录音流页）
-        LinearLayout autoRow = Ui.row(this);
-        autoRow.setGravity(Gravity.CENTER);
-        TextView autoLabel = Ui.text(this, "自动连播", 11.5f, Ui.DIM);
-        autoRow.addView(autoLabel);
-        autoplayToggle = new ToggleView(this);
-        autoplayToggle.setChecked(settings.autoplay, false);
-        autoplayToggle.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                boolean on = !autoplayToggle.isChecked();
-                autoplayToggle.setChecked(on, true);
-                settings.autoplay = on;
-                settings.save();
-            }
-        });
-        autoRow.addView(autoplayToggle, Ui.lpm(Ui.dp(40), Ui.dp(23), 8, 0, 0, 0));
-        panel.addView(autoRow, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 10, 0, 0));
+        // 自动连播开关已移到播放详情页（播放上下文里更直观）
 
         // ListView 的 header 不吃 margin，用一层带 padding 的容器做上下留白。
         LinearLayout wrap = Ui.col(this);
