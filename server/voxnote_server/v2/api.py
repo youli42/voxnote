@@ -9,7 +9,9 @@ from fastapi import (
     APIRouter, Body, Depends, File, Form, Header, HTTPException, Query, UploadFile,
 )
 
-from . import auth, config, conflicts, db, manifest, ops, service, store, uploads
+from . import (
+    attempts, auth, config, conflicts, db, manifest, ops, service, store, uploads,
+)
 
 router = APIRouter()
 
@@ -59,6 +61,48 @@ def record(record_id: str):
     if row is None:
         raise HTTPException(404, "记录不存在")
     return service.record_summary(row)
+
+
+@router.get("/records/{record_id}/attempts", dependencies=[Depends(auth.require_device)])
+def record_attempts(record_id: str):
+    if service.get_record(db.conn(), record_id) is None:
+        raise HTTPException(404, "记录不存在")
+    return {"attempts": attempts.list_for_record(db.conn(), record_id)}
+
+
+@router.post("/records/{record_id}/attempts", dependencies=[Depends(auth.require_device)])
+def create_attempt(record_id: str, payload: dict = Body(...)):
+    try:
+        out = attempts.create(db.conn(), record_id, payload)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if out is None:
+        raise HTTPException(404, "记录不存在")
+    return out
+
+
+@router.get("/records/{record_id}/transcript", dependencies=[Depends(auth.require_device)])
+def record_transcript(record_id: str):
+    out = attempts.transcript(db.conn(), record_id)
+    if out is None:
+        raise HTTPException(404, "记录不存在")
+    return out
+
+
+@router.post("/records/{record_id}/active-attempt",
+             dependencies=[Depends(auth.require_device)])
+def set_active_attempt(record_id: str, payload: dict = Body(...)):
+    attempt_id = str(payload.get("attempt_id") or "").strip()
+    if not attempt_id:
+        raise HTTPException(400, "attempt_id 必填")
+    try:
+        out = attempts.set_active(
+            db.conn(), record_id, attempt_id, payload.get("pinned"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if out is None:
+        raise HTTPException(404, "记录不存在")
+    return out
 
 
 @router.post("/sync/upload", dependencies=[Depends(auth.require_device)])
