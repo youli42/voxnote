@@ -22,6 +22,8 @@ from . import db, config
 # 所有 /api/* 都要求 X-VoxNote-Key 请求头；控制台收到 401 会提示输入。
 # 留空 = 维持"默认只绑本机、控制台免鉴权"的原模型。
 API_KEY = os.environ.get("VOXNOTE_API_KEY", "").strip()
+# V1 切换后默认启用 v2；VOXNOTE_V2=0 可临时回到 v1 控制台/API 主路径
+V2_ENABLED = os.environ.get("VOXNOTE_V2", "1").strip() != "0"
 
 
 def create_app() -> FastAPI:
@@ -45,16 +47,29 @@ def create_app() -> FastAPI:
         from . import __version__
         return {"ok": True, "version": __version__}
 
-    # 控制台（静态文件放最后，避免吞掉 /api）
+    # 控制台：v2 为默认入口；旧 v1 控制台保留在 /legacy（切换期回看用）
     web = config.web_dir()
     if os.path.isdir(web):
-        v2_page = os.path.join(web, "v2.html")
-        if os.path.isfile(v2_page):
-            from fastapi.responses import FileResponse
+        from fastapi.responses import FileResponse
 
+        v2_page = os.path.join(web, "v2.html")
+        v1_page = os.path.join(web, "index.html")
+
+        @app.get("/")
+        def root_console():
+            if V2_ENABLED and os.path.isfile(v2_page):
+                return FileResponse(v2_page)
+            return FileResponse(v1_page)
+
+        @app.get("/legacy")
+        def legacy_console():
+            return FileResponse(v1_page)
+
+        if os.path.isfile(v2_page):
             @app.get("/v2")
             def v2_console():
                 return FileResponse(v2_page)
+
         app.mount("/", StaticFiles(directory=web, html=True), name="web")
     return app
 
@@ -75,14 +90,14 @@ async def _lifespan(app: FastAPI):
     except Exception:
         # worker 起不来时所有任务会永远停在 queued，必须留痕
         logging.exception("转写 worker 启动失败，新任务将停留在排队状态")
-    if os.environ.get("VOXNOTE_V2", "").strip() == "1":
+    if V2_ENABLED:
         try:
             from .v2 import worker as v2_worker
             v2_worker.start()
         except Exception:
             logging.exception("v2 转写 worker 启动失败")
     yield
-    if os.environ.get("VOXNOTE_V2", "").strip() == "1":
+    if V2_ENABLED:
         try:
             from .v2 import worker as v2_worker
             v2_worker.stop()
@@ -116,7 +131,7 @@ def _wire_routers(app: FastAPI):
         m = importlib.import_module("voxnote_server." + mod)
         app.include_router(m.router, prefix=prefix, tags=tags)
 
-    # v2 开发路由：显式开关，默认不挂载，避免影响 v1
-    if os.environ.get("VOXNOTE_V2", "").strip() == "1":
+    # v2 主路径：默认启用；VOXNOTE_V2=0 可临时回到 v1
+    if V2_ENABLED:
         from .v2 import api as v2_api
         app.include_router(v2_api.router, prefix="/api/v2", tags=["v2"])

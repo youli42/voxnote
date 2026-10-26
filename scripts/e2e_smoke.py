@@ -398,6 +398,13 @@ def check_server(tmp: Path) -> list:
         wait_http("http://127.0.0.1:%d/api/v1/health" % port)
         results.append(("v1 服务端启动", True, ""))
 
+        root = httpx.get("http://127.0.0.1:%d/" % port, timeout=20)
+        ok = root.status_code == 200 and "voxnote 控制台" in root.text
+        results.append(("v2 为默认控制台", ok, "" if ok else "status=%s" % root.status_code))
+        legacy = httpx.get("http://127.0.0.1:%d/legacy" % port, timeout=20)
+        results.append(("旧控制台保留 /legacy", legacy.status_code == 200,
+                        "status=%s" % legacy.status_code))
+
         db = data_dir / "voxnote.db"
         token = read_sync_token(db)
         disable_auto_transcribe(db)

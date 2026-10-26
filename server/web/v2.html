@@ -80,6 +80,16 @@
   </section>
 
   <section id="tab-system" class="tab">
+    <div class="card"><h3>配对手机</h3>
+      <div class="row">
+        <div id="qr"></div>
+        <div>
+          <div class="muted">服务器</div><code id="pairUrl"></code>
+          <div class="muted" style="margin-top:8px">令牌</div><code id="pairToken"></code>
+          <div class="muted" style="margin-top:8px">手机扫码，或手动填地址 + 令牌。</div>
+        </div>
+      </div>
+    </div>
     <div class="grid">
       <div class="card"><h3>存储</h3><pre id="storage">…</pre>
         <div class="row"><button class="btn" id="btnBackup">立即备份</button>
@@ -100,7 +110,7 @@
   </section>
 </main>
 <div id="toast"></div>
-
+<script src="/vendor/qrcode.min.js"></script>
 <script>
 const state = { token: localStorage.getItem('voxnote.v2.token') || '', tab: 'records', records: [], detailId: null };
 const $ = (s) => document.querySelector(s);
@@ -159,6 +169,23 @@ async function boot() {
     $('#conn').className = 'bad';
   }
   switchTab('records');
+  renderPair();
+}
+
+function renderPair() {
+  if (!state.token) return;
+  const host = location.host;
+  const url = location.origin + '/pair.html?host=' + encodeURIComponent(host)
+    + '&t=' + encodeURIComponent(state.token);
+  const pu = $('#pairUrl');
+  const pt = $('#pairToken');
+  if (pu) pu.textContent = 'http://' + host;
+  if (pt) pt.textContent = state.token;
+  const box = $('#qr');
+  if (box && window.QRCode && !box.dataset.done) {
+    box.dataset.done = '1';
+    new QRCode(box, { text: url, width: 156, height: 156 });
+  }
 }
 
 function switchTab(name) {
