@@ -4,10 +4,12 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.graphics.Color;
+import android.text.InputType;
 import android.text.format.DateFormat;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -79,6 +81,20 @@ public class V2SyncCenter {
         }), new LinearLayout.LayoutParams(0, dp(act, 40), 1f));
         root.addView(tools);
 
+        LinearLayout tools2 = new LinearLayout(act);
+        tools2.setOrientation(LinearLayout.HORIZONTAL);
+        tools2.addView(button(act, "添加引擎", new View.OnClickListener() {
+            public void onClick(View v) {
+                addEngineDialog(act);
+            }
+        }), new LinearLayout.LayoutParams(0, dp(act, 40), 1f));
+        tools2.addView(button(act, "测试连接", new View.OnClickListener() {
+            public void onClick(View v) {
+                testConn(act);
+            }
+        }), new LinearLayout.LayoutParams(0, dp(act, 40), 1f));
+        root.addView(tools2);
+
         JSONArray conflicts = store.openConflicts();
         if (conflicts.length() > 0) {
             addText(act, root, "待选择的冲突", 13f, 0xFFFFD479);
@@ -96,6 +112,10 @@ public class V2SyncCenter {
             String serverText = server == null ? "" : String.valueOf(server);
 
             addText(act, root, "「" + title + "」", 13f, 0xFFE8EAED);
+            String diff = diffText(local, server);
+            if (diff.length() > 0) {
+                addText(act, root, diff.trim(), 11.5f, 0xFFE8EAED);
+            }
             addText(act, root, "本地：" + shorten(localText), 11.5f, 0xFF8A919C);
             addText(act, root, "服务器：" + shorten(serverText), 11.5f, 0xFF8A919C);
 
@@ -153,6 +173,108 @@ public class V2SyncCenter {
     private static String shorten(String s) {
         if (s == null) return "";
         return s.length() > 200 ? s.substring(0, 200) + "…" : s;
+    }
+
+    /** 冲突逐项对比：title/cat/marks 本地 vs 服务器。 */
+    private static String diffText(JSONObject local, JSONObject server) {
+        if (local == null) return "";
+        JSONObject fields = local.optJSONObject("fields");
+        if (fields == null) return "";
+        StringBuilder sb = new StringBuilder();
+        String[] keys = {"title", "cat", "marks"};
+        String[] labels = {"标题", "标签", "标记"};
+        for (int i = 0; i < keys.length; i++) {
+            if (!fields.has(keys[i])) continue;
+            String lv = fields.optString(keys[i], "");
+            String sv = server == null ? "" : server.optString(keys[i], "");
+            if (lv.equals(sv)) continue;
+            sb.append(labels[i]).append("：本地「").append(shorten(lv))
+                    .append("」 / 服务器「").append(shorten(sv)).append("」\n");
+        }
+        return sb.toString();
+    }
+
+    private static void addEngineDialog(final Activity act) {
+        LinearLayout col = new LinearLayout(act);
+        col.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(act, 16);
+        col.setPadding(pad, dp(act, 8), pad, dp(act, 8));
+        final EditText name = input(act, col, "名称（如 强机）");
+        final EditText url = input(act, col, "地址 http://127.0.0.1:8000");
+        final EditText model = input(act, col, "模型（如 whisper-1）");
+        final EditText token = input(act, col, "令牌（可空）");
+        new AlertDialog.Builder(act)
+                .setTitle("添加转写引擎")
+                .setView(col)
+                .setPositiveButton("添加", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        final JSONObject body = new JSONObject();
+                        try {
+                            body.put("name", name.getText().toString());
+                            body.put("url", url.getText().toString());
+                            body.put("model", model.getText().toString());
+                            body.put("token", token.getText().toString());
+                        } catch (Exception ignore) {
+                        }
+                        new Thread(new Runnable() {
+                            public void run() {
+                                try {
+                                    V2Sync.admin(act, "POST", "/api/v2/engines", body);
+                                    act.runOnUiThread(new Runnable() {
+                                        public void run() {
+                                            toast(act, "已添加引擎");
+                                        }
+                                    });
+                                } catch (final Throwable t) {
+                                    act.runOnUiThread(new Runnable() {
+                                        public void run() {
+                                            showInfo(act, "添加失败", String.valueOf(t));
+                                        }
+                                    });
+                                }
+                            }
+                        }, "v2-add-engine").start();
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private static EditText input(Activity act, LinearLayout col, String hint) {
+        EditText e = new EditText(act);
+        e.setHint(hint);
+        e.setInputType(InputType.TYPE_CLASS_TEXT);
+        e.setSingleLine(true);
+        col.addView(e, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return e;
+    }
+
+    private static void testConn(final Activity act) {
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    long t0 = System.currentTimeMillis();
+                    JSONObject h = V2Sync.admin(act, "GET", "/api/v2/health", null);
+                    final long ms = System.currentTimeMillis() - t0;
+                    act.runOnUiThread(new Runnable() {
+                        public void run() {
+                            toast(act, "连接正常 · " + ms + "ms");
+                        }
+                    });
+                } catch (final Throwable t) {
+                    act.runOnUiThread(new Runnable() {
+                        public void run() {
+                            showInfo(act, "连接失败", String.valueOf(t));
+                        }
+                    });
+                }
+            }
+        }, "v2-test-conn").start();
+    }
+
+    private static void toast(Activity act, String msg) {
+        android.widget.Toast.makeText(act, msg, android.widget.Toast.LENGTH_SHORT).show();
     }
 
     private static void adminAsync(final Activity act, final String method,
