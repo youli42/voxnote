@@ -517,6 +517,30 @@ public class HomeActivity extends Activity implements Picker.Host {
         v2SyncBar.setVisibility(View.VISIBLE);
     }
 
+    /** 把 v1 详情页的改名/分类/标记改动写进 v2 outbox。 */
+    private void enqueueV2Update(String legacyStamp, org.json.JSONObject fields) {
+        try {
+            V2Store st = V2Store.get(this);
+            org.json.JSONObject rec = st.findByLegacy(legacyStamp);
+            if (rec == null) return;
+            st.enqueueUpdate(rec.optString("id"), fields);
+            updateV2SyncBar();
+            if (V2Sync.hasServer(this)) V2Sync.syncAsync(this);
+        } catch (Throwable ignore) { }
+    }
+
+    /** v2 删除：本地标记 + tombstone outbox。 */
+    private void enqueueV2Delete(String legacyStamp) {
+        try {
+            V2Store st = V2Store.get(this);
+            org.json.JSONObject rec = st.findByLegacy(legacyStamp);
+            if (rec == null) return;
+            st.enqueueDelete(rec.optString("id"));
+            updateV2SyncBar();
+            if (V2Sync.hasServer(this)) V2Sync.syncAsync(this);
+        } catch (Throwable ignore) { }
+    }
+
     private View buildListScreen() {
         LinearLayout screen = Ui.col(this);
         screen.setBackgroundColor(Ui.BG);
@@ -1347,6 +1371,8 @@ public class HomeActivity extends Activity implements Picker.Host {
     }
 
     private void doDelete(final List<RecordVm> vms) {
+        // v2：删除 = 墓碑进 outbox（服务端同样只标记，不动文件）
+        for (int i = 0; i < vms.size(); i++) enqueueV2Delete(vms.get(i).id);
         data.delete(vms, new DataCenter.DeleteCallback() {
             public void onDeleted(int files, int hidden) {
                 exitBatch();
@@ -1391,6 +1417,27 @@ public class HomeActivity extends Activity implements Picker.Host {
 
     private void openDetail(RecordVm vm) {
         if (streamScreen != null) streamScreen.stopSession(); // 详情页接管播放控制，避免两边同时管一个 Player
+        // v2 生效稿接入详情：v1 扫描没稿时，用本地 v2 transcript 填 vm.segs
+        if (vm != null && vm.segs.isEmpty()) {
+            try {
+                V2Store st = V2Store.get(this);
+                org.json.JSONObject rec = st.findByLegacy(vm.id);
+                if (rec != null) {
+                    java.util.List<org.json.JSONObject> segs =
+                            st.effectiveSegments(rec.optString("id"));
+                    for (int i = 0; i < segs.size(); i++) {
+                        org.json.JSONObject s = segs.get(i);
+                        if (s.optBoolean("deleted", false)) continue;
+                        Item.Seg seg = new Item.Seg(
+                                s.optLong("t_ms", 0) / 1000.0,
+                                s.optLong("e_ms", 0) / 1000.0,
+                                s.optString("text", ""));
+                        seg.spk = s.optInt("spk", -1);
+                        vm.segs.add(seg);
+                    }
+                }
+            } catch (Throwable ignore) { }
+        }
         detail.open(vm);
         pushOverlay(detail);
     }
@@ -1398,11 +1445,28 @@ public class HomeActivity extends Activity implements Picker.Host {
     private final DetailSheet.Listener detailListener = new DetailSheet.Listener() {
         public void onTitleChanged(RecordVm vm) {
             adapter.notifyDataSetChanged();
+            try {
+                JSONObject f = new JSONObject();
+                f.put("title", vm.title == null ? "" : vm.title);
+                enqueueV2Update(vm.id, f);
+            } catch (Throwable ignore) { }
         }
 
         public void onMetaChanged(RecordVm vm) {
             // 详情里改分类走这里：同样立即重放筛选，关掉面板时列表已经是新分组。
             refilterKeepingScroll();
+            try {
+                JSONObject f = new JSONObject();
+                if (vm.cat == null || vm.cat.length() == 0) {
+                    f.put("cat", JSONObject.NULL);
+                } else {
+                    f.put("cat", vm.cat);
+                }
+                JSONArray marks = new JSONArray();
+                for (int i = 0; i < vm.marks.size(); i++) marks.put(vm.marks.get(i));
+                f.put("marks", marks.toString());
+                enqueueV2Update(vm.id, f);
+            } catch (Throwable ignore) { }
         }
 
         public void onTranscribe(RecordVm vm) {

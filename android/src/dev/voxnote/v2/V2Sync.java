@@ -197,9 +197,12 @@ public class V2Sync {
                                   JSONObject meta) throws Exception {
         String id = meta.optString("id");
         String loc = meta.optString("audio_loc");
-        String name = "audio";
-        int dot = loc == null ? -1 : loc.lastIndexOf('.');
-        if (dot >= 0) name = "audio" + loc.substring(dot);
+        // MediaStore 返回的是 uri:content://…，没有扩展名；录音固定 m4a，默认补全
+        String name = "audio.m4a";
+        if (loc != null && loc.startsWith("path:")) {
+            int dot = loc.lastIndexOf('.');
+            if (dot >= 0 && dot > loc.lastIndexOf('/')) name = "audio" + loc.substring(dot);
+        }
         InputStream audio = V2Store.openAudio(store.getContext(), loc);
         JSONObject m = new JSONObject();
         m.put("id", id);

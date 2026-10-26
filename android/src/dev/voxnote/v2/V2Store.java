@@ -557,7 +557,8 @@ public class V2Store {
         if (rec.optInt("pending", 0) > 0) return "待上传";
         String status = rec.optString("status", "");
         if ("failed".equals(status)) return "失败";
-        if (rec.optString("active_attempt_id", "").length() > 0) return "已转写";
+        String aid = rec.isNull("active_attempt_id") ? "" : rec.optString("active_attempt_id", "");
+        if (aid.length() > 0) return "已转写";
         if ("uploaded".equals(status)) return "排队中";
         if ("transcribing".equals(status) || "queued".equals(status)) return "转写中";
         if ("local".equals(status)) return "仅本机";
