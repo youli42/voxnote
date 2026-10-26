@@ -13,8 +13,8 @@ from fastapi import (
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from . import (
-    attempts, auth, config, conflicts, db, edits, export, manifest, ops,
-    service, store, uploads,
+    attempts, auth, config, conflicts, db, edits, engines, export, jobs,
+    manifest, ops, service, store, uploads,
 )
 
 router = APIRouter()
@@ -146,6 +146,66 @@ def set_active_attempt(record_id: str, payload: dict = Body(...)):
     if out is None:
         raise HTTPException(404, "记录不存在")
     return out
+
+
+@router.get("/engines", dependencies=[Depends(auth.require_device)])
+def engine_list():
+    return {"engines": engines.list_all(db.conn())}
+
+
+@router.post("/engines", dependencies=[Depends(auth.require_device)])
+def engine_create(payload: dict = Body(...)):
+    try:
+        return engines.create(db.conn(), payload)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.patch("/engines/{engine_id}", dependencies=[Depends(auth.require_device)])
+def engine_update(engine_id: str, payload: dict = Body(...)):
+    try:
+        out = engines.update(db.conn(), engine_id, payload)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if out is None:
+        raise HTTPException(404, "引擎不存在")
+    return out
+
+
+@router.delete("/engines/{engine_id}", dependencies=[Depends(auth.require_device)])
+def engine_delete(engine_id: str):
+    if not engines.delete(db.conn(), engine_id):
+        raise HTTPException(404, "引擎不存在")
+    return {"deleted": True}
+
+
+@router.post("/records/{record_id}/transcribe", dependencies=[Depends(auth.require_device)])
+def transcribe_record(record_id: str, payload: dict = Body(default={})):
+    try:
+        out = engines.transcribe(
+            db.conn(), record_id,
+            engine_id=payload.get("engine_id"),
+            language=str(payload.get("language") or "zh"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(502, "转写失败：%s" % e)
+    if out is None:
+        raise HTTPException(404, "记录不存在")
+    return out
+
+
+@router.get("/jobs/{job_id}", dependencies=[Depends(auth.require_device)])
+def job_detail(job_id: int):
+    j = jobs.get(db.conn(), job_id)
+    if j is None:
+        raise HTTPException(404, "任务不存在")
+    return j
+
+
+@router.get("/records/{record_id}/jobs", dependencies=[Depends(auth.require_device)])
+def record_jobs(record_id: str, limit: int = Query(20, ge=1, le=100)):
+    return {"jobs": jobs.for_record(db.conn(), record_id, limit)}
 
 
 @router.post("/sync/upload", dependencies=[Depends(auth.require_device)])
