@@ -299,7 +299,9 @@ public class V2Sync {
         String id = rec.optString("id", "");
         String aid = rec.optString("active_attempt_id", "");
         if (id.length() == 0 || aid.length() == 0) return;
-        if (store.hasTranscript(id)) return;
+        // 注意：必须按“当前生效尝试”判断，不能只看本地有没有旧稿；
+        // 否则切到精稿/新尝试后，本地会一直显示旧稿。
+        if (store.hasTranscriptFor(id, aid)) return;
         try {
             JSONObject tr = getJson(base + "/api/v2/records/" + urlEncode(id)
                     + "/transcript", token);

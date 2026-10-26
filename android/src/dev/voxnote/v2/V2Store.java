@@ -395,12 +395,12 @@ public class V2Store {
         db().update("records", r, "id=?", new String[]{recordId});
     }
 
-    /** 本地是否已有该记录生效稿的句（决定要不要向服务器拉 transcript）。 */
-    public synchronized boolean hasTranscript(String recordId) {
+    /** 本地是否已有该记录**当前生效尝试**的句（切尝试后旧稿不能算数）。 */
+    public synchronized boolean hasTranscriptFor(String recordId, String attemptId) {
+        if (attemptId == null || attemptId.length() == 0) return false;
         Cursor c = db().rawQuery(
-                "SELECT 1 FROM segments WHERE attempt_id="
-                        + "(SELECT active_attempt_id FROM records WHERE id=?) LIMIT 1",
-                new String[]{recordId});
+                "SELECT 1 FROM segments WHERE attempt_id=? LIMIT 1",
+                new String[]{attemptId});
         try {
             return c.moveToFirst();
         } finally {
