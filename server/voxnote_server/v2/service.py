@@ -178,4 +178,9 @@ def changes_since(conn, cursor: int = 0, limit: int = 200) -> dict:
             out.append(item)
 
     next_cursor = rows[-1]["rev"] if rows else cursor
-    return {"changes": out, "next_cursor": next_cursor, "has_more": has_more}
+    with _db.lock:
+        row = conn.execute("SELECT MIN(rev) m FROM changes").fetchone()
+        min_rev = row["m"] if row else None
+    resync = bool(cursor > 0 and min_rev is not None and cursor < int(min_rev) - 1)
+    return {"changes": out, "next_cursor": next_cursor, "has_more": has_more,
+            "resync_required": resync}

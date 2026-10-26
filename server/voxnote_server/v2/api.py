@@ -9,7 +9,7 @@ from fastapi import (
     APIRouter, Body, Depends, File, Form, Header, HTTPException, Query, UploadFile,
 )
 
-from . import auth, config, conflicts, db, ops, service, store, uploads
+from . import auth, config, conflicts, db, manifest, ops, service, store, uploads
 
 router = APIRouter()
 
@@ -33,6 +33,14 @@ def sync_changes(
     limit: int = Query(200, ge=1, le=500),
 ):
     return service.changes_since(db.conn(), cursor=cursor, limit=limit)
+
+
+@router.get("/sync/manifest", dependencies=[Depends(auth.require_device)])
+def sync_manifest(
+    cursor: str = Query(""),
+    limit: int = Query(500, ge=1, le=1000),
+):
+    return manifest.build(db.conn(), cursor=cursor, limit=limit)
 
 
 @router.get("/records", dependencies=[Depends(auth.require_device)])
