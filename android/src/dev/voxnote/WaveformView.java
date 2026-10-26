@@ -8,6 +8,8 @@ import android.graphics.RectF;
 import android.view.MotionEvent;
 import android.view.View;
 
+import java.util.List;
+
 /** 播放器波形：已播部分高亮，点击/拖动可定位。 */
 public class WaveformView extends View {
 
@@ -17,6 +19,7 @@ public class WaveformView extends View {
 
     private float[] peaks;
     private float progress;
+    private float[] markFracs = new float[0];
     private Listener listener;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path wavePath = new Path();
@@ -45,6 +48,20 @@ public class WaveformView extends View {
             progress = v;
             invalidate();
         }
+    }
+
+    /** 标记点：与播放进度共用波形，不再单独画进度条。 */
+    public void setMarks(List<Double> marks, long totalMs) {
+        if (marks == null || marks.size() == 0 || totalMs <= 0) {
+            markFracs = new float[0];
+        } else {
+            markFracs = new float[marks.size()];
+            for (int i = 0; i < marks.size(); i++) {
+                double s = marks.get(i);
+                markFracs[i] = (float) Math.max(0, Math.min(1, s * 1000 / totalMs));
+            }
+        }
+        invalidate();
     }
 
     @Override
@@ -76,6 +93,12 @@ public class WaveformView extends View {
         paint.setColor(0xFF7AA2FF);
         float px = progress * w;
         canvas.drawRoundRect(px - 1, 0, px + 1, h, 1, 1, paint);
+        // 标记
+        paint.setColor(0xFFFFD479);
+        for (int i = 0; i < markFracs.length; i++) {
+            float mx = markFracs[i] * w;
+            canvas.drawRoundRect(mx - 1, 0, mx + 1, h, 1, 1, paint);
+        }
     }
 
     /** 连续镜像填充轮廓，和 Web 端 WaveSurfer 的观感一致。 */

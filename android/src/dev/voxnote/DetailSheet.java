@@ -90,7 +90,6 @@ public class DetailSheet implements Overlay {
     private final TextView meta;
     private final TextView catChip;
     private final TextView playBtn;
-    private final SeekBarView seekBar;
     private WaveformView waveView;
     private String waveKey = "";
     private int waveToken = 0;
@@ -160,20 +159,18 @@ public class DetailSheet implements Overlay {
             if (playerOpened) {
                 int d = player.duration();
                 if (d > 0) totalMs = d;
-                if (!seekBar.isDragging()) {   // 拖动预览期间不回写位置，别跟手势打架
-                    int p = player.position();
-                    if (p >= 0) playPos = p;
-                    boolean playing = player.playing();
-                    playBtn.setText(playing ? "❚❚" : "▶");
-                    markAddBtn.setEnabled(playing);
-                    markAddBtn.setAlpha(playing ? 1f : 0.35f);
-                    if (playing && totalMs > 0 && playPos >= totalMs - 120) {
-                        player.pause();
-                        player.seek(0);   // 播放器归零，否则下次 start() 从结尾接着走，播完无法重播
-                        playPos = 0;
-                        if (settings.autoplay && listener != null && vm != null) {
-                            listener.onPlaybackEnded(vm);
-                        }
+                int p = player.position();
+                if (p >= 0) playPos = p;
+                boolean playing = player.playing();
+                playBtn.setText(playing ? "❚❚" : "▶");
+                markAddBtn.setEnabled(playing);
+                markAddBtn.setAlpha(playing ? 1f : 0.35f);
+                if (playing && totalMs > 0 && playPos >= totalMs - 120) {
+                    player.pause();
+                    player.seek(0);   // 播放器归零，否则下次 start() 从结尾接着走，播完无法重播
+                    playPos = 0;
+                    if (settings.autoplay && listener != null && vm != null) {
+                        listener.onPlaybackEnded(vm);
                     }
                 }
             }
@@ -326,17 +323,7 @@ public class DetailSheet implements Overlay {
                 if (totalMs > 0) seekTo((int) (fraction * totalMs));
             }
         });
-        playerMain.addView(waveView, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(38)));
-        seekBar = new SeekBarView(act);
-        seekBar.setListener(new SeekBarView.Listener() {
-            public void onSeek(float fraction) {
-                playPos = (int) (fraction * totalMs);
-                // 拖动中只更新预览，松手的那次才落到播放器，避免一秒几十次 seekTo
-                if (playerOpened && !seekBar.isDragging()) player.seek(playPos);
-                updateProgress();
-            }
-        });
-        playerMain.addView(seekBar, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(26)));
+        playerMain.addView(waveView, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(54)));
         timeText = Ui.text(act, "00:00 / 00:00", 10f, Ui.FAINT);
         playerMain.addView(timeText, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -772,9 +759,8 @@ public class DetailSheet implements Overlay {
         markAddBtn.setEnabled(false);
         markAddBtn.setAlpha(0.35f);
         totalMs = (int) Math.max(1000, vm.durMs);
-        seekBar.setTotal(totalMs / 1000.0);
-        seekBar.setMarks(vm.marks);
         timeText.setText("00:00 / " + RecordVm.fmtDur(totalMs / 1000.0));
+        waveView.setMarks(vm.marks, totalMs);
         loadWaveform(vm);
         if (!keepTitle || playerOpened) {
             playPos = 0;
@@ -874,7 +860,7 @@ public class DetailSheet implements Overlay {
         final int token = ++waveToken;
         new Thread(new Runnable() {
             public void run() {
-                final float[] p = AudioPeaks.load(act, v.audioPath, v.audioUri, 260);
+                final float[] p = AudioPeaks.load(act, v.audioPath, v.audioUri, 600);
                 if (act == null) return;
                 act.runOnUiThread(new Runnable() {
                     public void run() {
@@ -908,7 +894,6 @@ public class DetailSheet implements Overlay {
 
     private void updateProgress() {
         if (totalMs <= 0) totalMs = 1;
-        seekBar.setFraction(playPos / (float) totalMs);
         if (waveView != null) waveView.setProgress(playPos / (float) totalMs);
         timeText.setText(RecordVm.fmtDur(playPos / 1000.0) + " / "
                 + RecordVm.fmtDur(totalMs / 1000.0));
@@ -948,7 +933,7 @@ public class DetailSheet implements Overlay {
         vm.marks.add(t);
         java.util.Collections.sort(vm.marks);
         persistMarks();
-        seekBar.setMarks(vm.marks);
+        waveView.setMarks(vm.marks, totalMs);
         rebuildMarks();
         if (listener != null) listener.onMetaChanged(vm);
         toast("标记 " + RecordVm.fmtDur(t));
@@ -958,7 +943,7 @@ public class DetailSheet implements Overlay {
         if (vm == null || index < 0 || index >= vm.marks.size()) return;
         double t = vm.marks.remove(index);
         persistMarks();
-        seekBar.setMarks(vm.marks);
+        waveView.setMarks(vm.marks, totalMs);
         rebuildMarks();
         if (listener != null) listener.onMetaChanged(vm);
         toast("已删除标记 " + RecordVm.fmtDur(t));
