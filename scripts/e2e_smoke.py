@@ -207,6 +207,27 @@ def check_v2_server(tmp: Path) -> list:
                   and tr["segments"][0]["text"] == "假引擎第一句")
             results.append(("v2 切换尝试", bool(ok), "" if ok else str(tr)[:300]))
 
+            # 人工修订 + 生效稿 + 导出 + 音频
+            edit_payload = {"anchor_t_ms": 0, "anchor_e_ms": 2000,
+                            "text": "人工修订第一句", "author": "e2e"}
+            ed = httpx.post(base + "/api/v2/records/%s/edits" % b1["id"],
+                            headers=h, json=edit_payload, timeout=20).json()
+            tr = httpx.get(base + "/api/v2/records/%s/transcript" % b1["id"],
+                           headers=h, timeout=20).json()
+            ok = bool(ed.get("id")) and tr["segments"][0]["text"] == "人工修订第一句"
+            results.append(("v2 人工修订", ok, "" if ok else str(tr)[:300]))
+
+            srt = httpx.get(base + "/api/v2/records/%s/export?format=srt" % b1["id"],
+                            headers=h, timeout=20)
+            ok = srt.status_code == 200 and "人工修订第一句" in srt.text and "-->" in srt.text
+            results.append(("v2 导出 srt", ok, "" if ok else srt.text[:300]))
+
+            audio = httpx.get(base + "/api/v2/records/%s/audio" % b1["id"],
+                              headers=h, timeout=20)
+            ok = audio.status_code == 200 and len(audio.content) == len(wav.read_bytes())
+            results.append(("v2 音频下载", ok, "" if ok else "status=%s len=%s" % (
+                audio.status_code, len(audio.content))))
+
             # ops：改记录（base_rev 取当前 rev；前面的尝试/指针切换会 bump rev）
             cur = httpx.get(base + "/api/v2/records/%s" % b1["id"], headers=h, timeout=20).json()
             body = {"device_id": "e2e", "ops": [{
