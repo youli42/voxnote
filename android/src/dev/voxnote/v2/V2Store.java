@@ -272,6 +272,189 @@ public class V2Store {
         }
     }
 
+    /** 保存服务器返回的生效稿：尝试 + 句 + 修订（离线也能读/导出）。 */
+    public synchronized void saveTranscript(JSONObject tr) {
+        if (tr == null) return;
+        JSONObject rec = tr.optJSONObject("record");
+        if (rec == null) return;
+        String recordId = rec.optString("id", "");
+        JSONObject att = tr.optJSONObject("attempt");
+
+        if (att != null) {
+            String aid = att.optString("id", "");
+            ContentValues a = new ContentValues();
+            a.put("id", aid);
+            a.put("record_id", recordId);
+            a.put("source", att.optString("source", ""));
+            a.put("engine", att.optString("engine", ""));
+            a.put("model", att.optString("model", ""));
+            a.put("quality_tier", att.optInt("quality_tier", 2));
+            a.put("duration_ms", att.optLong("duration_ms", 0));
+            a.put("created_at", att.optLong("created_at", 0));
+            db().insertWithOnConflict("attempts", null, a, SQLiteDatabase.CONFLICT_REPLACE);
+            db().delete("segments", "attempt_id=?", new String[]{aid});
+            JSONArray segs = att.optJSONArray("segments");
+            if (segs != null) {
+                for (int i = 0; i < segs.length(); i++) {
+                    JSONObject s = segs.optJSONObject(i);
+                    if (s == null) continue;
+                    ContentValues v = new ContentValues();
+                    v.put("attempt_id", aid);
+                    v.put("idx", i);
+                    v.put("t_ms", s.optLong("t_ms", 0));
+                    v.put("e_ms", s.optLong("e_ms", 0));
+                    v.put("text", s.optString("text", ""));
+                    v.put("spk", s.optInt("spk", -1));
+                    db().insertWithOnConflict("segments", null, v,
+                            SQLiteDatabase.CONFLICT_REPLACE);
+                }
+            }
+        }
+
+        JSONArray edits = tr.optJSONArray("edits");
+        if (edits != null) {
+            db().delete("edits", "record_id=?", new String[]{recordId});
+            for (int i = 0; i < edits.length(); i++) {
+                JSONObject e = edits.optJSONObject(i);
+                if (e == null) continue;
+                ContentValues v = new ContentValues();
+                v.put("id", e.optString("id"));
+                v.put("record_id", recordId);
+                v.put("rev", e.optInt("rev", 0));
+                v.put("anchor_t_ms", e.optLong("anchor_t_ms", 0));
+                v.put("anchor_e_ms", e.optLong("anchor_e_ms", 0));
+                v.put("text", e.isNull("text") ? null : e.optString("text"));
+                v.put("spk", e.isNull("spk") ? null : e.optInt("spk"));
+                v.put("deleted", e.optBoolean("deleted", false) ? 1 : 0);
+                v.put("edited_at", e.optLong("edited_at", 0));
+                db().insertWithOnConflict("edits", null, v,
+                        SQLiteDatabase.CONFLICT_REPLACE);
+            }
+        }
+
+        ContentValues r = new ContentValues();
+        r.put("active_attempt_id", att == null ? null : att.optString("id"));
+        r.put("updated_at", System.currentTimeMillis());
+        db().update("records", r, "id=?", new String[]{recordId});
+    }
+
+    /** 本地是否已有该记录生效稿的句（决定要不要向服务器拉 transcript）。 */
+    public synchronized boolean hasTranscript(String recordId) {
+        Cursor c = db().rawQuery(
+                "SELECT 1 FROM segments WHERE attempt_id="
+                        + "(SELECT active_attempt_id FROM records WHERE id=?) LIMIT 1",
+                new String[]{recordId});
+        try {
+            return c.moveToFirst();
+        } finally {
+            c.close();
+        }
+    }
+
+    /** 生效句：生效尝试的句 + 时间重叠的最新修订覆盖。 */
+    public synchronized List<JSONObject> effectiveSegments(String recordId) {
+        List<JSONObject> out = new ArrayList<JSONObject>();
+        JSONObject rec = getRecord(recordId);
+        if (rec == null) return out;
+        String aid = rec.optString("active_attempt_id", "");
+        if (aid.length() == 0) return out;
+
+        List<JSONObject> edits = new ArrayList<JSONObject>();
+        Cursor ec = db().query("edits", null, "record_id=?",
+                new String[]{recordId}, null, null, "rev ASC");
+        try {
+            while (ec.moveToNext()) edits.add(cursorToJson(ec));
+        } finally {
+            ec.close();
+        }
+
+        Cursor c = db().query("segments", null, "attempt_id=?",
+                new String[]{aid}, null, null, "idx ASC");
+        try {
+            while (c.moveToNext()) {
+                JSONObject seg = cursorToJson(c);
+                JSONObject latest = null;
+                for (JSONObject e : edits) {
+                    if (overlaps(seg, e)) {
+                        if (latest == null
+                                || e.optInt("rev", 0) > latest.optInt("rev", 0)) {
+                            latest = e;
+                        }
+                    }
+                }
+                if (latest != null) {
+                    try {
+                        seg.put("edited", true);
+                        seg.put("edit_id", latest.optString("id"));
+                        if (latest.optInt("deleted", 0) == 1) {
+                            seg.put("deleted", true);
+                            seg.put("text", "");
+                        } else {
+                            if (!latest.isNull("text")) {
+                                seg.put("text", latest.optString("text", ""));
+                            }
+                            if (!latest.isNull("spk")) {
+                                seg.put("spk", latest.optInt("spk"));
+                            }
+                        }
+                    } catch (Exception ignore) {
+                    }
+                }
+                out.add(seg);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    private static boolean overlaps(JSONObject seg, JSONObject edit) {
+        long t0 = edit.optLong("anchor_t_ms", 0);
+        long t1 = edit.optLong("anchor_e_ms", 0);
+        long a = seg.optLong("t_ms", 0);
+        long b = seg.optLong("e_ms", 0);
+        if (t0 == t1) return a <= t0 && t0 < b;
+        return t0 < b && t1 > a;
+    }
+
+    /** 单条导出 SRT（本地生成，不依赖服务器）。 */
+    public synchronized String exportSrt(String recordId) {
+        StringBuilder sb = new StringBuilder();
+        List<JSONObject> segs = effectiveSegments(recordId);
+        int n = 0;
+        for (JSONObject s : segs) {
+            if (s.optBoolean("deleted", false)) continue;
+            n++;
+            sb.append(n).append('\n')
+                    .append(fmtSrt(s.optLong("t_ms", 0))).append(" --> ")
+                    .append(fmtSrt(s.optLong("e_ms", 0))).append('\n')
+                    .append(s.optString("text", "")).append("\n\n");
+        }
+        return sb.toString();
+    }
+
+    /** 单条导出 Markdown（本地生成）。 */
+    public synchronized String exportMd(String recordId) {
+        JSONObject rec = getRecord(recordId);
+        if (rec == null) return "";
+        StringBuilder sb = new StringBuilder();
+        sb.append("# ").append(rec.optString("title", recordId)).append("\n\n");
+        for (JSONObject s : effectiveSegments(recordId)) {
+            if (s.optBoolean("deleted", false)) continue;
+            sb.append(s.optString("text", "")).append('\n');
+        }
+        return sb.toString();
+    }
+
+    private static String fmtSrt(long ms) {
+        ms = Math.max(0, ms);
+        long h = ms / 3600000;
+        long m = (ms % 3600000) / 60000;
+        long s = (ms % 60000) / 1000;
+        long x = ms % 1000;
+        return String.format("%02d:%02d:%02d,%03d", h, m, s, x);
+    }
+
     // ------------------------------------------------------------ 状态与同步状态
 
     /** 本地 + 服务器 + outbox → 一个展示状态（不依赖文件存在性）。 */

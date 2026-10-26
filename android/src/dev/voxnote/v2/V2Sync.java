@@ -55,6 +55,11 @@ public class V2Sync {
         return running;
     }
 
+    /** 是否已配置 v2 服务器（地址 + 令牌）。 */
+    public static boolean hasServer(Context ctx) {
+        return base(ctx).length() > 0 && token(ctx).length() > 0;
+    }
+
     private static String base(Context ctx) {
         UiSettings s = UiSettings.load(ctx);
         String url = s.serverUrl == null ? "" : s.serverUrl.trim();
@@ -190,6 +195,7 @@ public class V2Sync {
                         JSONObject rec = item.optJSONObject("record");
                         if (rec != null) {
                             store.applyServerRecord(rec);
+                            syncTranscript(store, base, token, rec);
                         } else if (item.optBoolean("deleted", false)) {
                             store.markLocalDeleted(item.optString("entity_id"));
                         }
@@ -229,6 +235,7 @@ public class V2Sync {
                                 JSONObject rec = getJson(base + "/api/v2/records/"
                                         + urlEncode(id), token);
                                 store.applyServerRecord(rec);
+                                syncTranscript(store, base, token, rec);
                             } catch (Throwable ignore) {
                             }
                         }
@@ -246,6 +253,20 @@ public class V2Sync {
             if (!seen.contains(id) && store.pendingCount(id) == 0) {
                 store.markLocalDeleted(id);
             }
+        }
+    }
+
+    private static void syncTranscript(V2Store store, String base, String token,
+                                       JSONObject rec) {
+        String id = rec.optString("id", "");
+        String aid = rec.optString("active_attempt_id", "");
+        if (id.length() == 0 || aid.length() == 0) return;
+        if (store.hasTranscript(id)) return;
+        try {
+            JSONObject tr = getJson(base + "/api/v2/records/" + urlEncode(id)
+                    + "/transcript", token);
+            store.saveTranscript(tr);
+        } catch (Throwable ignore) {
         }
     }
 

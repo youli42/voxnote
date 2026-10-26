@@ -15,6 +15,10 @@
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- 后台录音：前台服务 + 通知（33+ 通知权限） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 服务器同步（旧版只在 WebView 里发请求，权限是给原生同步客户端补的） -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- App 内扫码配对（运行时申请，只在打开扫码时用） -->
@@ -48,5 +52,11 @@
                 <data android:scheme="voxnote" android:host="pair" />
             </intent-filter>
         </activity>
+
+        <!-- 录音前台服务：锁屏/切后台继续录 -->
+        <service
+            android:name=".v2.V2RecordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
     </application>
 </manifest>

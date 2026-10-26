@@ -3,8 +3,11 @@ package dev.voxnote;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
@@ -28,6 +31,7 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import dev.voxnote.v2.V2RecordService;
 import dev.voxnote.v2.V2Store;
 import dev.voxnote.v2.V2Sync;
 
@@ -126,6 +130,34 @@ public class HomeActivity extends Activity implements Picker.Host {
     private String pendingTranscribe;
     /** 设置了"录完自动上传"时，保存后等重扫把新场次进列表再同步（快照里才有它）。 */
     private boolean pendingSync;
+    /** 录音服务保存完成广播：刷新列表并沿用自动转写/自动同步的旧语义。 */
+    private final BroadcastReceiver v2SavedReceiver = new BroadcastReceiver() {
+        public void onReceive(Context context, Intent intent) {
+            if (isDestroyed()) return;
+            String id = intent.getStringExtra(V2RecordService.EXTRA_ID);
+            String stamp = intent.getStringExtra(V2RecordService.EXTRA_STAMP);
+            String title = intent.getStringExtra(V2RecordService.EXTRA_TITLE);
+            long ms = intent.getLongExtra(V2RecordService.EXTRA_MS, 0);
+            if (id == null || id.length() == 0) {
+                toast("录音保存失败");
+                return;
+            }
+            if (title != null && title.length() > 0 && stamp != null && stamp.length() > 0) {
+                try {
+                    JSONObject p = new JSONObject();
+                    p.put("title", title);
+                    data.patch(stamp, p, null);
+                } catch (Throwable ignore) { }
+            }
+            toast("已保存 " + RecordVm.fmtDur(ms / 1000));
+            if (settings.autoTranscribe && stamp != null && stamp.length() > 0) {
+                pendingTranscribe = stamp;
+            }
+            if (settings.autoSync) pendingSync = true;
+            load(false, null, false);
+            try { list.setSelection(0); } catch (Throwable ignore) { }
+        }
+    };
     /** 服务器转写引擎行回显只懒加载一次（每次打开设置页都拉一遍没必要）。 */
     private boolean serverEngineLabelLoaded;
     private final Runnable recTimerTick = new Runnable() {
@@ -143,7 +175,8 @@ public class HomeActivity extends Activity implements Picker.Host {
     private final Runnable recWaveTick = new Runnable() {
         public void run() {
             if (!recording) return;
-            recWave.setLevel(recorder.level());
+            recWave.setLevel(V2RecordService.isRecording()
+                    ? V2RecordService.level() : 0f);
             ui.postDelayed(this, 60);
         }
     };
@@ -247,6 +280,14 @@ public class HomeActivity extends Activity implements Picker.Host {
         load(false, null, false);
         cleanTmpOrphans();
         applyPairingIntent();
+        try {
+            IntentFilter f = new IntentFilter(V2RecordService.ACTION_SAVED);
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(v2SavedReceiver, f, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(v2SavedReceiver, f);
+            }
+        } catch (Throwable ignore) { }
     }
 
     /**
@@ -1522,8 +1563,9 @@ public class HomeActivity extends Activity implements Picker.Host {
         pendingStamp = Recorder.stamp();
         pendingTitle = recTitle.getText().toString().trim();
         pendingTranscribe = null;
-        File tmp = new File(storage.privateTmp(), pendingStamp + "_memo.m4a");
-        if (!recorder.start(tmp)) {
+        try {
+            V2RecordService.start(this, pendingStamp, pendingTitle);
+        } catch (Throwable t) {
             toast("无法开始录音：检查麦克风权限");
             return;
         }
@@ -1544,64 +1586,17 @@ public class HomeActivity extends Activity implements Picker.Host {
         ui.removeCallbacks(recWaveTick);
         recBtn.setRecording(false);
         recWave.setActive(false);
-        long durSec = Math.max(1, (System.currentTimeMillis() - recStart) / 1000);
         recTimer.setText("00:00");
-
-        File f = recorder.stop();
-        if (f == null) {
-            pendingStamp = null;
-            pendingTitle = "";
-            recTitle.setText("");
-            toast("录音失败：没有写进文件");
-            return;
-        }
-        // 发布（SAF/MediaStore 是全量拷贝，1 小时录音 ~14MB）放后台，主线程只收尾。
-        final File tmp = f;
-        final String stamp = pendingStamp;
-        final String title = pendingTitle;
-        final long durSecF = durSec;
+        // 保存、发布、落库、同步都在前台服务里做；完成后广播 RECORD_SAVED 刷新列表
         pendingStamp = null;
         pendingTitle = "";
         recTitle.setText("");
         toast("正在保存…");
-        data.post(new Runnable() {
-            public void run() {
-                // v2：先算 hash/大小（publish 可能删除临时文件），再落本地库
-                final String sha = V2Store.sha256(tmp);
-                final long bytes = tmp.length();
-                final String loc = storage.publish(tmp, tmp.getName(), "audio/mp4");
-                try {
-                    V2Store.get(HomeActivity.this).recordCaptured(
-                            stamp, title, loc, bytes, durSecF * 1000, sha);
-                } catch (Throwable ignore) { }
-                if (settings.serverUrl != null && settings.serverUrl.trim().length() > 0) {
-                    V2Sync.syncAsync(HomeActivity.this);
-                }
-                if (title.length() > 0 && stamp != null) {
-                    try {
-                        JSONObject p = new JSONObject();
-                        p.put("title", title);
-                        data.patch(stamp, p, null);
-                    } catch (Throwable ignore) { }
-                }
-                ui.post(new Runnable() {
-                    public void run() {
-                        if (isDestroyed()) return;
-                        toast("已保存 " + RecordVm.fmtDur(durSecF));
-                        load(false, null, false);
-                        list.setSelection(0);
-                        if (settings.autoTranscribe && stamp != null) {
-                            // 不再用固定延时等扫描：存下待转写场次，applyResult 里触发
-                            pendingTranscribe = stamp;
-                        }
-                        if (settings.autoSync) {
-                            // 上面已经 load() 重扫，applyResult 里会带着新场次触发上传
-                            pendingSync = true;
-                        }
-                    }
-                });
-            }
-        });
+        try {
+            V2RecordService.stop(this);
+        } catch (Throwable t) {
+            toast("录音保存失败");
+        }
     }
 
     // ------------------------------------------------------------ 权限 / 存储
@@ -1689,6 +1684,17 @@ public class HomeActivity extends Activity implements Picker.Host {
     @Override
     protected void onResume() {
         super.onResume();
+        // 从后台/重建回来：如果前台服务还在录，把 UI 接回录音态
+        if (!recording && V2RecordService.isRecording()) {
+            recording = true;
+            recStart = System.currentTimeMillis() - V2RecordService.ms();
+            recBtn.setRecording(true);
+            recWave.setActive(true);
+            recTimer.setText(RecordVm.fmtDur(V2RecordService.ms() / 1000));
+            if (!"record".equals(tab)) switchTab("record");
+            ui.post(recTimerTick);
+            ui.post(recWaveTick);
+        }
         if (settingsScreen != null && loadedAt > 0
                 && System.currentTimeMillis() - loadedAt > 1500 && !loading) {
             load(false, null, false);
@@ -1849,13 +1855,8 @@ public class HomeActivity extends Activity implements Picker.Host {
 
     @Override
     protected void onDestroy() {
-        try {
-            if (recording) {
-                // 重建/被回收时的中断录音：保存不了，也别把临时文件留成孤儿
-                File abandoned = recorder.stop();
-                if (abandoned != null) abandoned.delete();
-            }
-        } catch (Throwable ignore) { }
+        try { unregisterReceiver(v2SavedReceiver); } catch (Throwable ignore) { }
+        // 录音由前台服务持有：Activity 销毁不打断录音
         try {
             if (detail != null) detail.destroy();
         } catch (Throwable ignore) { }
