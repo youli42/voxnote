@@ -341,8 +341,21 @@ function fmtMs(ms) {
   const s = Math.floor(ms / 1000), m = Math.floor(s / 60);
   return String(m).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
 }
-boot();
-setInterval(() => { if (state.tab === 'records' && !state.detailId) loadRecords(); }, 5000);
+function startEvents() {
+  if (!state.token) return;
+  try {
+    const es = new EventSource('/api/v2/events?token=' + encodeURIComponent(state.token));
+    es.addEventListener('change', () => {
+      if (state.tab === 'records' && !state.detailId) loadRecords();
+      if (state.tab === 'conflicts') loadConflicts();
+    });
+    es.onerror = () => { es.close(); setTimeout(startEvents, 5000); };
+  } catch (e) { }
+}
+
+boot().then(startEvents);
+// 兜底轮询（SSE 断开/被代理缓冲时仍能更新）
+setInterval(() => { if (state.tab === 'records' && !state.detailId) loadRecords(); }, 15000);
 </script>
 </body>
 </html>

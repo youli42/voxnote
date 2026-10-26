@@ -3,6 +3,8 @@
 只在环境变量 `VOXNOTE_V2=1` 时由 app.py 挂载，避免影响 v1。
 当前提供：health / changes / records / upload（设备令牌鉴权）。
 """
+import asyncio
+import hmac
 import json
 import mimetypes
 import os
@@ -11,7 +13,7 @@ from fastapi import (
     APIRouter, Body, Depends, File, Form, Header, HTTPException, Query, Request,
     UploadFile,
 )
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 
 from . import (
     attempts, auth, config, conflicts, db, edits, engines, export, jobs,
@@ -41,6 +43,40 @@ def console_pair(request: Request):
     if host not in ("127.0.0.1", "::1", "localhost"):
         raise HTTPException(403, "只允许本机自动取令牌；远程请手动填写")
     return {"token": auth.device_token(db.conn())}
+
+
+@router.get("/events")
+async def events(token: str = Query("")):
+    """SSE：变更流有更新就推一条事件；控制台据此刷新，不再 3 秒轮询。
+
+    浏览器 EventSource 不能带 Authorization 头，所以令牌走 query（仅本机控制台使用）。
+    """
+    expected = auth.device_token(db.conn())
+    if not expected or not hmac.compare_digest(token or "", expected):
+        raise HTTPException(401, "无效的设备令牌")
+
+    async def gen():
+        last = -1
+        yield "event: hello\ndata: {}\n\n"
+        while True:
+            try:
+                conn = db.conn()
+                with db.lock:
+                    row = conn.execute(
+                        "SELECT COALESCE(MAX(rev),0) r FROM changes").fetchone()
+                rev = int(row["r"])
+                if rev != last:
+                    last = rev
+                    yield "event: change\ndata: %s\n\n" % json.dumps({"rev": rev})
+                else:
+                    yield ": ping\n\n"
+            except Exception:
+                yield ": error\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
 
 
 @router.get("/sync/changes", dependencies=[Depends(auth.require_device)])
