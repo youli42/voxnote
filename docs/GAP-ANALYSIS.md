@@ -101,8 +101,9 @@
 - **rev 粒度**：records / jobs / attempts / edits 共用一个全局变更序列，还是各自 rev？
   建议一个全局 `changes(rev)`，事务内写入，客户端游标只认它。
 - **游标过期**：changes 只保留 N 天；设备离线很久回来后 cursor 太旧。
-  必须有 `GET /sync/snapshot`（分页全量）作为兜底，客户端检测 gap 自动全量；
-  否则"离线一个月的手机永远同步不全"。
+  用 `GET /sync/manifest`（id/rev/deleted/sync_hash，分页）做状态对账兜底：
+  先推 outbox，再按清单拉差异、删幽灵、更新游标；不依赖历史保留期。
+  记录数到 10 万+ 再升级 Merkle 树。详见 `ARCHITECTURE.md` §5.6。
 - **冲突规则穷举**：删除 vs 改名、删除 vs 上传、删除 vs 钉指针、同句修订并发、
   两台设备同时删/同时改；每条写出"谁赢、怎么提示、能否恢复"。
 - **outbox 依赖**：改名/删除/重转的先后顺序；同一记录的操作要串行，不同记录可并行；
