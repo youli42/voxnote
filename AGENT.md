@@ -1,7 +1,8 @@
 # voxnote 开发须知
 
 「录音即笔记」：录音 → 转写 → 入库 → 阅读/搜索/打点。Android 原生 App + 自托管
-服务端（转写后端可插拔）+ Web 控制台。详见 [README](README.md) 与 docs/。
+服务端（转写后端可插拔）+ Web 控制台。详见 [README](README.md) 与
+[文档索引](docs/总览/文档索引.md)。
 
 ## 构建（无 Gradle，PowerShell）
 
