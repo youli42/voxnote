@@ -58,6 +58,9 @@ public class DetailSheet implements Overlay {
 
         /** 云端场次「下载音频」按钮：把服务器上的原始录音拉回本机。 */
         void onDownloadAudio(RecordVm vm);
+
+        /** 播放到结尾（用于自动连播；只在 settings.autoplay 时回调）。 */
+        void onPlaybackEnded(RecordVm vm);
     }
 
     private static final int TICK_MS = 100;
@@ -155,6 +158,9 @@ public class DetailSheet implements Overlay {
                         player.pause();
                         player.seek(0);   // 播放器归零，否则下次 start() 从结尾接着走，播完无法重播
                         playPos = 0;
+                        if (settings.autoplay && listener != null && vm != null) {
+                            listener.onPlaybackEnded(vm);
+                        }
                     }
                 }
             }

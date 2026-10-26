@@ -181,16 +181,73 @@ public class V2Store {
         }
     }
 
-    public synchronized void addConflict(String recordId, String kind,
+    public synchronized void addConflict(String conflictId, String recordId, String kind,
                                          JSONObject local, JSONObject server) {
         ContentValues v = new ContentValues();
-        v.put("id", UUID.randomUUID().toString().replace("-", ""));
+        v.put("id", conflictId == null || conflictId.length() == 0
+                ? UUID.randomUUID().toString().replace("-", "") : conflictId);
         v.put("record_id", recordId);
         v.put("kind", kind == null ? "" : kind);
         v.put("local_payload", local == null ? "{}" : local.toString());
         v.put("server_payload", server == null ? "{}" : server.toString());
         v.put("created_at", System.currentTimeMillis());
-        db().insert("conflicts", null, v);
+        db().insertWithOnConflict("conflicts", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
+    public synchronized int pendingTotal() {
+        Cursor c = db().rawQuery(
+                "SELECT COUNT(*) FROM outbox WHERE state IN ('pending','failed','syncing')",
+                null);
+        try {
+            return c.moveToFirst() ? c.getInt(0) : 0;
+        } finally {
+            c.close();
+        }
+    }
+
+    public synchronized int failedTotal() {
+        Cursor c = db().rawQuery("SELECT COUNT(*) FROM outbox WHERE state='failed'", null);
+        try {
+            return c.moveToFirst() ? c.getInt(0) : 0;
+        } finally {
+            c.close();
+        }
+    }
+
+    public synchronized int conflictCount() {
+        Cursor c = db().rawQuery(
+                "SELECT COUNT(*) FROM conflicts WHERE resolved_at IS NULL", null);
+        try {
+            return c.moveToFirst() ? c.getInt(0) : 0;
+        } finally {
+            c.close();
+        }
+    }
+
+    public synchronized JSONArray openConflicts() {
+        JSONArray out = new JSONArray();
+        Cursor c = db().query("conflicts", null, "resolved_at IS NULL",
+                null, null, null, "created_at ASC");
+        try {
+            while (c.moveToNext()) {
+                JSONObject o = cursorToJson(c);
+                try {
+                    o.put("local", new JSONObject(o.optString("local_payload", "{}")));
+                    o.put("server", new JSONObject(o.optString("server_payload", "{}")));
+                } catch (Exception ignore) {
+                }
+                out.put(o);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    public synchronized void markConflictResolved(String conflictId) {
+        ContentValues v = new ContentValues();
+        v.put("resolved_at", System.currentTimeMillis());
+        db().update("conflicts", v, "id=?", new String[]{conflictId});
     }
 
     // ------------------------------------------------------------ 记录读写

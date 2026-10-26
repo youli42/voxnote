@@ -34,6 +34,7 @@ import android.widget.Toast;
 import dev.voxnote.v2.V2RecordService;
 import dev.voxnote.v2.V2Store;
 import dev.voxnote.v2.V2Sync;
+import dev.voxnote.v2.V2SyncCenter;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -126,6 +127,10 @@ public class HomeActivity extends Activity implements Picker.Host {
     private long recStart;
     private String pendingStamp;
     private String pendingTitle = "";
+    /** v2 同步条（记录页顶部）：待上传/失败/冲突一眼可见，点击进同步中心。 */
+    private TextView v2SyncBar;
+    /** 记录页「自动连播」开关。 */
+    private ToggleView autoplayToggle;
     /** 设置了"录完自动转写"时，保存后等扫描结果出现该场次再触发（替代固定 400ms 延时）。 */
     private String pendingTranscribe;
     /** 设置了"录完自动上传"时，保存后等重扫把新场次进列表再同步（快照里才有它）。 */
@@ -446,7 +451,6 @@ public class HomeActivity extends Activity implements Picker.Host {
         tabStream = new TabItem(this, TabItem.ICON_STREAM, "流");
         tabSettings = new TabItem(this, TabItem.ICON_SETTINGS, "设置");
         bar.addView(tabRecord, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        bar.addView(tabStream, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         bar.addView(tabSettings, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         tabRecord.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
@@ -486,6 +490,31 @@ public class HomeActivity extends Activity implements Picker.Host {
         tabRecord.setActive("record".equals(name));
         tabStream.setActive("stream".equals(name));
         tabSettings.setActive("settings".equals(name));
+    }
+
+    /** 记录页顶部 v2 同步条：待上传/失败/冲突；未配置服务器时隐藏。 */
+    private void updateV2SyncBar() {
+        if (v2SyncBar == null) return;
+        if (!V2Sync.hasServer(this)) {
+            v2SyncBar.setVisibility(View.GONE);
+            return;
+        }
+        V2Store st = V2Store.get(this);
+        int pending = st.pendingTotal();
+        int failed = st.failedTotal();
+        int conflicts = st.conflictCount();
+        String text;
+        if (conflicts > 0) {
+            text = "v2 同步 · 冲突 " + conflicts + "（点此选择）";
+        } else if (failed > 0) {
+            text = "v2 同步 · 失败 " + failed + " · 待上传 " + pending + "（点此重试）";
+        } else if (pending > 0) {
+            text = "v2 同步 · 待上传 " + pending;
+        } else {
+            text = "v2 同步 · 已连接";
+        }
+        v2SyncBar.setText(text);
+        v2SyncBar.setVisibility(View.VISIBLE);
     }
 
     private View buildListScreen() {
@@ -549,6 +578,20 @@ public class HomeActivity extends Activity implements Picker.Host {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         hs.setPadding(0, Ui.dp(8), 0, Ui.dp(2));
         toolbar.addView(hs, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // v2 同步条：只在配置了 v2 服务器时出现；点击进同步中心
+        v2SyncBar = Ui.text(this, "", 11f, Ui.DIM);
+        v2SyncBar.setBackground(Ui.pressable(Ui.rounded(10, Ui.SURFACE2, Ui.LINE, 1), 0x22FFFFFF));
+        Ui.pad(v2SyncBar, 10, 6, 10, 6);
+        v2SyncBar.setVisibility(View.GONE);
+        v2SyncBar.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                V2SyncCenter.show(HomeActivity.this);
+            }
+        });
+        toolbar.addView(v2SyncBar, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 6, 0, 0));
+        updateV2SyncBar();
         screen.addView(toolbar, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         FrameLayout listWrap = new FrameLayout(this);
@@ -794,6 +837,24 @@ public class HomeActivity extends Activity implements Picker.Host {
             }
         });
         panel.addView(btnWrap, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 0));
+
+        // 自动连播开关：播完一条自动打开下一条（替代独立录音流页）
+        LinearLayout autoRow = Ui.row(this);
+        autoRow.setGravity(Gravity.CENTER);
+        TextView autoLabel = Ui.text(this, "自动连播", 11.5f, Ui.DIM);
+        autoRow.addView(autoLabel);
+        autoplayToggle = new ToggleView(this);
+        autoplayToggle.setChecked(settings.autoplay, false);
+        autoplayToggle.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                boolean on = !autoplayToggle.isChecked();
+                autoplayToggle.setChecked(on, true);
+                settings.autoplay = on;
+                settings.save();
+            }
+        });
+        autoRow.addView(autoplayToggle, Ui.lpm(Ui.dp(40), Ui.dp(23), 8, 0, 0, 0));
+        panel.addView(autoRow, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 10, 0, 0));
 
         // ListView 的 header 不吃 margin，用一层带 padding 的容器做上下留白。
         LinearLayout wrap = Ui.col(this);
@@ -1090,6 +1151,7 @@ public class HomeActivity extends Activity implements Picker.Host {
         }
         rebuildFilters();
         if (streamScreen != null) streamScreen.refresh(); // 流页与列表同源，数据变了同步重建
+        updateV2SyncBar();
         if (keepScroll && keepPos >= 0) {
             list.setSelectionFromTop(keepPos, keepTop);
         } else {
@@ -1380,6 +1442,20 @@ public class HomeActivity extends Activity implements Picker.Host {
                     }
                 }
             });
+        }
+
+        public void onPlaybackEnded(RecordVm vm) {
+            if (!settings.autoplay || vm == null) return;
+            int idx = -1;
+            for (int i = 0; i < shown.size(); i++) {
+                if (shown.get(i).id.equals(vm.id)) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx >= 0 && idx + 1 < shown.size()) {
+                openDetail(shown.get(idx + 1));
+            }
         }
     };
 

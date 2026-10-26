@@ -39,6 +39,8 @@ public class UiSettings {
     public boolean sortDesc = true;
     /** 录音流：播完自动接下一条。 */
     public boolean streamAuto = false;
+    /** v1 自动连播：详情页播完自动打开下一条（替代独立录音流页）。 */
+    public boolean autoplay = false;
     public String swipeRightCat = "c1";
     public String swipeLeftCat = "c2";
     /** 自托管服务器（voxnote server）：地址形如 http://192.168.1.10:8787，令牌在控制台设置页可见。
@@ -85,6 +87,7 @@ public class UiSettings {
         markKey = prefs.getString("markKey", " ");
         sortDesc = prefs.getBoolean("sortDesc", true);
         streamAuto = prefs.getBoolean("streamAuto", false);
+        autoplay = prefs.getBoolean("autoplay", false);
         swipeRightCat = prefs.getString("swipeRightCat", "c1");
         swipeLeftCat = prefs.getString("swipeLeftCat", "c2");
         serverUrl = prefs.getString("serverUrl", "");
@@ -205,6 +208,7 @@ public class UiSettings {
                 .putString("markKey", nz(markKey))
                 .putBoolean("sortDesc", sortDesc)
                 .putBoolean("streamAuto", streamAuto)
+                .putBoolean("autoplay", autoplay)
                 .putString("swipeRightCat", swipeRightCat)
                 .putString("swipeLeftCat", swipeLeftCat)
                 .putString("serverUrl", nz(serverUrl))
@@ -234,6 +238,7 @@ public class UiSettings {
         markKey = " ";
         sortDesc = true;
         streamAuto = false;
+        autoplay = false;
         autoAudio = false;
         normalize();
         save();

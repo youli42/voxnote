@@ -55,6 +55,29 @@ public class V2Sync {
         return running;
     }
 
+    /** 冲突解决：选本地/服务器后回传服务器，成功就本地标记已解决并再同步一次。 */
+    public static void resolveConflictAsync(final Context ctx, final String conflictId,
+                                            final String resolution) {
+        final Context app = ctx.getApplicationContext();
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    String base = base(app);
+                    String token = token(app);
+                    JSONObject body = new JSONObject();
+                    body.put("resolution", resolution);
+                    postJson(base + "/api/v2/sync/conflicts/"
+                            + urlEncode(conflictId) + "/resolve", token, body);
+                    V2Store.get(app).markConflictResolved(conflictId);
+                    syncBlocking(app);
+                } catch (Throwable t) {
+                    app.getSharedPreferences(PREFS, 0).edit()
+                            .putString("last_error", "冲突解决失败：" + t).apply();
+                }
+            }
+        }, "v2-resolve").start();
+    }
+
     /** 是否已配置 v2 服务器（地址 + 令牌）。 */
     public static boolean hasServer(Context ctx) {
         return base(ctx).length() > 0 && token(ctx).length() > 0;
@@ -144,7 +167,7 @@ public class V2Sync {
                     } else if ("conflict".equals(r.optString("status"))) {
                         store.markOutbox(opId, "conflict",
                                 "冲突，等待用户选择");
-                        store.addConflict(recordId, kind,
+                        store.addConflict(r.optString("conflict_id"), recordId, kind,
                                 payload, r.optJSONObject("record"));
                     } else {
                         store.markOutbox(opId, "failed",
