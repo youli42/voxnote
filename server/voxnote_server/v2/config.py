@@ -14,3 +14,8 @@ def db_path() -> str:
     if override:
         return str(Path(override).expanduser().resolve())
     return str(Path(base_config.data_dir()) / "voxnote-v2.db")
+
+
+def audio_dir(year_month: str) -> Path:
+    """音频归档目录：沿用 v1 的 data/audio/<yyyy.MM>/ 布局。"""
+    return Path(base_config.audio_dir(year_month))

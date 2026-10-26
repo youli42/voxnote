@@ -156,6 +156,12 @@ CREATE TABLE IF NOT EXISTS changes(
 );
 CREATE INDEX IF NOT EXISTS idx_changes_entity ON changes(kind, entity_id);
 
+CREATE TABLE IF NOT EXISTS idempotency(
+  key        TEXT PRIMARY KEY,
+  record_id  TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings(
   k TEXT PRIMARY KEY,
   v TEXT NOT NULL DEFAULT ''

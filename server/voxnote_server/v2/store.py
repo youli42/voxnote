@@ -11,6 +11,7 @@
     python -m voxnote_server.v2.store --db data/voxnote.db
 """
 import argparse
+import secrets
 import sqlite3
 import sys
 from pathlib import Path
@@ -44,6 +45,16 @@ def schema_version(conn: sqlite3.Connection):
     return int(row["value"]) if row else None
 
 
+def _ensure_defaults(conn: sqlite3.Connection):
+    """首次初始化写入设备同步令牌（与 v1 策略一致：可用、可重置）。"""
+    row = conn.execute("SELECT v FROM settings WHERE k='sync_token'").fetchone()
+    if row is None:
+        conn.execute(
+            "INSERT INTO settings(k, v) VALUES('sync_token', ?)",
+            ("vn2-" + secrets.token_urlsafe(24),),
+        )
+
+
 def init(db_path) -> sqlite3.Connection:
     """初始化空库；已存在且版本一致时幂等返回。版本不一致直接报错。"""
     conn = connect(db_path)
@@ -59,6 +70,7 @@ def init(db_path) -> sqlite3.Connection:
             raise SchemaVersionError(
                 "schema 版本不一致：库=%s，代码=%s；破坏性重建阶段请换新库"
                 % (current, SCHEMA_VERSION))
+        _ensure_defaults(conn)
         conn.commit()
         return conn
     except Exception:

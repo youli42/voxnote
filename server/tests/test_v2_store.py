@@ -14,6 +14,7 @@ from voxnote_server.v2.store import SchemaVersionError, init  # noqa: E402
 TABLES = {
     "schema_meta", "records", "transcript_attempts", "attempt_segments",
     "edits", "jobs", "devices", "engines", "conflicts", "changes", "settings",
+    "idempotency",
 }
 
 
@@ -113,6 +114,15 @@ class V2StoreTest(unittest.TestCase):
             self.assertEqual(conn.execute("PRAGMA foreign_keys").fetchone()[0], 1)
             self.assertEqual(
                 str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower(), "wal")
+        finally:
+            conn.close()
+
+    def test_default_sync_token(self):
+        conn = init(self.db)
+        try:
+            row = conn.execute("SELECT v FROM settings WHERE k='sync_token'").fetchone()
+            self.assertIsNotNone(row)
+            self.assertTrue(row["v"].startswith("vn2-"))
         finally:
             conn.close()
 
