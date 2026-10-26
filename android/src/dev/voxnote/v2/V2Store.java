@@ -515,6 +515,41 @@ public class V2Store {
     // ------------------------------------------------------------ 状态与同步状态
 
     /** 本地 + 服务器 + outbox → 一个展示状态（不依赖文件存在性）。 */
+    public synchronized JSONObject findById(String id) {
+        return getRecord(id);
+    }
+
+    /** 旧 RecordVm 用 stamp 做 id：按 legacy_id 找到 v2 记录（找不到返回 null）。 */
+    public synchronized JSONObject findByLegacy(String legacyId) {
+        if (legacyId == null || legacyId.length() == 0) return null;
+        Cursor c = db().query("records", null, "legacy_id=?", new String[]{legacyId},
+                null, null, null, "1");
+        try {
+            if (!c.moveToFirst()) return null;
+            JSONObject o = cursorToJson(c);
+            String id = o.optString("id");
+            o.put("pending", pendingCount(id));
+            o.put("conflict", hasConflict(id));
+            o.put("display", displayStatus(o));
+            return o;
+        } catch (Exception e) {
+            return null;
+        } finally {
+            c.close();
+        }
+    }
+
+    public synchronized JSONObject openConflictForRecord(String recordId) {
+        Cursor c = db().rawQuery(
+                "SELECT * FROM conflicts WHERE record_id=? AND resolved_at IS NULL"
+                        + " ORDER BY created_at LIMIT 1", new String[]{recordId});
+        try {
+            return c.moveToFirst() ? cursorToJson(c) : null;
+        } finally {
+            c.close();
+        }
+    }
+
     public static String displayStatus(JSONObject rec) {
         if (rec == null) return "未知";
         if (rec.optBoolean("deleted", false)) return "已删除";

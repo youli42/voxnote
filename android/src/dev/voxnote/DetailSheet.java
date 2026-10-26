@@ -22,7 +22,12 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
+
+import dev.voxnote.v2.V2Store;
+import dev.voxnote.v2.V2SyncCenter;
 
 /**
  * 详情全屏页：从下往上划入、占满全屏（不再用 86% 高度的底部弹卡 + 遮罩，提高屏幕利用率）。
@@ -108,6 +113,8 @@ public class DetailSheet implements Overlay {
     private boolean open;
     private boolean playerOpened;
     private int totalMs;
+    /** v2 本地状态行：展示状态/冲突入口/导出。 */
+    private TextView v2Status;
     private int playPos;
     private boolean binding;
     private final ArrayList<View> segViews = new ArrayList<View>();
@@ -256,6 +263,32 @@ public class DetailSheet implements Overlay {
         meta.setEllipsize(TextUtils.TruncateAt.END);
         head.addView(meta, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 4, 3, 4, 0));
+
+        // v2 本地状态行：展示状态 + 冲突入口 + 导出（没有 v2 记录时隐藏）
+        LinearLayout v2Row = Ui.row(act);
+        v2Row.setGravity(Gravity.CENTER_VERTICAL);
+        v2Status = Ui.text(act, "", 10.5f, Ui.DIM);
+        v2Status.setSingleLine(true);
+        v2Status.setBackground(Ui.pressable(Ui.rounded(8, Ui.SURFACE2, Ui.LINE, 1), 0x22FFFFFF));
+        Ui.pad(v2Status, 9, 5, 9, 5);
+        v2Status.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                V2SyncCenter.show(act);
+            }
+        });
+        v2Row.addView(v2Status, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView exportBtn = Ui.text(act, "导出", 11f, Ui.FAINT);
+        exportBtn.setBackground(Ui.pressable(Ui.rounded(8, Ui.SURFACE2, Ui.LINE, 1), 0x22FFFFFF));
+        Ui.pad(exportBtn, 9, 5, 9, 5);
+        exportBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                exportV2();
+            }
+        });
+        v2Row.addView(exportBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
+        head.addView(v2Row, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 4, 4, 4, 0));
 
         LinearLayout playerRow = Ui.row(act);
         playerRow.setBackground(Ui.rounded(10, Ui.SURFACE2, Ui.LINE, 1));
@@ -573,6 +606,7 @@ public class DetailSheet implements Overlay {
             ui.post(ticker);
         }
         bind(false);
+        updateV2Status();
     }
 
     /** 外部数据刷新（例如重新转写后）调用；播放状态保留。 */
@@ -588,6 +622,58 @@ public class DetailSheet implements Overlay {
         playPos = keepPos;
         playerOpened = wasOpen;
         updateProgress();
+        updateV2Status();
+    }
+
+    /** 刷新 v2 状态行：本地记录状态 + 是否有待选择冲突。 */
+    private void updateV2Status() {
+        if (v2Status == null) return;
+        if (vm == null) {
+            v2Status.setVisibility(View.GONE);
+            return;
+        }
+        V2Store st = V2Store.get(act);
+        JSONObject rec = st.findByLegacy(vm.id);
+        if (rec == null) {
+            v2Status.setVisibility(View.GONE);
+            return;
+        }
+        String text = "v2 · " + rec.optString("display", "已同步");
+        JSONObject conflict = st.openConflictForRecord(rec.optString("id"));
+        if (conflict != null) text += " · 有冲突，点此选择";
+        v2Status.setText(text);
+        v2Status.setVisibility(View.VISIBLE);
+    }
+
+    /** 单条导出：写到应用私有导出目录，先用最省事的本地文件交付。 */
+    private void exportV2() {
+        if (vm == null) return;
+        V2Store st = V2Store.get(act);
+        JSONObject rec = st.findByLegacy(vm.id);
+        if (rec == null) {
+            toast("这条记录还没有 v2 本地数据");
+            return;
+        }
+        String rid = rec.optString("id");
+        String body = st.exportSrt(rid);
+        if (body.length() == 0) body = st.exportMd(rid);
+        if (body.length() == 0) {
+            toast("还没有转写稿可导出");
+            return;
+        }
+        try {
+            File dir = new File(act.getExternalFilesDir(null), "export");
+            if (!dir.exists()) dir.mkdirs();
+            String name = (vm.title == null || vm.title.length() == 0
+                    ? vm.id : vm.title).replaceAll("[\\\\/:*?\"<>|]", "_");
+            File f = new File(dir, name + ".srt");
+            FileOutputStream out = new FileOutputStream(f);
+            out.write(body.getBytes("UTF-8"));
+            out.close();
+            toast("已导出到 " + f.getAbsolutePath());
+        } catch (Throwable t) {
+            toast("导出失败：" + t.getMessage());
+        }
     }
 
     private void bind(boolean keepTitle) {
