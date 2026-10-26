@@ -550,6 +550,8 @@ public class HomeActivity extends Activity implements Picker.Host {
         manageBtn.setBackground(Ui.pressable(Ui.rounded(14, 0x00000000, Ui.LINE, 1), 0x22FFFFFF));
         manageBtn.setGravity(Gravity.CENTER);
         Ui.pad(manageBtn, 8, 6, 8, 6);
+        // V1 砍掉批量管理：入口隐藏，代码保留
+        manageBtn.setVisibility(View.GONE);
         searchRow.addView(manageBtn, Ui.lpm(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6, 0, 0, 0));
         toolbar.addView(searchRow);
 

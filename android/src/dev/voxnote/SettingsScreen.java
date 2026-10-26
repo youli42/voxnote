@@ -526,12 +526,13 @@ public class SettingsScreen {
         // ---------------- 目录注册表：顺序 = 页面顺序；打开目录时按可见性过滤
         registerSection("分类", catGroup);
         registerSection("按键", keyGroup);
-        registerSection("转写 API", apiGroup);
+        // V1 砍掉：转写 API 配置、外部来源（厂商日志导入）入口隐藏，代码保留
+        apiGroup.setVisibility(View.GONE);
+        sourcesGroup.setVisibility(View.GONE);
         registerSection("服务器", srvGroup);
         registerSection("存储位置", storageGroup);
         registerSection("录音", recGroup);
         registerSection("数据", dataGroup);
-        registerSection("外部来源", sourcesGroup);
         registerSection("关于", about);
 
         refresh();
