@@ -128,10 +128,11 @@ def check_fake_engine(tmp: Path) -> list:
 
 
 def check_v2_server(tmp: Path) -> list:
-    """v2 开发路由：VOXNOTE_V2=1 时挂载 /api/v2，验证空库 changes。"""
+    """v2 开发路由：VOXNOTE_V2=1 时挂载 /api/v2，验证鉴权、上传与 changes。"""
     results = []
     port = free_port()
     data_dir = tmp / "v2-data"
+    base = "http://127.0.0.1:%d" % port
     env = os.environ.copy()
     env["VOXNOTE_DATA"] = str(data_dir)
     env["VOXNOTE_V2"] = "1"
@@ -140,17 +141,47 @@ def check_v2_server(tmp: Path) -> list:
     p, log = start([sys.executable, "run.py", "--host", "127.0.0.1", "--port", port],
                    SERVER_DIR, log_path, env)
     try:
-        wait_http("http://127.0.0.1:%d/api/v2/health" % port)
+        wait_http(base + "/api/v2/health")
         results.append(("v2 服务端启动", True, ""))
-        r = httpx.get("http://127.0.0.1:%d/api/v2/sync/changes?cursor=0&limit=10" % port,
-                      timeout=20)
+
+        token = read_sync_token(data_dir / "voxnote-v2.db")
+        h = {"Authorization": "Bearer " + token}
+        r = httpx.get(base + "/api/v2/sync/changes?cursor=0&limit=10", headers=h, timeout=20)
         body = r.json()
         ok = (r.status_code == 200 and body.get("changes") == []
               and body.get("next_cursor") == 0 and body.get("has_more") is False)
         results.append(("v2 changes 空库", ok,
                         "" if ok else "status=%s body=%s" % (r.status_code, body)))
+
+        wav = gen_wav(tmp / "fixtures" / "v2-tone.wav", 4.0)
+        meta = {"stamp": "20261026_171000", "title": "v2 上传冒烟",
+                "recorded_at": 1793000000000, "dur_ms": 4000}
+        files = {"file": ("v2-tone.wav", wav.read_bytes(), "audio/wav")}
+        up1 = httpx.post(base + "/api/v2/sync/upload", headers=dict(h, **{"Idempotency-Key": "e2e-v2-1"}),
+                         data={"meta": json.dumps(meta, ensure_ascii=False)},
+                         files=files, timeout=60)
+        b1 = up1.json()
+        results.append(("v2 上传", up1.status_code == 200 and b1.get("id") and not b1.get("duplicate"),
+                        "" if up1.status_code == 200 else up1.text[:300]))
+
+        if b1.get("id"):
+            files = {"file": ("v2-tone.wav", wav.read_bytes(), "audio/wav")}
+            up2 = httpx.post(base + "/api/v2/sync/upload", headers=dict(h, **{"Idempotency-Key": "e2e-v2-1"}),
+                             data={"meta": json.dumps(meta, ensure_ascii=False)},
+                             files=files, timeout=60)
+            b2 = up2.json()
+            results.append(("v2 上传幂等", bool(b2.get("duplicate")) and b2.get("id") == b1["id"],
+                            "" if b2.get("id") == b1.get("id") else str(b2)))
+
+            ch = httpx.get(base + "/api/v2/sync/changes?cursor=0&limit=10", headers=h, timeout=20).json()
+            ids = [c.get("record", {}).get("id") for c in ch.get("changes", []) if c.get("kind") == "record"]
+            results.append(("v2 记录进 changes", b1["id"] in ids,
+                            "" if b1["id"] in ids else str(ids)))
     finally:
         stop(p, log)
+    if not all(x[1] for x in results):
+        print("[v2 server log]\n" + tail(log_path, 40))
+    return results
     if not all(x[1] for x in results):
         print("[v2 server log]\n" + tail(log_path, 40))
     return results
