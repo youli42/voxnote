@@ -338,10 +338,13 @@ public class DetailSheet implements Overlay {
 
             public void onSeek(float fraction) {
                 if (totalMs > 0) seekTo((int) (fraction * totalMs));
+                // 拖动前在播的，seek 后若被 MediaPlayer 暂停则续播；暂停态不启动
+                if (wasPlayingOnScrub && playerOpened && !player.playing()) player.play();
             }
 
             public void onSeekEnd(float fraction) {
                 if (totalMs > 0) seekTo((int) (fraction * totalMs));
+                if (wasPlayingOnScrub && playerOpened && !player.playing()) player.play();
                 scrubbing = false;
                 seekSettleUntil = System.currentTimeMillis() + 700;
                 updateProgress();
