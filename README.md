@@ -93,16 +93,20 @@ pwsh -NoProfile -File android/build.ps1 -Toolchain <jdk根> -Sdk <android-sdk根
 cd server
 python -m venv venv
 venv\Scripts\pip install -r requirements.txt
-venv\Scripts\python run.py            # 控制台 http://127.0.0.1:8787
+venv\Scripts\python run.py            # 默认控制台 http://127.0.0.1:8787（v2；旧版在 /legacy）
 ```
 
-- **转写队列**：DB 为真源，单 worker 顺序消费；引擎边转写边落库，控制台/手机端实时可见；
-- **Web 控制台**：记录库（分页/分类/搜索/预览）、逐句修订、任务管理、转写实时出稿、
-  播放器、AI 问答入口；hash 路由，刷新/前进/后退回到阅读位置；
+- **V1 切换（2026-10）**：默认跑 v2（`/api/v2` + v2 控制台 + 本地 SQLite）；旧 v1 控制台保留在
+  `/legacy`，`VOXNOTE_V2=0` 可临时回滚。**不迁移历史数据**：v2 用新的 `data/voxnote-v2.db`，
+  旧 `data/voxnote.db`、旧录音文件原样保留；切换前请先备份。详见 [切换手册](docs/计划/切换手册.md)。
+- **转写队列**：DB 为真源，单 worker 顺序消费；`POST /records/{id}/transcribe` 只入队，
+  进度/错误码写 jobs，客户端靠 changes 感知；
+- **Web 控制台（v2）**：记录库、详情/生效稿/修订、冲突选择、引擎配置、存储/诊断/备份/清理、
+  保留策略；SSE 实时刷新；控制台「存储与诊断」里有配对二维码；
 - **存储位置可配**：设置页可改音频目录与数据库文件（写 `data/config.json`；
   数据库搬移需重启，界面上有说明）；
-- **与 App 配对**：控制台设置页复制令牌；`adb shell am start` 带
-  `--es server_url … --es server_token … --es sync_now 1` 一条命令完成配对并同步。
+- **与 App 配对**：扫控制台配对二维码，或 `adb shell am start` 带
+  `--es server_url … --es server_token … --es sync_now 1`；
 - **安全**：默认绑 0.0.0.0（局域网可连，手机同步即用此通道），设备 API 需配对令牌；
   建议设置 `VOXNOTE_API_KEY` 开启控制台密钥，只本机用可 `--host 127.0.0.1`。
 
