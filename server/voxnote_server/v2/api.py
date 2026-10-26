@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 
 from . import (
     attempts, auth, config, conflicts, db, edits, engines, export, jobs,
-    manifest, ops, service, store, uploads,
+    maintenance, manifest, ops, service, store, uploads,
 )
 
 router = APIRouter()
@@ -206,6 +206,47 @@ def job_detail(job_id: int):
 @router.get("/records/{record_id}/jobs", dependencies=[Depends(auth.require_device)])
 def record_jobs(record_id: str, limit: int = Query(20, ge=1, le=100)):
     return {"jobs": jobs.for_record(db.conn(), record_id, limit)}
+
+
+@router.get("/settings", dependencies=[Depends(auth.require_device)])
+def get_settings():
+    return {"settings": maintenance.settings(db.conn())}
+
+
+@router.patch("/settings", dependencies=[Depends(auth.require_device)])
+def patch_settings(payload: dict = Body(...)):
+    conn = db.conn()
+    for k, v in payload.items():
+        try:
+            maintenance.set_setting(conn, k, v)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+    return {"settings": maintenance.settings(conn)}
+
+
+@router.get("/storage", dependencies=[Depends(auth.require_device)])
+def get_storage():
+    return maintenance.storage(db.conn())
+
+
+@router.get("/backups", dependencies=[Depends(auth.require_device)])
+def get_backups():
+    return {"backups": maintenance.backups(db.conn())}
+
+
+@router.post("/backups", dependencies=[Depends(auth.require_device)])
+def create_backup():
+    return maintenance.backup(db.conn())
+
+
+@router.post("/cleanup", dependencies=[Depends(auth.require_device)])
+def run_cleanup(payload: dict = Body(default={})):
+    return maintenance.cleanup(db.conn(), dry_run=bool(payload.get("dry_run", True)))
+
+
+@router.get("/diagnostics", dependencies=[Depends(auth.require_device)])
+def diagnostics():
+    return maintenance.diagnostics(db.conn())
 
 
 @router.post("/sync/upload", dependencies=[Depends(auth.require_device)])
