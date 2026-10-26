@@ -207,6 +207,30 @@ def check_v2_server(tmp: Path) -> list:
                   and tr["segments"][0]["text"] == "假引擎第一句")
             results.append(("v2 切换尝试", bool(ok), "" if ok else str(tr)[:300]))
 
+            # 真引擎转写：启动假引擎 → 配置 → transcribe
+            eng_port = free_port()
+            eng_log = tmp / "v2-fake-engine.log"
+            ep, elog = start([sys.executable, SCRIPTS / "fake_engine.py", "--port", eng_port],
+                             ROOT, eng_log)
+            try:
+                wait_http("http://127.0.0.1:%d/health" % eng_port)
+                eng = httpx.post(base + "/api/v2/engines", headers=h, json={
+                    "name": "e2e 假引擎", "url": "http://127.0.0.1:%d" % eng_port,
+                    "model": "fake-whisper", "quality_tier": 3,
+                }, timeout=20).json()
+                results.append(("v2 引擎配置", bool(eng.get("id")),
+                                "" if eng.get("id") else str(eng)))
+
+                tr = httpx.post(base + "/api/v2/records/%s/transcribe" % b1["id"],
+                                headers=h, json={"engine_id": eng.get("id")},
+                                timeout=60).json()
+                segs = tr.get("attempt", {}).get("segments", [])
+                ok = bool(tr.get("job_id")) and any("这是第 1 句测试转写" in s.get("text", "")
+                                                    for s in segs)
+                results.append(("v2 真转写", ok, "" if ok else str(tr)[:300]))
+            finally:
+                stop(ep, elog)
+
             # 人工修订 + 生效稿 + 导出 + 音频
             edit_payload = {"anchor_t_ms": 0, "anchor_e_ms": 2000,
                             "text": "人工修订第一句", "author": "e2e"}
