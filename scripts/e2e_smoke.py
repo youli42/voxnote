@@ -177,6 +177,32 @@ def check_v2_server(tmp: Path) -> list:
             ids = [c.get("record", {}).get("id") for c in ch.get("changes", []) if c.get("kind") == "record"]
             results.append(("v2 记录进 changes", b1["id"] in ids,
                             "" if b1["id"] in ids else str(ids)))
+
+            # ops：改记录（base_rev 匹配）
+            body = {"device_id": "e2e", "ops": [{
+                "op_id": "e2e-op-1", "kind": "update_record", "record_id": b1["id"],
+                "base_rev": b1["rev"], "fields": {"title": "v2 改名"},
+            }]}
+            op1 = httpx.post(base + "/api/v2/sync/ops", headers=h, json=body, timeout=20).json()
+            rec = httpx.get(base + "/api/v2/records/%s" % b1["id"], headers=h, timeout=20).json()
+            ok = op1.get("results", [{}])[0].get("status") == "applied" and rec.get("title") == "v2 改名"
+            results.append(("v2 ops 改名", ok, "" if ok else str(op1)))
+
+            # ops：base_rev 过期 → 冲突 → 用户选本地版本
+            body = {"device_id": "e2e", "ops": [{
+                "op_id": "e2e-op-2", "kind": "update_record", "record_id": b1["id"],
+                "base_rev": 999, "fields": {"title": "冲突版本"},
+            }]}
+            op2 = httpx.post(base + "/api/v2/sync/ops", headers=h, json=body, timeout=20).json()
+            res = op2.get("results", [{}])[0]
+            ok = res.get("status") == "conflict" and res.get("conflict_id")
+            results.append(("v2 冲突检测", bool(ok), "" if ok else str(op2)))
+            if ok:
+                rr = httpx.post(base + "/api/v2/sync/conflicts/%s/resolve" % res["conflict_id"],
+                                headers=h, json={"resolution": "local"}, timeout=20).json()
+                rec = httpx.get(base + "/api/v2/records/%s" % b1["id"], headers=h, timeout=20).json()
+                ok = rr.get("resolution") == "local" and rec.get("title") == "冲突版本"
+                results.append(("v2 冲突解决", ok, "" if ok else str(rr)))
     finally:
         stop(p, log)
     if not all(x[1] for x in results):
