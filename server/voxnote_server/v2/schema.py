@@ -162,6 +162,14 @@ CREATE TABLE IF NOT EXISTS idempotency(
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS ops(
+  op_id      TEXT PRIMARY KEY,
+  device_id  TEXT NOT NULL DEFAULT '',
+  status     TEXT NOT NULL,
+  result     TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings(
   k TEXT PRIMARY KEY,
   v TEXT NOT NULL DEFAULT ''

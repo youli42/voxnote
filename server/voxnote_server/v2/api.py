@@ -6,10 +6,10 @@
 import json
 
 from fastapi import (
-    APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile,
+    APIRouter, Body, Depends, File, Form, Header, HTTPException, Query, UploadFile,
 )
 
-from . import auth, config, db, service, store, uploads
+from . import auth, config, conflicts, db, ops, service, store, uploads
 
 router = APIRouter()
 
@@ -68,3 +68,33 @@ async def upload(
     data = await file.read()
     return uploads.save_upload(
         db.conn(), data, file.filename or "", m, idempotency_key)
+
+
+@router.post("/sync/ops", dependencies=[Depends(auth.require_device)])
+def sync_ops(payload: dict = Body(...)):
+    ops_list = payload.get("ops")
+    if not isinstance(ops_list, list):
+        raise HTTPException(400, "ops 必须是数组")
+    try:
+        return ops.apply(db.conn(), str(payload.get("device_id") or ""), ops_list)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/sync/conflicts", dependencies=[Depends(auth.require_device)])
+def sync_conflicts(limit: int = Query(100, ge=1, le=500)):
+    return {"conflicts": conflicts.list_open(db.conn(), limit=limit)}
+
+
+@router.post("/sync/conflicts/{conflict_id}/resolve",
+             dependencies=[Depends(auth.require_device)])
+def resolve_conflict(conflict_id: str, payload: dict = Body(...)):
+    try:
+        c = conflicts.resolve(
+            db.conn(), conflict_id, payload.get("resolution"),
+            payload.get("fields"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if c is None:
+        raise HTTPException(404, "冲突不存在")
+    return c

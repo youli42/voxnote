@@ -15,6 +15,7 @@ TABLES = {
     "schema_meta", "records", "transcript_attempts", "attempt_segments",
     "edits", "jobs", "devices", "engines", "conflicts", "changes", "settings",
     "idempotency",
+    "ops",
 }
 
 
