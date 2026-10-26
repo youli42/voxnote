@@ -149,9 +149,25 @@ def check_v2_server(tmp: Path) -> list:
         results.append(("v2 控制台页面", ok, "" if ok else "status=%s" % page.status_code))
 
         pair = httpx.get(base + "/api/v2/console/pair", timeout=20)
-        ok = pair.status_code == 200 and pair.json().get("token")
+        pair_token = pair.json().get("token") if pair.status_code == 200 else ""
+        ok = pair.status_code == 200 and pair_token
         results.append(("v2 控制台自动取令牌", bool(ok),
                         "" if ok else "status=%s body=%s" % (pair.status_code, pair.text[:200])))
+
+        # SSE：取到 hello/change 事件即算通过
+        try:
+            with httpx.stream("GET", base + "/api/v2/events",
+                              params={"token": pair_token}, timeout=10) as sr:
+                first = ""
+                for line in sr.iter_lines():
+                    if line.startswith("event:"):
+                        first = line
+                        break
+            ok = sr.status_code == 200 and first.startswith("event:")
+        except Exception as e:
+            ok = False
+            first = str(e)
+        results.append(("v2 SSE", bool(ok), "" if ok else first))
 
         token = read_sync_token(data_dir / "voxnote-v2.db")
         h = {"Authorization": "Bearer " + token}
