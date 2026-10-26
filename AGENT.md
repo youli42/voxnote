@@ -39,8 +39,9 @@ pwsh -NoProfile -File android/build.ps1 -Toolchain <jdk> -Sdk <sdk>   # 构建�
   迁移与决策见 docs/REDESIGN.md。改这几块前先读，别在旧模型上继续加补丁。
 - 加功能/改交互前先读 docs/DESIGN-PLAYBOOK.md（一条主线、一套状态、一处真相）；
   功能准入过不了就别做，别把设置项和入口继续堆上去。
-- 开工前看 docs/GAP-ANALYSIS.md：P0 细节（修订重挂接 / 游标过期 / 保留策略 /
-  安全边界 / 转写质量）没定之前，不要动同步与转写的实现。
+- 开工按 docs/V1-PLAN.md 执行：范围、工作分解、里程碑与验收门都在里面；
+  超出计划的先开 issue，别在 V1 里加功能。
+- 破坏性重建：不迁移旧数据；切换前必须按 runbook 备份，旧目录保持不动。
 
 ## 提交
 

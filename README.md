@@ -125,6 +125,7 @@ tools/     工具链获取脚本
 
 - [需求与边界](docs/REQUIREMENTS.md)
 - [结构设计 v1（定稿）](docs/ARCHITECTURE.md)（分层 / 角色与部署 / 领域模型 / 存储 / 同步 / 转写 / 客户端 / IA / 安全）
+- [V1 行动计划（完整）](docs/V1-PLAN.md)（范围 / 工作分解 / 里程碑 / 第一周 / 验收 / 切换 runbook）
 - [数据契约](docs/DATA-CONTRACT.md)
 - [体检报告：同步与转录的现状问题](docs/DIAGNOSIS.md)（2026-10，含实测与证据索引）
 - [重设计准备：同步与转录主干](docs/REDESIGN.md)（目标架构 / 协议 v2 / 迁移路线 / 待拍板决策）
