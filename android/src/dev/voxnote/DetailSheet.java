@@ -91,6 +91,9 @@ public class DetailSheet implements Overlay {
     private final TextView catChip;
     private final TextView playBtn;
     private final SeekBarView seekBar;
+    private WaveformView waveView;
+    private String waveKey = "";
+    private int waveToken = 0;
     private final TextView timeText;
     private final TextView markAddBtn;
     private TextView transcribeBtn;
@@ -317,6 +320,13 @@ public class DetailSheet implements Overlay {
         playerRow.addView(playBtn, Ui.lp(Ui.dp(32), Ui.dp(32)));
 
         LinearLayout playerMain = Ui.col(act);
+        waveView = new WaveformView(act);
+        waveView.setListener(new WaveformView.Listener() {
+            public void onSeek(float fraction) {
+                if (totalMs > 0) seekTo((int) (fraction * totalMs));
+            }
+        });
+        playerMain.addView(waveView, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(38)));
         seekBar = new SeekBarView(act);
         seekBar.setListener(new SeekBarView.Listener() {
             public void onSeek(float fraction) {
@@ -765,6 +775,7 @@ public class DetailSheet implements Overlay {
         seekBar.setTotal(totalMs / 1000.0);
         seekBar.setMarks(vm.marks);
         timeText.setText("00:00 / " + RecordVm.fmtDur(totalMs / 1000.0));
+        loadWaveform(vm);
         if (!keepTitle || playerOpened) {
             playPos = 0;
         }
@@ -833,6 +844,49 @@ public class DetailSheet implements Overlay {
         updateProgress();
     }
 
+    /** 自动连播：打开下一场后从头真正开始播放。 */
+    public void playFromStart() {
+        if (vm == null || !vm.hasAudio()) return;
+        if (!playerOpened) {
+            if (!player.open(vm.audioPath == null ? "" : vm.audioPath,
+                    vm.audioUri == null ? "" : vm.audioUri)) {
+                return;
+            }
+            playerOpened = true;
+            int d = player.duration();
+            if (d > 0) totalMs = d;
+        }
+        playPos = 0;
+        player.seek(0);
+        player.play();
+        updateProgress();
+    }
+
+    /** 后台解码音频峰值；同一场只解一次。 */
+    private void loadWaveform(final RecordVm v) {
+        if (waveView == null || v == null) return;
+        final String key = v.id + "|"
+                + (v.audioPath != null ? v.audioPath : String.valueOf(v.audioUri));
+        if (key.equals(waveKey)) return;
+        waveKey = key;
+        waveView.setPeaks(null);
+        if (!v.hasAudio()) return;
+        final int token = ++waveToken;
+        new Thread(new Runnable() {
+            public void run() {
+                final float[] p = AudioPeaks.load(act, v.audioPath, v.audioUri, 120);
+                if (act == null) return;
+                act.runOnUiThread(new Runnable() {
+                    public void run() {
+                        if (token == waveToken && open && waveView != null) {
+                            waveView.setPeaks(p);
+                        }
+                    }
+                });
+            }
+        }, "waveform-load").start();
+    }
+
     private void seekTo(int ms) {
         if (vm == null) return;
         if (totalMs <= 0) totalMs = (int) Math.max(1000, vm.durMs);
@@ -855,6 +909,7 @@ public class DetailSheet implements Overlay {
     private void updateProgress() {
         if (totalMs <= 0) totalMs = 1;
         seekBar.setFraction(playPos / (float) totalMs);
+        if (waveView != null) waveView.setProgress(playPos / (float) totalMs);
         timeText.setText(RecordVm.fmtDur(playPos / 1000.0) + " / "
                 + RecordVm.fmtDur(totalMs / 1000.0));
 

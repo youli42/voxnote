@@ -1521,6 +1521,7 @@ public class HomeActivity extends Activity implements Picker.Host {
             }
             if (idx >= 0 && idx + 1 < shown.size()) {
                 openDetail(shown.get(idx + 1));
+                detail.playFromStart();   // 自动连播：必须真的开始播，而不只是打开下一场
             }
         }
     };
