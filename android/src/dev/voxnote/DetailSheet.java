@@ -17,6 +17,7 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -91,6 +92,8 @@ public class DetailSheet implements Overlay {
     private final TextView catChip;
     private final TextView playBtn;
     private WaveformView waveView;
+    private ProgressBar waveSpinner;
+    private ToggleView autoplayToggle;
     private String waveKey = "";
     private int waveToken = 0;
     private final TextView timeText;
@@ -323,7 +326,17 @@ public class DetailSheet implements Overlay {
                 if (totalMs > 0) seekTo((int) (fraction * totalMs));
             }
         });
-        playerMain.addView(waveView, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(54)));
+        FrameLayout waveWrap = new FrameLayout(act);
+        waveWrap.addView(waveView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(54)));
+        waveSpinner = new ProgressBar(act, null, android.R.attr.progressBarStyleSmall);
+        waveSpinner.setIndeterminate(true);
+        waveSpinner.setVisibility(View.GONE);
+        FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(Ui.dp(18), Ui.dp(18),
+                Gravity.TOP | Gravity.START);
+        slp.setMargins(Ui.dp(4), Ui.dp(2), 0, 0);
+        waveWrap.addView(waveSpinner, slp);
+        playerMain.addView(waveWrap, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(54)));
         timeText = Ui.text(act, "00:00 / 00:00", 10f, Ui.FAINT);
         playerMain.addView(timeText, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -346,6 +359,26 @@ public class DetailSheet implements Overlay {
                 9, 0, 0, 0));
         head.addView(playerRow, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 9, 0, 0));
+
+        // 自动连播放在播放上下文里，而不是录音页
+        LinearLayout autoRow = Ui.row(act);
+        autoRow.setGravity(Gravity.CENTER_VERTICAL);
+        autoRow.addView(Ui.text(act, "自动连播", 10.5f, Ui.FAINT));
+        View autoSpacer = new View(act);
+        autoRow.addView(autoSpacer, Ui.lp(0, 1, 1f));
+        autoplayToggle = new ToggleView(act);
+        autoplayToggle.setChecked(settings.autoplay, false);
+        autoplayToggle.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                boolean on = !autoplayToggle.isChecked();
+                autoplayToggle.setChecked(on, true);
+                settings.autoplay = on;
+                settings.save();
+            }
+        });
+        autoRow.addView(autoplayToggle, Ui.lp(Ui.dp(40), Ui.dp(23)));
+        head.addView(autoRow, Ui.lpm(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 6, 0, 0));
 
         sheet.addView(head, Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -735,6 +768,7 @@ public class DetailSheet implements Overlay {
 
     private void bind(boolean keepTitle) {
         binding = true;
+        if (autoplayToggle != null) autoplayToggle.setChecked(settings.autoplay, false);
         // 未改名的默认标题显示完整日期时间（与列表/Web 一致）；库内仍存「录音 HH:MM」
         if (!keepTitle) titleInput.setText(vm.isDefaultTitle() ? vm.displayTitle() : vm.title);
         String m = vm.dateText() + " · " + vm.fmtDur() + " · " + vm.statusLabel();
@@ -856,7 +890,13 @@ public class DetailSheet implements Overlay {
         if (key.equals(waveKey)) return;
         waveKey = key;
         waveView.setPeaks(null);
-        if (!v.hasAudio()) return;
+        waveView.setLoading(true);
+        if (waveSpinner != null) waveSpinner.setVisibility(View.VISIBLE);
+        if (!v.hasAudio()) {
+            waveView.setLoading(false);
+            if (waveSpinner != null) waveSpinner.setVisibility(View.GONE);
+            return;
+        }
         final int token = ++waveToken;
         new Thread(new Runnable() {
             public void run() {
@@ -866,6 +906,10 @@ public class DetailSheet implements Overlay {
                     public void run() {
                         if (token == waveToken && open && waveView != null) {
                             waveView.setPeaks(p);
+                            waveView.setLoading(false);
+                            if (waveSpinner != null) {
+                                waveSpinner.setVisibility(View.GONE);
+                            }
                         }
                     }
                 });

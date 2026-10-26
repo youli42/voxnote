@@ -6,16 +6,134 @@ import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.net.Uri;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.nio.ByteBuffer;
+import java.security.MessageDigest;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
-/** 解码音频前若干 MB，抽成等宽峰值数组（0..1），用于播放器波形。 */
+/** 解码音频抽峰值；带内存/磁盘缓存，同一文件只解一次。失败返回 null。 */
 public final class AudioPeaks {
+
+    private static final int MEM_MAX = 8;
+    private static final Map<String, float[]> MEM =
+            new LinkedHashMap<String, float[]>(MEM_MAX, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, float[]> e) {
+                    return size() > MEM_MAX;
+                }
+            };
 
     private AudioPeaks() { }
 
-    /** 失败返回 null（调用方退化为普通进度条）。 */
     public static float[] load(Context ctx, String path, String uri, int buckets) {
         if (buckets < 16) buckets = 16;
+        final String key;
+        try {
+            key = keyOf(ctx, path, uri) + ":" + buckets;
+        } catch (Throwable t) {
+            return decode(ctx, path, uri, buckets);
+        }
+        synchronized (MEM) {
+            float[] hit = MEM.get(key);
+            if (hit != null) return hit;
+        }
+        File cache = cacheFile(ctx, key);
+        float[] fromDisk = readCache(cache, buckets);
+        if (fromDisk != null) {
+            synchronized (MEM) { MEM.put(key, fromDisk); }
+            return fromDisk;
+        }
+        float[] peaks = decode(ctx, path, uri, buckets);
+        if (peaks != null) {
+            writeCache(cache, peaks);
+            synchronized (MEM) { MEM.put(key, peaks); }
+        }
+        return peaks;
+    }
+
+    // ------------------------------------------------------------ 缓存
+
+    private static String keyOf(Context ctx, String path, String uri) {
+        String desc;
+        if (path != null && path.length() > 0) {
+            File f = new File(path);
+            desc = "p|" + path + "|" + f.length() + "|" + f.lastModified();
+        } else {
+            desc = "u|" + uri;
+            try {
+                Uri u = Uri.parse(uri == null ? "" : uri);
+                android.content.res.AssetFileDescriptor afd =
+                        ctx.getContentResolver().openAssetFileDescriptor(u, "r");
+                if (afd != null) {
+                    desc += "|" + afd.getLength();
+                    afd.close();
+                }
+            } catch (Throwable ignore) { }
+        }
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-1");
+            byte[] d = md.digest(desc.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < 12; i++) sb.append(String.format("%02x", d[i]));
+            return sb.toString();
+        } catch (Throwable t) {
+            return Integer.toHexString(desc.hashCode());
+        }
+    }
+
+    private static File cacheFile(Context ctx, String key) {
+        File dir = new File(ctx.getCacheDir(), "waveform");
+        if (!dir.exists()) dir.mkdirs();
+        return new File(dir, key + ".pk");
+    }
+
+    private static float[] readCache(File f, int buckets) {
+        if (!f.isFile()) return null;
+        DataInputStream in = null;
+        try {
+            in = new DataInputStream(new FileInputStream(f));
+            int n = in.readInt();
+            if (n != buckets) return null;
+            float[] p = new float[n];
+            for (int i = 0; i < n; i++) p[i] = in.readFloat();
+            return p;
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            try { if (in != null) in.close(); } catch (Throwable ignore) { }
+        }
+    }
+
+    private static void writeCache(File f, float[] peaks) {
+        File tmp = new File(f.getAbsolutePath() + ".tmp");
+        DataOutputStream out = null;
+        try {
+            out = new DataOutputStream(new FileOutputStream(tmp));
+            out.writeInt(peaks.length);
+            for (float v : peaks) out.writeFloat(v);
+            out.flush();
+            out.close();
+            out = null;
+            if (!tmp.renameTo(f)) {
+                f.delete();
+                tmp.renameTo(f);
+            }
+        } catch (Throwable t) {
+            tmp.delete();
+        } finally {
+            try { if (out != null) out.close(); } catch (Throwable ignore) { }
+        }
+    }
+
+    // ------------------------------------------------------------ 解码
+
+    /** 失败返回 null（调用方退化为普通占位线）。 */
+    private static float[] decode(Context ctx, String path, String uri, int buckets) {
         MediaExtractor ex = new MediaExtractor();
         MediaCodec dec = null;
         try {
@@ -57,7 +175,6 @@ public final class AudioPeaks {
             float[] peaks = new float[buckets];
             boolean inputDone = false;
             boolean outputDone = false;
-            long totalSamples = durUs * (long) sampleRate / 1000000L;
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             while (!outputDone) {
                 if (!inputDone) {
@@ -78,32 +195,27 @@ public final class AudioPeaks {
                 }
                 int out = dec.dequeueOutputBuffer(info, 10000);
                 if (out >= 0) {
-                    int bucket = -1;
-                    if (info.presentationTimeUs > 0 && durUs > 0) {
-                        bucket = (int) (info.presentationTimeUs * buckets / durUs);
-                    }
-                    if (bucket >= 0 && bucket < buckets && info.size > 1) {
-                        ByteBuffer ob = dec.getOutputBuffer(out);
-                        if (ob != null) {
-                            int n = info.size / 2;
-                            float max = 0f;
-                            for (int i = 0; i + 1 < info.size; i += 2) {
-                                short s = ob.getShort(i);
-                                float a = Math.abs(s) / 32768f;
-                                if (a > max) max = a;
+                    if (info.presentationTimeUs > 0 && durUs > 0 && info.size > 1) {
+                        int bucket = (int) (info.presentationTimeUs * buckets / durUs);
+                        if (bucket >= 0 && bucket < buckets) {
+                            ByteBuffer ob = dec.getOutputBuffer(out);
+                            if (ob != null) {
+                                float max = 0f;
+                                for (int i = 0; i + 1 < info.size; i += 2) {
+                                    short s = ob.getShort(i);
+                                    float a = Math.abs(s) / 32768f;
+                                    if (a > max) max = a;
+                                }
+                                if (max > peaks[bucket]) peaks[bucket] = max;
                             }
-                            if (max > peaks[bucket]) peaks[bucket] = max;
                         }
                     }
                     dec.releaseOutputBuffer(out, false);
                     if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
                         outputDone = true;
                     }
-                } else if (out == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    // 输出格式变化（通常是 PCM 参数），继续解码即可
                 }
             }
-            // 归一化，避免整体过小看不出
             float max = 0f;
             for (int i = 0; i < buckets; i++) if (peaks[i] > max) max = peaks[i];
             if (max <= 0.0001f) return null;

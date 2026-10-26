@@ -20,6 +20,7 @@ public class WaveformView extends View {
     private float[] peaks;
     private float progress;
     private float[] markFracs = new float[0];
+    private boolean loading;
     private Listener listener;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path wavePath = new Path();
@@ -40,6 +41,13 @@ public class WaveformView extends View {
     public void setPeaks(float[] p) {
         peaks = p;
         invalidate();
+    }
+
+    public void setLoading(boolean b) {
+        if (loading != b) {
+            loading = b;
+            invalidate();
+        }
     }
 
     public void setProgress(float f) {
@@ -71,8 +79,17 @@ public class WaveformView extends View {
         float h = getHeight();
         if (w <= 0 || h <= 0) return;
         if (peaks == null || peaks.length == 0) {
+            // 解码中占位：中线 + 进度，保证能看进度/拖动
             paint.setColor(0xFF3A404B);
             canvas.drawRoundRect(0, h / 2f - 1, w, h / 2f + 1, 1, 1, paint);
+            if (progress > 0f) {
+                paint.setColor(0xFF7AA2FF);
+                canvas.drawRoundRect(0, h / 2f - 2, progress * w, h / 2f + 2,
+                        2, 2, paint);
+            }
+            paint.setColor(0xFF7AA2FF);
+            float cx = progress * w;
+            canvas.drawRoundRect(cx - 1, 0, cx + 1, h, 1, 1, paint);
             return;
         }
         if (wavePath.isEmpty() || builtW != (int) w || builtH != (int) h
