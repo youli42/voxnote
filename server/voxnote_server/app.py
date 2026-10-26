@@ -96,3 +96,8 @@ def _wire_routers(app: FastAPI):
             continue
         m = importlib.import_module("voxnote_server." + mod)
         app.include_router(m.router, prefix=prefix, tags=tags)
+
+    # v2 开发路由：显式开关，默认不挂载，避免影响 v1
+    if os.environ.get("VOXNOTE_V2", "").strip() == "1":
+        from .v2 import api as v2_api
+        app.include_router(v2_api.router, prefix="/api/v2", tags=["v2"])

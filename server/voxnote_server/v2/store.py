@@ -23,9 +23,14 @@ class SchemaVersionError(RuntimeError):
 
 
 def connect(db_path) -> sqlite3.Connection:
+    """v2 开发期使用单连接 + 外部读写锁（见 v2/db.py）。
+
+    check_same_thread=False：FastAPI 同步端点跑在线程池里，连接需要跨线程复用；
+    并发安全由 v2.db.lock 串行化（单用户服务器足够，后续可按需改为连接池）。
+    """
     p = Path(db_path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(p), timeout=15)
+    conn = sqlite3.connect(str(p), timeout=15, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")

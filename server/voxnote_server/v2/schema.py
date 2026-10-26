@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS records(
   mode              TEXT NOT NULL DEFAULT '',
   src               TEXT NOT NULL DEFAULT 'app',
   device_id         TEXT NOT NULL DEFAULT '',
+  marks             TEXT NOT NULL DEFAULT '[]',
   recorded_at       INTEGER NOT NULL,
   dur_ms            INTEGER NOT NULL DEFAULT 0,
   bytes             INTEGER NOT NULL DEFAULT 0,
