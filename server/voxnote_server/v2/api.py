@@ -8,7 +8,8 @@ import mimetypes
 import os
 
 from fastapi import (
-    APIRouter, Body, Depends, File, Form, Header, HTTPException, Query, UploadFile,
+    APIRouter, Body, Depends, File, Form, Header, HTTPException, Query, Request,
+    UploadFile,
 )
 from fastapi.responses import FileResponse, PlainTextResponse
 
@@ -31,6 +32,15 @@ def health():
         "db": config.db_path(),
         "records": count,
     }
+
+
+@router.get("/console/pair")
+def console_pair(request: Request):
+    """本机控制台自动取设备令牌；非本机请求必须自己带令牌，避免局域网泄露。"""
+    host = request.client.host if request.client else ""
+    if host not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(403, "只允许本机自动取令牌；远程请手动填写")
+    return {"token": auth.device_token(db.conn())}
 
 
 @router.get("/sync/changes", dependencies=[Depends(auth.require_device)])

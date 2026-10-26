@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>voxnote 控制台 v2</title>
+<style>
+  :root{color-scheme:dark;--bg:#0f1115;--panel:#171a20;--line:#2a2f38;--text:#e7e9ee;--dim:#9aa1ad;--accent:#7aa2ff;--warn:#ffd479;--bad:#ff8a8a}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+  header{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line)}
+  header b{font-size:16px}
+  header .grow{flex:1}
+  nav{display:flex;gap:6px;padding:8px 16px;border-bottom:1px solid var(--line)}
+  nav button{background:var(--panel);color:var(--text);border:1px solid var(--line);padding:6px 12px;border-radius:8px;cursor:pointer}
+  nav button.on{background:var(--accent);color:#0b1020;border-color:var(--accent)}
+  main{padding:16px;max-width:1200px;margin:0 auto}
+  .tab{display:none}.tab.on{display:block}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+  tr.row{cursor:pointer}tr.row:hover{background:var(--panel)}
+  .muted{color:var(--dim)}.warn{color:var(--warn)}.bad{color:var(--bad)}.ok{color:#8ee6a4}
+  input,button,select{font:inherit}
+  input,select{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+  .btn{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 10px;cursor:pointer}
+  .btn.primary{background:var(--accent);color:#0b1020;border-color:var(--accent)}
+  .btn.danger{border-color:#6b2a2a;color:var(--bad)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  pre{background:#0b0d11;border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;max-height:360px;white-space:pre-wrap}
+  .seg{padding:4px 8px;border-left:2px solid var(--line);margin:2px 0}
+  .seg b{color:var(--dim);font-weight:400;font-size:12px;margin-right:8px}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;border:1px solid var(--line);font-size:12px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  #toast{position:fixed;right:16px;bottom:16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;display:none;max-width:420px}
+</style>
+</head>
+<body>
+<header>
+  <b>voxnote</b><span class="pill">v2 控制台</span>
+  <span id="conn" class="muted">连接中…</span>
+  <span class="grow"></span>
+  <button class="btn" id="btnToken">更换令牌</button>
+  <button class="btn primary" id="btnRefresh">刷新</button>
+</header>
+<nav>
+  <button data-tab="records" class="on">记录库</button>
+  <button data-tab="conflicts">冲突</button>
+  <button data-tab="engines">引擎</button>
+  <button data-tab="system">存储与诊断</button>
+</nav>
+<main>
+  <section id="tab-records" class="tab on">
+    <div class="row" style="margin-bottom:10px">
+      <input id="q" placeholder="搜索标题 / 记录 id" style="flex:1;min-width:220px">
+      <span id="recCount" class="muted"></span>
+    </div>
+    <table><thead><tr><th>标题</th><th>状态</th><th>时长</th><th>rev</th><th>更新时间</th></tr></thead>
+      <tbody id="recBody"></tbody></table>
+    <div id="detail"></div>
+  </section>
+
+  <section id="tab-conflicts" class="tab">
+    <div id="conflicts"></div>
+  </section>
+
+  <section id="tab-engines" class="tab">
+    <div class="card">
+      <div class="row">
+        <input id="eName" placeholder="名称" style="width:140px">
+        <input id="eUrl" placeholder="http://127.0.0.1:8000" style="flex:1;min-width:220px">
+        <input id="eModel" placeholder="model（如 whisper-1）" style="width:180px">
+        <input id="eToken" placeholder="token（可空）" style="width:160px">
+        <button class="btn primary" id="btnAddEngine">添加引擎</button>
+      </div>
+      <div class="muted" style="margin-top:6px">v1 手动选择引擎，不自动切换；失败只提示。</div>
+    </div>
+    <table><thead><tr><th>名称</th><th>地址</th><th>模型</th><th>质量档</th><th>令牌</th><th>启用</th><th></th></tr></thead>
+      <tbody id="engBody"></tbody></table>
+  </section>
+
+  <section id="tab-system" class="tab">
+    <div class="grid">
+      <div class="card"><h3>存储</h3><pre id="storage">…</pre>
+        <div class="row"><button class="btn" id="btnBackup">立即备份</button>
+          <button class="btn danger" id="btnCleanup">清理预览</button></div>
+        <div id="backups" class="muted" style="margin-top:8px"></div>
+      </div>
+      <div class="card"><h3>诊断</h3><pre id="diag">…</pre></div>
+    </div>
+    <div class="card"><h3>保留策略</h3>
+      <div class="row">
+        <label>墓碑天数 <input id="sTomb" type="number" min="0" style="width:90px"></label>
+        <label>旧尝试保留版数 <input id="sKeep" type="number" min="1" style="width:90px"></label>
+        <label>旧尝试天数 <input id="sAttDays" type="number" min="0" style="width:90px"></label>
+        <label>备份代数 <input id="sBackup" type="number" min="1" style="width:90px"></label>
+        <button class="btn primary" id="btnSaveSettings">保存</button>
+      </div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const state = { token: localStorage.getItem('voxnote.v2.token') || '', tab: 'records', records: [], detailId: null };
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function toast(msg, bad) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  t.style.color = bad ? 'var(--bad)' : 'var(--text)';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.style.display = 'none', 4000);
+}
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
+  if (opts.body && typeof opts.body !== 'string') {
+    headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(opts.body);
+  }
+  const r = await fetch('/api/v2' + path, Object.assign({}, opts, { headers }));
+  if (r.status === 401) {
+    $('#conn').textContent = '需要令牌';
+    $('#conn').className = 'bad';
+    throw new Error('未授权：请点右上角「更换令牌」');
+  }
+  const text = await r.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
+  if (!r.ok) throw new Error(typeof data === 'string' ? data : (data && data.detail) || ('HTTP ' + r.status));
+  return data;
+}
+
+async function boot() {
+  if (!state.token) {
+    try {
+      const r = await fetch('/api/v2/console/pair');
+      if (r.ok) {
+        const j = await r.json();
+        state.token = j.token || '';
+        if (state.token) localStorage.setItem('voxnote.v2.token', state.token);
+      }
+    } catch (e) { }
+  }
+  if (!state.token) {
+    const t = prompt('请输入设备令牌（服务器 settings.sync_token）');
+    if (t) { state.token = t.trim(); localStorage.setItem('voxnote.v2.token', state.token); }
+  }
+  try {
+    const h = await fetch('/api/v2/health').then(r => r.json());
+    $('#conn').textContent = '已连接 · schema ' + h.schema_version + ' · ' + h.records + ' 条记录';
+    $('#conn').className = 'ok';
+  } catch (e) {
+    $('#conn').textContent = '连接失败';
+    $('#conn').className = 'bad';
+  }
+  switchTab('records');
+}
+
+function switchTab(name) {
+  state.tab = name;
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  document.querySelectorAll('.tab').forEach(s => s.classList.toggle('on', s.id === 'tab-' + name));
+  if (name === 'records') loadRecords();
+  if (name === 'conflicts') loadConflicts();
+  if (name === 'engines') loadEngines();
+  if (name === 'system') loadSystem();
+}
+
+async function loadRecords() {
+  try {
+    const data = await api('/records?limit=300');
+    state.records = data.records || [];
+    $('#recCount').textContent = state.records.length + ' 条';
+    const q = ($('#q').value || '').trim().toLowerCase();
+    const rows = state.records.filter(r => !q || (r.title || '').toLowerCase().includes(q) || (r.id || '').includes(q));
+    $('#recBody').innerHTML = rows.map(r => `<tr class="row" data-id="${esc(r.id)}">
+      <td>${esc(r.title || '(未命名)')}<div class="muted" style="font-size:12px">${esc(r.id)}</div></td>
+      <td><span class="pill">${esc(r.deleted ? '已删除' : r.status)}</span></td>
+      <td>${Math.round((r.dur_ms || 0) / 1000)}s</td><td>${r.rev}</td>
+      <td class="muted">${r.updated_at ? new Date(r.updated_at).toLocaleString() : ''}</td></tr>`).join('');
+    document.querySelectorAll('#recBody tr').forEach(tr => tr.onclick = () => openRecord(tr.dataset.id));
+  } catch (e) { toast(e.message, true); }
+}
+
+async function openRecord(id) {
+  state.detailId = id;
+  const box = $('#detail');
+  box.innerHTML = '<div class="card">加载中…</div>';
+  try {
+    const [rec, tr, edits] = await Promise.all([
+      api('/records/' + encodeURIComponent(id)),
+      api('/records/' + encodeURIComponent(id) + '/transcript'),
+      api('/records/' + encodeURIComponent(id) + '/edits')
+    ]);
+    const segs = (tr.segments || []).map(s => `<div class="seg"><b>${fmtMs(s.t_ms)} – ${fmtMs(s.e_ms)}</b>
+      <span class="${s.deleted ? 'bad' : ''}">${esc(s.deleted ? '（已删除）' : s.text)}</span>
+      ${s.edited ? '<span class="pill">已修订</span>' : ''}</div>`).join('');
+    box.innerHTML = `<div class="card">
+      <div class="row"><h3 style="margin:0">${esc(rec.title || rec.id)}</h3>
+        <span class="pill">${esc(rec.status)}</span><span class="muted">rev ${rec.rev}</span>
+        <span class="grow" style="flex:1"></span>
+        <button class="btn" id="exSrt">导出 srt</button><button class="btn" id="exMd">导出 md</button>
+        <button class="btn" id="closeDetail">关闭</button></div>
+      <div class="muted">${esc(rec.id)} · ${Math.round((rec.dur_ms||0)/1000)}s · ${rec.recorded_at ? new Date(rec.recorded_at).toLocaleString() : ''}</div>
+      <h4>生效稿</h4>${segs || '<div class="muted">还没有转写稿</div>'}
+      <h4>修订（${edits.edits ? edits.edits.length : 0}）</h4>
+      <pre>${esc(JSON.stringify(edits.edits || [], null, 2))}</pre>
+    </div>`;
+    $('#closeDetail').onclick = () => { box.innerHTML = ''; state.detailId = null; };
+    $('#exSrt').onclick = () => exportRecord(id, 'srt');
+    $('#exMd').onclick = () => exportRecord(id, 'md');
+  } catch (e) {
+    box.innerHTML = '<div class="card bad">' + esc(e.message) + '</div>';
+  }
+}
+
+async function exportRecord(id, fmt) {
+  try {
+    const r = await fetch('/api/v2/records/' + encodeURIComponent(id) + '/export?format=' + fmt,
+      { headers: { 'Authorization': 'Bearer ' + state.token } });
+    if (!r.ok) throw new Error(await r.text());
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = id + '.' + fmt;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  } catch (e) { toast('导出失败：' + e.message, true); }
+}
+
+async function loadConflicts() {
+  try {
+    const data = await api('/sync/conflicts?limit=200');
+    const list = data.conflicts || [];
+    $('#conflicts').innerHTML = list.length ? list.map(c => `<div class="card">
+      <div class="row"><b>${esc((c.record && c.record.title) || c.record_id)}</b>
+        <span class="pill">${esc(c.kind)}</span><span class="muted">${esc(c.id)}</span></div>
+      <div class="grid"><div><div class="muted">本地</div><pre>${esc(JSON.stringify(c.local, null, 2))}</pre></div>
+        <div><div class="muted">服务器</div><pre>${esc(JSON.stringify(c.server, null, 2))}</pre></div></div>
+      <div class="row"><button class="btn primary" data-cid="${esc(c.id)}" data-res="local">用本地</button>
+        <button class="btn" data-cid="${esc(c.id)}" data-res="server">用服务器</button></div></div>`).join('')
+      : '<div class="card muted">没有待选择的冲突</div>';
+    document.querySelectorAll('[data-cid]').forEach(b => b.onclick = async () => {
+      try {
+        await api('/sync/conflicts/' + encodeURIComponent(b.dataset.cid) + '/resolve',
+          { method: 'POST', body: { resolution: b.dataset.res } });
+        toast('已解决');
+        loadConflicts();
+      } catch (e) { toast(e.message, true); }
+    });
+  } catch (e) { toast(e.message, true); }
+}
+
+async function loadEngines() {
+  try {
+    const data = await api('/engines');
+    $('#engBody').innerHTML = (data.engines || []).map(e => `<tr>
+      <td>${esc(e.name)}</td><td>${esc(e.url)}</td><td>${esc(e.model)}</td>
+      <td>${e.quality_tier}</td><td>${e.has_token ? '有' : '无'}</td>
+      <td>${e.enabled ? '<span class="ok">启用</span>' : '<span class="muted">停用</span>'}</td>
+      <td><button class="btn" data-eid="${esc(e.id)}" data-en="${e.enabled ? 0 : 1}">${e.enabled ? '停用' : '启用'}</button>
+        <button class="btn danger" data-del="${esc(e.id)}">删除</button></td></tr>`).join('');
+    document.querySelectorAll('[data-eid]').forEach(b => b.onclick = async () => {
+      await api('/engines/' + encodeURIComponent(b.dataset.eid),
+        { method: 'PATCH', body: { enabled: b.dataset.en === '1' } });
+      loadEngines();
+    });
+    document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      if (!confirm('删除这个引擎？')) return;
+      await api('/engines/' + encodeURIComponent(b.dataset.del), { method: 'DELETE' });
+      loadEngines();
+    });
+  } catch (e) { toast(e.message, true); }
+}
+
+async function loadSystem() {
+  try {
+    const [st, dg, set, bk] = await Promise.all([
+      api('/storage'), api('/diagnostics'), api('/settings'), api('/backups')
+    ]);
+    $('#storage').textContent = JSON.stringify(st, null, 2);
+    $('#diag').textContent = JSON.stringify(dg, null, 2);
+    const s = (set && set.settings) || {};
+    $('#sTomb').value = s.tombstone_retention_days || '';
+    $('#sKeep').value = s.attempt_keep || '';
+    $('#sAttDays').value = s.attempt_retention_days || '';
+    $('#sBackup').value = s.backup_keep || '';
+    $('#backups').textContent = '备份：' + ((bk.backups || []).map(x => x.name).join('、') || '无');
+  } catch (e) { toast(e.message, true); }
+}
+
+$('#btnRefresh').onclick = () => switchTab(state.tab);
+$('#btnToken').onclick = () => {
+  const t = prompt('设备令牌', state.token);
+  if (t != null) { state.token = t.trim(); localStorage.setItem('voxnote.v2.token', state.token); boot(); }
+};
+$('#q').oninput = loadRecords;
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+$('#btnAddEngine').onclick = async () => {
+  try {
+    await api('/engines', { method: 'POST', body: {
+      name: $('#eName').value || '新引擎', url: $('#eUrl').value,
+      model: $('#eModel').value, token: $('#eToken').value
+    }});
+    $('#eName').value = $('#eUrl').value = $('#eModel').value = $('#eToken').value = '';
+    loadEngines();
+  } catch (e) { toast(e.message, true); }
+};
+$('#btnBackup').onclick = async () => {
+  try { const r = await api('/backups', { method: 'POST' }); toast('已备份：' + r.name); loadSystem(); }
+  catch (e) { toast(e.message, true); }
+};
+$('#btnCleanup').onclick = async () => {
+  try {
+    const p = await api('/cleanup', { method: 'POST', body: { dry_run: true } });
+    if (!confirm('墓碑 ' + p.tombstones + ' 条、旧尝试 ' + p.attempts + ' 条，可释放 '
+      + Math.round(p.bytes / 1024) + ' KB。确认删除？')) return;
+    await api('/cleanup', { method: 'POST', body: { dry_run: false } });
+    toast('已清理'); loadSystem();
+  } catch (e) { toast(e.message, true); }
+};
+$('#btnSaveSettings').onclick = async () => {
+  try {
+    await api('/settings', { method: 'PATCH', body: {
+      tombstone_retention_days: $('#sTomb').value,
+      attempt_keep: $('#sKeep').value,
+      attempt_retention_days: $('#sAttDays').value,
+      backup_keep: $('#sBackup').value
+    }});
+    toast('已保存'); loadSystem();
+  } catch (e) { toast(e.message, true); }
+};
+
+function fmtMs(ms) {
+  ms = Math.max(0, ms | 0);
+  const s = Math.floor(ms / 1000), m = Math.floor(s / 60);
+  return String(m).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+}
+boot();
+setInterval(() => { if (state.tab === 'records' && !state.detailId) loadRecords(); }, 5000);
+</script>
+</body>
+</html>

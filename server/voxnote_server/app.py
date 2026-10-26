@@ -48,6 +48,13 @@ def create_app() -> FastAPI:
     # 控制台（静态文件放最后，避免吞掉 /api）
     web = config.web_dir()
     if os.path.isdir(web):
+        v2_page = os.path.join(web, "v2.html")
+        if os.path.isfile(v2_page):
+            from fastapi.responses import FileResponse
+
+            @app.get("/v2")
+            def v2_console():
+                return FileResponse(v2_page)
         app.mount("/", StaticFiles(directory=web, html=True), name="web")
     return app
 
