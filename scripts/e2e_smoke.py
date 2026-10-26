@@ -246,13 +246,31 @@ def check_v2_server(tmp: Path) -> list:
                 results.append(("v2 引擎配置", bool(eng.get("id")),
                                 "" if eng.get("id") else str(eng)))
 
-                tr = httpx.post(base + "/api/v2/records/%s/transcribe" % b1["id"],
-                                headers=h, json={"engine_id": eng.get("id")},
-                                timeout=60).json()
-                segs = tr.get("attempt", {}).get("segments", [])
-                ok = bool(tr.get("job_id")) and any("这是第 1 句测试转写" in s.get("text", "")
-                                                    for s in segs)
-                results.append(("v2 真转写", ok, "" if ok else str(tr)[:300]))
+                pr = httpx.get(base + "/api/v2/engines/%s/probe" % eng.get("id"),
+                               headers=h, timeout=20).json()
+                results.append(("v2 引擎 probe", bool(pr.get("ready")),
+                                "" if pr.get("ready") else str(pr)))
+
+                sub = httpx.post(base + "/api/v2/records/%s/transcribe" % b1["id"],
+                                 headers=h, json={"engine_id": eng.get("id")},
+                                 timeout=20).json()
+                jid = sub.get("job_id")
+                state = sub.get("state")
+                for _ in range(100):
+                    if not jid:
+                        break
+                    j = httpx.get(base + "/api/v2/jobs/%s" % jid, headers=h, timeout=20).json()
+                    state = j.get("state")
+                    if state in ("done", "failed"):
+                        break
+                    time.sleep(0.2)
+                tr = httpx.get(base + "/api/v2/records/%s/transcript" % b1["id"],
+                               headers=h, timeout=20).json()
+                segs = tr.get("segments", [])
+                ok = (state == "done" and any("这是第 1 句测试转写" in s.get("text", "")
+                                              for s in segs))
+                results.append(("v2 队列转写", ok,
+                                "" if ok else "state=%s tr=%s" % (state, str(tr)[:300])))
             finally:
                 stop(ep, elog)
 
