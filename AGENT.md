@@ -16,7 +16,7 @@ pwsh -NoProfile -File android/build.ps1 -Toolchain <jdk> -Sdk <sdk>   # 构建�
 
 - 纯 Java、单 Activity（`android/src/dev/voxnote/`），无第三方依赖、无 Gradle；UI 全代码手写，公共件在 `Ui.java`。
 - 厂商相关逻辑只放 `plugin/`（如 sogou），核心代码不得认识任何具体设备。
-- 人写内容（标题/分类/标记）与机器派生内容（转写/摘要）分离落盘，前者永不被覆盖；数据契约见 docs/DATA-CONTRACT.md。
+- 人写内容（标题/分类/标记）与机器派生内容（转写/摘要）分离落盘，前者永不被覆盖；数据契约见 docs/设计/数据契约.md。
 - 数据目录固定 `/sdcard/s1rec/`（旧名，勿改，改动需写迁移）。
 - 目标机 Android 8.1 / API 27，无分区存储；代码需兼容 Android 12。
 
@@ -34,12 +34,12 @@ pwsh -NoProfile -File android/build.ps1 -Toolchain <jdk> -Sdk <sdk>   # 构建�
 - 端到端验证不碰真实数据：把 `server/data/` 复制成临时目录，
   `VOXNOTE_DATA=<临时目录> python run.py --port <空闲端口>` 起临时实例，
   浏览器走查完删掉临时目录。
-- 同步/转录正在重设计（2026-10）：**结构以 docs/ARCHITECTURE.md（v1）为准**；
-  现状问题见 docs/DIAGNOSIS.md，现流程见 docs/CURRENT-FLOWS.md，目标交互见 docs/USER-FLOWS.md，
-  迁移与决策见 docs/REDESIGN.md。改这几块前先读，别在旧模型上继续加补丁。
-- 加功能/改交互前先读 docs/DESIGN-PLAYBOOK.md（一条主线、一套状态、一处真相）；
+- 同步/转录正在重设计（2026-10）：**结构以 docs/设计/架构设计.md（v1）为准**；
+  现状问题见 docs/分析/现状体检.md，现流程见 docs/流程/现有流程.md，目标交互见 docs/流程/目标流程.md，
+  迁移与决策见 docs/设计/重设计准备.md。改这几块前先读，别在旧模型上继续加补丁。
+- 加功能/改交互前先读 docs/设计/设计手册.md（一条主线、一套状态、一处真相）；
   功能准入过不了就别做，别把设置项和入口继续堆上去。
-- 开工按 docs/V1-PLAN.md 执行：范围、工作分解、里程碑与验收门都在里面；
+- 开工按 docs/计划/第一版行动计划.md 执行：范围、工作分解、里程碑与验收门都在里面；
   超出计划的先开 issue，别在 V1 里加功能。
 - 破坏性重建：不迁移旧数据；切换前必须按 runbook 备份，旧目录保持不动。
 

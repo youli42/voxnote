@@ -1,6 +1,6 @@
 """SQLite 存储层：设置、记录、逐句（机器层与人工修订分离）、任务、FTS 索引。
 
-约定（对应 docs/DATA-CONTRACT.md 的人机分离原则）：
+约定（对应 docs/设计/数据契约.md 的人机分离原则）：
   - segments.m_text / m_spk 是机器转写层，重转写整层替换；
   - e_text / e_spk 是人工修订层，永远不被机器层覆盖；
   - 生效内容 = COALESCE(e_*, m_*)。
