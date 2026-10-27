@@ -29,6 +29,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 
+import dev.voxnote.v2.V2Status;
 import dev.voxnote.v2.V2Store;
 import dev.voxnote.v2.V2Sync;
 import dev.voxnote.v2.V2SyncCenter;
@@ -56,7 +57,7 @@ public class DetailSheet implements Overlay {
 
         void onTranscribe(RecordVm vm);
 
-        /** 这场的同步状态（ServerSync.SYNC_*）。 */
+        /** 这场的同步状态（V2Status.*）。 */
         int syncState(RecordVm vm);
 
         /** 这场是不是从服务器取回的（决定「下载音频」入口是否出现）。 */
@@ -798,12 +799,12 @@ public class DetailSheet implements Overlay {
         String m = vm.dateText() + " · " + vm.fmtDur() + " · " + vm.statusLabel();
         int spkN = distinctSpeakers();
         if (spkN > 1) m += " · " + spkN + " 位发言人";
-        int sync = listener == null ? ServerSync.SYNC_NONE : listener.syncState(vm);
-        if (sync == ServerSync.SYNC_FAIL) m += " · 上传失败";
-        else if (sync == ServerSync.SYNC_OK) m += " · 已同步服务器";
-        else if (sync == ServerSync.SYNC_WAIT) m += " · 待上传服务器";
+        int sync = listener == null ? V2Status.NONE : listener.syncState(vm);
+        if (sync == V2Status.FAIL) m += " · 上传失败";
+        else if (sync == V2Status.OK) m += " · 已同步服务器";
+        else if (sync == V2Status.WAIT) m += " · 待上传服务器";
         meta.setText(m);
-        uploadBtn.setVisibility(sync == ServerSync.SYNC_FAIL ? View.VISIBLE : View.GONE);
+        uploadBtn.setVisibility(sync == V2Status.FAIL ? View.VISIBLE : View.GONE);
         boolean cloudNoAudio = listener != null && listener.fromCloud(vm) && !vm.hasAudio();
         audioBtn.setVisibility(cloudNoAudio ? View.VISIBLE : View.GONE);
         boolean hasCat = vm.cat != null && vm.cat.length() > 0;

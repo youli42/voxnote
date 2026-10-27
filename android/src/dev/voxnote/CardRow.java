@@ -12,6 +12,8 @@ import android.widget.TextView;
 
 import java.util.ArrayList;
 
+import dev.voxnote.v2.V2Status;
+
 /**
  * 列表卡片。一次建好控件，之后只改文字/可见性——滚动时不 new、不 inflate。
  * 与 H5 的 rowHTML 字段一一对应：标题、待处理原因、摘要、待办、关键词、元信息行。
@@ -274,13 +276,13 @@ public class CardRow extends LinearLayout {
 
         // 服务器同步状态（未配服务器/无音频不显示）。失败用红色徽标点出——
         // 与"待处理原因"（转写链路）分开：上传是同步链路的问题。
-        if (syncState == ServerSync.SYNC_FAIL) {
+        if (syncState == V2Status.FAIL) {
             syncTag.setText("上传失败");
             syncTag.setTextColor(Ui.DANGER);
             syncTag.setBackground(Ui.rounded(5, 0x0FC98B8B, Ui.DANGER_LINE, 1));
             syncTag.setVisibility(VISIBLE);
-        } else if (syncState == ServerSync.SYNC_OK || syncState == ServerSync.SYNC_WAIT) {
-            syncTag.setText(syncState == ServerSync.SYNC_OK ? "已同步" : "待上传");
+        } else if (syncState == V2Status.OK || syncState == V2Status.WAIT) {
+            syncTag.setText(syncState == V2Status.OK ? "已同步" : "待上传");
             styleTag(syncTag, false);
             syncTag.setVisibility(VISIBLE);
         } else {
