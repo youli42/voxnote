@@ -51,7 +51,7 @@ public class SettingsScreen {
 
         void onBeginKeyCapture();
 
-        /** 服务器同步状态一行字（ServerSync.statusLine()）。 */
+        /** 服务器同步状态一行字（宿主实现，v2 状态）。 */
         String serverStatus();
 
         /** 不看用户设置、直接从系统取的本机设备名（设备名输入框的留空提示用）。 */
@@ -121,7 +121,6 @@ public class SettingsScreen {
     private final LinearLayout permRow;
     private final TextView versionValue;
     private final TextView ignoredValue;
-    private final TextView serverEngineValue;
 
     private boolean capturing;
 
@@ -298,7 +297,6 @@ public class SettingsScreen {
 
         // ---------------- 服务器与同步（v2）
         LinearLayout srvGroup = Ui.group(act, "服务器与同步");
-        serverEngineValue = valueButton();   // 旧 v1 引擎行已移除，占位避免旧刷新方法空指针
         LinearLayout srvStatusRow = Ui.row(act);
         Ui.pad(srvStatusRow, 0, 8, 0, 8);
         srvStatusRow.addView(Ui.text(act, "状态", 12.5f, Ui.TEXT), Ui.lp(0,
@@ -640,11 +638,6 @@ public class SettingsScreen {
     }
 
     /** 服务器转写引擎行回显：宿主懒加载 /asr-config 或保存成功后回填（空 = 提示点开）。 */
-    public void setServerEngineLabel(String label) {
-        serverEngineValue.setText(
-                label == null || label.trim().length() == 0 ? "点开选择" : label);
-    }
-
     public void refreshSources(JSONArray sources) {
         sourcesList.removeAllViews();
         boolean any = false;

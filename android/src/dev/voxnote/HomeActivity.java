@@ -31,9 +31,11 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import dev.voxnote.v2.V2Audio;
 import dev.voxnote.v2.V2RecordService;
 import dev.voxnote.v2.V2Store;
 import dev.voxnote.v2.V2Sync;
+import dev.voxnote.v2.V2Status;
 import dev.voxnote.v2.V2SyncCenter;
 
 import org.json.JSONArray;
@@ -68,7 +70,6 @@ public class HomeActivity extends Activity implements Picker.Host {
     private Storage storage;
     private DataCenter data;
     private Player player;
-    private ServerSync serverSync;
     private final Recorder recorder = new Recorder();
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -162,7 +163,6 @@ public class HomeActivity extends Activity implements Picker.Host {
         }
     };
     /** 服务器转写引擎行回显只懒加载一次（每次打开设置页都拉一遍没必要）。 */
-    private boolean serverEngineLabelLoaded;
     private final Runnable recTimerTick = new Runnable() {
         public void run() {
             if (!recording) return;
@@ -221,45 +221,6 @@ public class HomeActivity extends Activity implements Picker.Host {
         storage = new Storage(this);
         data = new DataCenter(this, state, storage);
         player = new Player(this);
-        serverSync = new ServerSync(this, settings, storage);
-        serverSync.setMetaApplier(new ServerSync.MetaApplier() {
-            /** 服务器拉回的元数据差异（[记录id, 标签名, 标题, 标记JSON]，空串 = 该项没变）：
-             *  标签按名字对上本地分类，对不上就新建一个（服务端标签是自由字符串）；
-             *  标题、打点标记直接 patch 用户态（是否覆盖由同步侧按"本地没改过"判定）。
-             *  每条 patch 完成后提交同步侧的基线暂存（没提交的话下一轮同步会重试），
-             *  最后一条的回调顺带重扫列表亮出新分类/新标题。 */
-            public void apply(ArrayList<String[]> updates) {
-                boolean catsAdded = false;
-                for (int i = 0; i < updates.size(); i++) {
-                    final String[] u = updates.get(i);
-                    JSONObject p = new JSONObject();
-                    try {
-                        if (u[1].length() > 0) {
-                            String catId = settings.catIdByName(u[1]);
-                            if (catId == null) {
-                                UiSettings.Cat c = new UiSettings.Cat(settings.newCatId(), u[1]);
-                                settings.categories.add(c);   // 批量追加，循环外一次 save
-                                catsAdded = true;
-                                catId = c.id;
-                            }
-                            p.put("cat", catId);
-                        }
-                        if (u.length > 2 && u[2].length() > 0) p.put("title", u[2]);
-                        if (u.length > 3 && u[3].length() > 0) p.put("marks", new JSONArray(u[3]));
-                    } catch (Throwable ignore) { }
-                    if (p.length() == 0) continue;
-                    final boolean last = i == updates.size() - 1;
-                    data.patch(u[0], p, new DataCenter.DoneCallback() {
-                        public void onDone() {
-                            serverSync.markMetaDone(u[0]);
-                            if (last) load(false, null, false);  // patch 异步落库，完成后重扫让列表亮出新分类/标题
-                        }
-                    });
-                }
-                if (catsAdded) settings.save();
-            }
-        });
-
         setContentView(buildRoot());
         // 冷启动别把键盘顶起来：搜索框/标题框默认都不抢焦点。
         try {
@@ -320,7 +281,7 @@ public class HomeActivity extends Activity implements Picker.Host {
             }
             if (url == null && token == null && syncNow == null) return;
             boolean applied = false;
-            if ((url != null || token != null) && serverSync.configured()) {
+            if ((url != null || token != null) && V2Sync.hasServer(this)) {
                 toast("服务器已配置，忽略配对参数");
             } else {
                 boolean dirty = false;
@@ -340,7 +301,7 @@ public class HomeActivity extends Activity implements Picker.Host {
                     switchTab("settings"); // 扫码来的直接亮出填好的配置，方便顺手点测试
                 }
             }
-            if ("1".equals(syncNow) && serverSync.configured()) {
+            if ("1".equals(syncNow) && V2Sync.hasServer(this)) {
                 pendingSync = true;
                 load(false, null, false);
             }
@@ -479,7 +440,6 @@ public class HomeActivity extends Activity implements Picker.Host {
         if ("settings".equals(name)) {
             settingsPage.refresh();
             settingsPage.refreshSources(data.sourceInfoBlocking());
-            loadServerEngineLabel();
         }
         setTabActive(name);
     }
@@ -946,22 +906,12 @@ public class HomeActivity extends Activity implements Picker.Host {
         }
 
         public String serverStatus() {
-            String base = serverSync.statusLine();
-            if (!serverSync.configured()) return base;
-            // 状态行回显同步计数：失败/待上传要点出来，「点立即同步可重传失败场次」
-            int[] n = serverSync.syncCounts(all);
-            StringBuilder sb = new StringBuilder();
-            if (n[2] > 0) sb.append("上传失败 ").append(n[2]).append(" 场");
-            if (n[1] > 0) {
-                if (sb.length() > 0) sb.append(" · ");
-                sb.append("待上传 ").append(n[1]).append(" 场");
-            }
-            if (sb.length() == 0 && n[0] > 0) sb.append("已同步 ").append(n[0]).append(" 场");
-            return sb.length() > 0 ? base + " · " + sb : base;
+            return v2Status();
         }
 
         public String autoDeviceName() {
-            return serverSync.autoDeviceName();
+            String m = android.os.Build.MODEL;
+            return m == null || m.length() == 0 ? "Android" : m;
         }
 
         public void onScanPair() {
@@ -1041,20 +991,8 @@ public class HomeActivity extends Activity implements Picker.Host {
         }
 
         public void onPickServerEngine() {
-            if (!serverSync.configured()) {
-                toast("先填服务器地址");
-                return;
-            }
-            toast("读取服务器配置…");
-            serverSync.fetchAsrConfig(new ServerSync.AsrConfigCallback() {
-                public void onDone(String err, ServerSync.AsrConfig cfg) {
-                    if (err != null) {
-                        toast("读取失败：" + err);
-                        return;
-                    }
-                    pickServerEngine(cfg);
-                }
-            });
+            // 引擎统一在控制台 / 同步中心配置，手机端不再做 v1 的服务器引擎选择
+            toast("转写引擎在控制台或「同步中心 → 引擎」里配置");
         }
 
         public int ignoredCount() {
@@ -1134,13 +1072,8 @@ public class HomeActivity extends Activity implements Picker.Host {
         // 录完自动上传：等重扫完新场次进列表再推，否则快照里没有它
         if (pendingSync) {
             pendingSync = false;
-            if (serverSync.configured()) {
-                serverSync.syncNow(new ArrayList<RecordVm>(all), new ServerSync.ResultCallback() {
-                    public void onResult(String err, String msg, boolean changed) {
-                        if (err != null) toast("自动上传失败：" + err);
-                        if (changed && err == null) load(false, null, false);
-                    }
-                });
+            if (V2Sync.hasServer(this)) {
+                V2Sync.syncAsync(this);
             }
         }
         if (toastResult) toast("已扫描 " + r.total + " 场");
@@ -1432,7 +1365,7 @@ public class HomeActivity extends Activity implements Picker.Host {
             }
             RecordVm vm = shown.get(position);
             String src = vm.fromSource == null ? null : sourceLabels.get(vm.fromSource);
-            row.bind(vm, settings, rowHost, src, syncStateOf(vm.id), serverSync.isCloud(vm.id));
+            row.bind(vm, settings, rowHost, src, syncStateOf(vm.id), isCloudVm(vm.id));
             row.setBatch(batch, selected.contains(vm.id));
             return row;
         }
@@ -1501,15 +1434,33 @@ public class HomeActivity extends Activity implements Picker.Host {
         }
 
         public boolean fromCloud(RecordVm vm) {
-            return serverSync.isCloud(vm.id);
+            return isCloudVm(vm.id);
         }
 
         public void onDownloadAudio(final RecordVm vm) {
+            final String rid = v2RecordIdFor(vm.id);
+            if (rid.length() == 0) {
+                toast("服务器上没有这场录音");
+                return;
+            }
             toast("正在下载音频…");
-            serverSync.fetchAudio(vm.id, new ServerSync.ResultCallback() {
-                public void onResult(String err, String msg, boolean changed) {
-                    if (err != null) {
-                        toast("下载失败：" + err);
+            final java.io.File dir = storage.privateRecords();
+            if (!dir.exists()) dir.mkdirs();
+            V2Audio.downloadAsync(HomeActivity.this, rid, dir, new V2Audio.Callback() {
+                public void onDone(Throwable err, java.io.File file) {
+                    if (err != null || file == null) {
+                        toast("下载失败：" + (err == null ? "空文件" : err.getMessage()));
+                        return;
+                    }
+                    // 改成 stamp 前缀，重扫时并到同一张卡片上，播放键才能亮
+                    String ext = ".m4a";
+                    String n = file.getName();
+                    int dot = n.lastIndexOf('.');
+                    if (dot > 0) ext = n.substring(dot);
+                    java.io.File dst = new java.io.File(dir, vm.id + "_cloud" + ext);
+                    if (dst.exists()) dst.delete();
+                    if (!file.renameTo(dst)) {
+                        toast("音频已下载：" + file.getAbsolutePath());
                         return;
                     }
                     toast("音频已下载");
@@ -1520,9 +1471,10 @@ public class HomeActivity extends Activity implements Picker.Host {
 
         public void onRetryUpload(final RecordVm vm) {
             toast("正在重传…");
-            serverSync.retryUpload(vm, new ServerSync.ResultCallback() {
-                public void onResult(String err, String msg, boolean changed) {
-                    toast(err == null ? "已重新上传，转写稿稍后回填" : "重传失败：" + err);
+            // v2：outbox 里的失败项会在下一轮同步里重试
+            V2Sync.syncAsync(HomeActivity.this);
+            ui.postDelayed(new Runnable() {
+                public void run() {
                     rebuildSyncStates();
                     adapter.notifyDataSetChanged();
                     RecordVm cur = findVm(vm.id);
@@ -1530,7 +1482,7 @@ public class HomeActivity extends Activity implements Picker.Host {
                         detail.refresh(cur);   // 重传成功后收起「重传」按钮
                     }
                 }
-            });
+            }, 1500);
         }
 
         public void onPlaybackEnded(RecordVm vm) {
@@ -1560,39 +1512,83 @@ public class HomeActivity extends Activity implements Picker.Host {
     }
 
     private void transcribe(final RecordVm vm) {
-        // 配了服务器且有音频：转写发生在服务器（本地不转）。没传过/文件变了先补传，
-        // 再触发入队；新稿转好后由前台轮询（livePoll）增量回填到列表和详情。
-        if (serverSync != null && serverSync.configured() && vm.hasAudio()) {
-            toast("正在请求服务器转写…");
-            serverSync.transcribeRemote(vm, new ServerSync.ResultCallback() {
-                public void onResult(String err, String msg, boolean changed) {
-                    toast(err == null ? msg : "转写请求失败：" + err);
-                    rebuildSyncStates();
-                    adapter.notifyDataSetChanged();
-                }
-            });
+        // V1 统一走 v2：服务器入队转写，稿子由同步拉回本地
+        if (!V2Sync.hasServer(this) || !vm.hasAudio()) {
+            toast("先在设置里配对服务器，或换一场有录音的场次");
             return;
         }
-        toast("转写：正在重扫外部来源…");
-        final int keepPos = list.getFirstVisiblePosition();
-        final View keep = list.getChildAt(0);
-        final int keepTop = keep == null ? 0 : keep.getTop();
-        data.load(true, null, new DataCenter.LoadCallback() {
-            public void onLoaded(DataCenter.Result r) {
-                applyResult(r, true, keepPos, keepTop, false);
-                RecordVm updated = findVm(vm.id);
-                if (updated != null) {
-                    if (!updated.segs.isEmpty()) {
-                        toast("已从外部来源导入 " + updated.segs.size() + " 句");
-                    } else {
-                        toast("外部来源里没有这场的内容（自录的录音只有声音，没有字）");
+        new AlertDialog.Builder(this)
+                .setTitle("开始转写")
+                .setMessage("将调用服务器配置的转写引擎。若配置的是云 API，音频会交给第三方服务处理。")
+                .setPositiveButton("继续", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        requestTranscribeV2(vm);
                     }
-                    if (detail.isOpen() && vm.id.equals(detail.id())) detail.refresh(updated);
-                } else {
-                    toast("外部来源里没有这场的内容");
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 让服务器把这条记录入队转写；入队后由同步轮询拉回稿子。 */
+    private void requestTranscribeV2(final RecordVm vm) {
+        final String rid = v2RecordIdFor(vm.id);
+        if (rid.length() == 0) {
+            toast("服务器还没有这场录音，先同步上传");
+            return;
+        }
+        toast("正在请求服务器转写…");
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    V2Sync.admin(HomeActivity.this, "POST",
+                            "/api/v2/records/" + rid + "/transcribe", new JSONObject());
+                    runOnUiThread(new Runnable() {
+                        public void run() {
+                            toast("已加入转写队列");
+                            rebuildSyncStates();
+                            adapter.notifyDataSetChanged();
+                        }
+                    });
+                } catch (final Throwable t) {
+                    runOnUiThread(new Runnable() {
+                        public void run() {
+                            toast("转写请求失败：" + t.getMessage());
+                        }
+                    });
                 }
             }
-        });
+        }, "v2-transcribe").start();
+    }
+
+    /** 本机扫描 id（stamp）→ v2 记录 id；找不到返回空串。 */
+    private String v2RecordIdFor(String legacyStamp) {
+        try {
+            JSONObject rec = V2Store.get(this).findByLegacy(legacyStamp);
+            return rec == null ? "" : rec.optString("id", "");
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /** 这条记录只有服务器上的音频、本机还没有。 */
+    private boolean isCloudVm(String legacyStamp) {
+        try {
+            JSONObject rec = V2Store.get(this).findByLegacy(legacyStamp);
+            if (rec == null || rec.optBoolean("deleted", false)) return false;
+            String loc = rec.isNull("audio_loc") ? "" : rec.optString("audio_loc", "");
+            return loc.length() == 0;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 服务器上的分类值：可能存的是分类名，也可能存的是本地分类 id。 */
+    private String catIdForServerValue(String v) {
+        if (v == null || v.length() == 0) return null;
+        String byName = settings.catIdByName(v);
+        if (byName != null) return byName;
+        if (settings.catName(v).length() > 0) return v;
+        return null;
     }
 
     private RecordVm findVm(String id) {
@@ -1607,110 +1603,15 @@ public class HomeActivity extends Activity implements Picker.Host {
     /** 数据变化或同步回调后整批重算（syncState 读文件 stat，不在滚动路径里逐条调）。 */
     private void rebuildSyncStates() {
         syncStates.clear();
-        if (serverSync == null || !serverSync.configured()) return;
+        if (!V2Sync.hasServer(this)) return;
         for (int i = 0; i < all.size(); i++) {
-            syncStates.put(all.get(i).id, serverSync.syncState(all.get(i)));
+            syncStates.put(all.get(i).id, V2Status.of(this, all.get(i).id));
         }
     }
 
     private int syncStateOf(String id) {
         Integer v = syncStates.get(id);
-        return v == null ? ServerSync.SYNC_NONE : v;
-    }
-
-    // ------------------------------------------------------------ 服务器转写引擎选择（设置页）
-
-    /** 转写引擎回显文案：引擎名；Whisper 追加当前模型（手机上最常换的就是这两项）。 */
-    private String asrConfigLabel(ServerSync.AsrConfig cfg) {
-        String name = cfg.defaultEngine;
-        for (int i = 0; i < cfg.engines.size(); i++) {
-            if (cfg.defaultEngine.equals(cfg.engines.get(i).id)) {
-                name = cfg.engines.get(i).name;
-                break;
-            }
-        }
-        if ("whisper-local".equals(cfg.defaultEngine) && cfg.whisperModel.length() > 0) {
-            name += " · " + cfg.whisperModel;
-        }
-        return name;
-    }
-
-    private void pickServerEngine(final ServerSync.AsrConfig cfg) {
-        final ArrayList<ServerSync.AsrConfig.EngineInfo> es = cfg.engines;
-        if (es.isEmpty()) {
-            toast("服务器没有可用的转写引擎");
-            return;
-        }
-        String[] labels = new String[es.size()];
-        int sel = -1;
-        for (int i = 0; i < es.size(); i++) {
-            ServerSync.AsrConfig.EngineInfo e = es.get(i);
-            labels[i] = e.name;
-            if (e.id.equals(cfg.defaultEngine)) {
-                labels[i] += " · 当前";
-                sel = i;
-            }
-            if (!e.enabled) labels[i] += "（已停用）";
-            else if (!e.available) labels[i] += "（不可用）";
-        }
-        Picker.show(this, this, "服务器转写引擎", labels, sel, new Picker.OnPick() {
-            public void onPick(int index) {
-                final ServerSync.AsrConfig.EngineInfo e = es.get(index);
-                if ("whisper-local".equals(e.id)) {
-                    pickWhisperModel(cfg);   // Whisper 再选一档模型
-                    return;
-                }
-                applyServerAsrConfig(e.id, "", e.name);
-            }
-        });
-    }
-
-    private void pickWhisperModel(final ServerSync.AsrConfig cfg) {
-        final ArrayList<ServerSync.AsrConfig.WhisperModel> ms = cfg.whisperModels;
-        if (ms.isEmpty()) {
-            applyServerAsrConfig("whisper-local", "", "Whisper（本地）");
-            return;
-        }
-        String[] labels = new String[ms.size()];
-        int sel = -1;
-        for (int i = 0; i < ms.size(); i++) {
-            ServerSync.AsrConfig.WhisperModel m = ms.get(i);
-            labels[i] = m.name;
-            if (m.sizeHint.length() > 0) labels[i] += " " + m.sizeHint;
-            if (!m.installed) labels[i] += "（未安装）";
-            if (m.name.equals(cfg.whisperModel)) {
-                labels[i] += " · 当前";
-                sel = i;
-            }
-        }
-        Picker.show(this, this, "Whisper 模型", labels, sel, new Picker.OnPick() {
-            public void onPick(int index) {
-                ServerSync.AsrConfig.WhisperModel m = ms.get(index);
-                applyServerAsrConfig("whisper-local", m.name, "Whisper · " + m.name);
-            }
-        });
-    }
-
-    private void applyServerAsrConfig(String engine, String whisperModel, final String label) {
-        serverSync.setAsrConfig(engine, whisperModel, new ServerSync.ResultCallback() {
-            public void onResult(String err, String msg, boolean changed) {
-                toast(err == null ? "服务器转写已设为 " + label : "设置失败：" + err);
-                if (err == null && settingsPage != null) settingsPage.setServerEngineLabel(label);
-            }
-        });
-    }
-
-    /** 打开设置页时懒加载一次服务器引擎配置，回显到「服务器转写引擎」行。 */
-    private void loadServerEngineLabel() {
-        if (serverEngineLabelLoaded || !serverSync.configured()) return;
-        serverEngineLabelLoaded = true;
-        serverSync.fetchAsrConfig(new ServerSync.AsrConfigCallback() {
-            public void onDone(String err, ServerSync.AsrConfig cfg) {
-                if (err == null && cfg != null && settingsPage != null && !isDestroyed()) {
-                    settingsPage.setServerEngineLabel(asrConfigLabel(cfg));
-                }
-            }
-        });
+        return v == null ? V2Status.NONE : v;
     }
 
     // ------------------------------------------------------------ 录音
@@ -1874,39 +1775,81 @@ public class HomeActivity extends Activity implements Picker.Host {
         pollHandler.removeCallbacks(livePoll);
     }
 
-    // ------------------------------------------------------------ 服务端转写实时回显
-    // 前台期间每 6 秒只拉一次转写稿（不推音频）。服务端转写进行中时，
-    // 稿子边生成边落库，这里拉回来重写 md 并重扫，列表/详情就能看到内容长出来。
-    // 每 5 轮（约 30 秒）顺带跑一轮云端取回：本机没有的服务器场次直接进列表
-    // （打「云端」标），标题/标签改名同步下来，音频看设置里的自动同步开关。
+    // ------------------------------------------------------------ v2 前台轮询
+    // 前台期间每 6 秒跑一轮 v2 同步：推 outbox、拉 changes/manifest、拉转写稿，
+    // 再把服务器改过的标题/分类/标记并回本地，列表与详情就能跟着变。
 
     private final Handler pollHandler = new Handler(Looper.getMainLooper());
-    private int cloudTick;
 
-    /** 云端取回一轮；后台驱动，失败静默（状态行/立即同步里能看到原因）。 */
     private void syncCloudNow() {
+        if (!V2Sync.hasServer(this) || loading || isFinishing()) return;
+        requestV2Sync();
+    }
+
+    /** 触发一轮 v2 同步，完成后把服务器元数据并回本地并重扫。 */
+    private void requestV2Sync() {
+        if (!V2Sync.hasServer(this) || isFinishing()) return;
+        V2Sync.syncAsync(this);
+        ui.postDelayed(new Runnable() {
+            public void run() {
+                boolean changed = applyV2ServerMeta();
+                rebuildSyncStates();
+                adapter.notifyDataSetChanged();
+                updateV2SyncBar();
+                if (changed) load(false, null, false);
+            }
+        }, 1500);
+    }
+
+    /**
+     * 把 v2 记录里的标题/分类/标记并回本地用户态。
+     * 只在该记录没有待上传改动时才覆盖，避免把本地刚改的内容顶掉。
+     * 返回是否发生了改动。
+     */
+    private boolean applyV2ServerMeta() {
+        boolean changed = false;
         try {
-            if (serverSync == null || !serverSync.configured() || loading || isFinishing()) return;
-            serverSync.syncCloud(new ArrayList<RecordVm>(all), new ServerSync.ResultCallback() {
-                public void onResult(String err, String msg, boolean changed) {
-                    if (err != null || !changed) return;
-                    load(false, null, false);
+            V2Store st = V2Store.get(this);
+            JSONArray rs = st.listRecords();
+            for (int i = 0; i < rs.length(); i++) {
+                JSONObject rec = rs.optJSONObject(i);
+                if (rec == null || rec.optBoolean("deleted", false)) continue;
+                String stamp = rec.isNull("legacy_id") ? "" : rec.optString("legacy_id", "");
+                if (stamp.length() == 0) continue;
+                if (st.pendingCount(rec.optString("id")) > 0) continue;   // 本地有未推送改动
+                RecordVm vm = findVm(stamp);
+                if (vm == null) continue;
+                JSONObject patch = new JSONObject();
+                String title = rec.isNull("title") ? "" : rec.optString("title", "");
+                if (title.length() > 0 && !title.equals(vm.title)) patch.put("title", title);
+                String cat = rec.isNull("cat") ? "" : rec.optString("cat", "");
+                String catId = catIdForServerValue(cat);
+                if (catId != null && !catId.equals(vm.cat == null ? "" : vm.cat)) {
+                    patch.put("cat", catId);
                 }
-            });
+                String marks = rec.optString("marks", "[]");
+                if (marks.length() > 2 && !marks.equals(marksJson(vm))) {
+                    patch.put("marks", new JSONArray(marks));
+                }
+                if (patch.length() == 0) continue;
+                data.patch(stamp, patch, null);
+                changed = true;
+            }
         } catch (Throwable ignore) { }
+        return changed;
+    }
+
+    private static String marksJson(RecordVm vm) {
+        JSONArray a = new JSONArray();
+        for (int i = 0; i < vm.marks.size(); i++) a.put(vm.marks.get(i));
+        return a.toString();
     }
 
     private final Runnable livePoll = new Runnable() {
         public void run() {
             try {
-                if (serverSync != null && serverSync.configured() && !loading && !isFinishing()) {
-                    serverSync.pollLive(new ArrayList<RecordVm>(all),
-                            new ServerSync.ResultCallback() {
-                                public void onResult(String err, String msg, boolean changed) {
-                                    if (changed && err == null) load(false, null, false);
-                                }
-                            });
-                    if (++cloudTick % 5 == 1) syncCloudNow();   // 首轮就取回，之后约 30 秒一轮
+                if (V2Sync.hasServer(HomeActivity.this) && !loading && !isFinishing()) {
+                    requestV2Sync();
                 }
             } catch (Throwable ignore) { }
             pollHandler.postDelayed(this, 6000);
@@ -2028,9 +1971,6 @@ public class HomeActivity extends Activity implements Picker.Host {
         } catch (Throwable ignore) { }
         try {
             player.release();
-        } catch (Throwable ignore) { }
-        try {
-            serverSync.shutdown();
         } catch (Throwable ignore) { }
         try {
             data.shutdown();
