@@ -5,122 +5,353 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>voxnote 控制台 v2</title>
 <style>
-  :root{color-scheme:dark;--bg:#0f1115;--panel:#171a20;--line:#2a2f38;--text:#e7e9ee;--dim:#9aa1ad;--accent:#7aa2ff;--warn:#ffd479;--bad:#ff8a8a}
+  :root{color-scheme:dark;--bg:#0f1115;--panel:#171a20;--panel2:#1d212a;--line:#2a2f38;--text:#e7e9ee;--dim:#9aa1ad;--accent:#7aa2ff;--warn:#ffd479;--bad:#ff8a8a;--ok:#8ee6a4}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-  header{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line)}
-  header b{font-size:16px}
-  header .grow{flex:1}
-  nav{display:flex;gap:6px;padding:8px 16px;border-bottom:1px solid var(--line)}
-  nav button{background:var(--panel);color:var(--text);border:1px solid var(--line);padding:6px 12px;border-radius:8px;cursor:pointer}
-  nav button.on{background:var(--accent);color:#0b1020;border-color:var(--accent)}
-  main{padding:16px;max-width:1200px;margin:0 auto}
-  .tab{display:none}.tab.on{display:block}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
-  tr.row{cursor:pointer}tr.row:hover{background:var(--panel)}
-  .muted{color:var(--dim)}.warn{color:var(--warn)}.bad{color:var(--bad)}.ok{color:#8ee6a4}
-  input,button,select{font:inherit}
-  input,select{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
-  .btn{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 10px;cursor:pointer}
-  .btn.primary{background:var(--accent);color:#0b1020;border-color:var(--accent)}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+  a{color:var(--accent);cursor:pointer;text-decoration:none}
+  .app{display:flex;min-height:100vh}
+  .side{width:212px;flex:0 0 212px;border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh}
+  .brand{display:flex;align-items:center;gap:10px;padding:2px 6px 14px}
+  .logo{width:30px;height:30px;border-radius:9px;background:var(--accent);color:#0b1020;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:17px}
+  .brand b{display:block;font-size:15px}.brand small{display:block;color:var(--dim);font-size:11px;letter-spacing:.04em}
+  #nav{display:flex;flex-direction:column;gap:4px}
+  .navi{display:flex;align-items:center;gap:8px;background:transparent;color:var(--text);border:1px solid transparent;padding:8px 10px;border-radius:9px;cursor:pointer;font:inherit;text-align:left}
+  .navi:hover{background:var(--panel)}
+  .navi.on{background:var(--panel2);border-color:var(--line);color:var(--accent)}
+  .badge{margin-left:auto;background:var(--accent);color:#0b1020;border-radius:999px;padding:0 7px;font-size:11px;font-weight:600;line-height:17px}
+  .badge:empty{display:none}
+  .side-foot{margin-top:auto;font-size:12px;padding:8px 6px;border-top:1px solid var(--line);word-break:break-all}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--line);background:rgba(15,17,21,.92);backdrop-filter:blur(6px)}
+  .top h1{font-size:17px;margin:0}
+  .spacer{flex:1}
+  #content{padding:16px 20px 44px;max-width:1280px;width:100%}
+  .page{display:none}.page.on{display:block}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin:0 0 12px}
+  .card h3{margin:0 0 10px;font-size:14px}
+  .card h3 .muted{font-weight:400}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:12px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .tile[data-go]{cursor:pointer}
+  .tile[data-go]:hover{border-color:var(--accent)}
+  .tile .k{color:var(--dim);font-size:12px}
+  .tile .v{font-size:26px;font-weight:600;margin:2px 0;letter-spacing:.02em}
+  .tile .d{color:var(--dim);font-size:12px}
+  table.tbl{width:100%;border-collapse:collapse;font-size:13px;min-width:560px}
+  .tbl th,.tbl td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  .tbl th{color:var(--dim);font-weight:500;font-size:12px;position:sticky;top:0;background:var(--panel);z-index:1}
+  .tbl tbody tr.row{cursor:pointer}
+  .tbl tbody tr[data-rec]{cursor:pointer}
+  .tbl tbody tr.row:hover,.tbl tbody tr[data-rec]:hover{background:var(--panel2)}
+  .sub{font-size:12px;color:var(--dim)}
+  .tt{max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .muted{color:var(--dim)}.warn{color:var(--warn)}.bad{color:var(--bad)}.ok{color:var(--ok)}
+  code{background:#0b0d11;border:1px solid var(--line);border-radius:6px;padding:1px 5px;font-size:12px;word-break:break-all}
+  input,select,textarea,button{font:inherit}
+  input,select,textarea{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 9px;outline:none}
+  input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+  input[type=checkbox]{padding:0;width:auto}
+  label.chk{display:inline-flex;align-items:center;gap:6px;color:var(--dim);font-size:13px;white-space:nowrap}
+  .btn{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 11px;cursor:pointer;white-space:nowrap}
+  .btn:hover{border-color:#3d4552}
+  .btn.primary{background:var(--accent);color:#0b1020;border-color:var(--accent);font-weight:600}
   .btn.danger{border-color:#6b2a2a;color:var(--bad)}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  pre{background:#0b0d11;border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;max-height:360px;white-space:pre-wrap}
-  .seg{padding:4px 8px;border-left:2px solid var(--line);margin:2px 0}
-  .seg b{color:var(--dim);font-weight:400;font-size:12px;margin-right:8px}
-  .wave{height:64px;margin:8px 0 4px;min-width:0}
-  .player{display:flex;align-items:center;gap:10px;margin-top:10px}
-  .player .wave{flex:1;margin:0}
-  .pill{display:inline-block;padding:1px 8px;border-radius:999px;border:1px solid var(--line);font-size:12px}
-  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  #toast{position:fixed;right:16px;bottom:16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;display:none;max-width:420px}
+  .btn.mini{padding:2px 8px;font-size:12px;border-radius:7px}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .filters{gap:8px}
+  #recQ{flex:1;min-width:200px}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;border:1px solid var(--line);font-size:12px;white-space:nowrap}
+  .pill.ok{color:var(--ok);border-color:#2e5a3c}
+  .pill.bad{color:var(--bad);border-color:#6b2a2a}
+  .pill.warn{color:var(--warn);border-color:#5f4d1f}
+  .st-uploaded{color:var(--dim)}
+  .st-queued{color:var(--warn);border-color:#5f4d1f}
+  .st-transcribing{color:var(--accent);border-color:#33436b}
+  .st-done{color:var(--ok);border-color:#2e5a3c}
+  .st-failed{color:var(--bad);border-color:#6b2a2a}
+  .bar{height:6px;background:#0b0d11;border:1px solid var(--line);border-radius:999px;overflow:hidden;min-width:80px}
+  .bar span{display:block;height:100%;background:var(--accent)}
+  .wave{height:64px;margin:10px 0 2px;min-width:0}
+  .player{display:flex;align-items:center;gap:10px}
+  .jobrow{border-top:1px solid var(--line);padding:9px 0}
+  .jobrow:first-of-type{border-top:0}
+  .seg{padding:7px 0;border-bottom:1px dashed var(--line)}
+  .seg:last-child{border-bottom:0}
+  .seg-h{display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap}
+  .seg-h b{color:var(--dim);font-weight:400;font-size:12px}
+  .seg-t{white-space:pre-wrap;word-break:break-word}
+  .seg.gone .seg-t{color:var(--dim);text-decoration:line-through}
+  .segtool{margin-bottom:4px;font-size:12px}
+  .editrow{border-top:1px solid var(--line);padding:8px 0}
+  .editrow:first-of-type{border-top:0}
+  .attemptrow{border-top:1px solid var(--line);padding:8px 0}
+  .attemptrow:first-of-type{border-top:0}
+  .diffbar{border-top:1px solid var(--line);margin-top:10px;padding-top:10px}
+  .diff-same{border-left-color:var(--line)}
+  .diff-changed{border-left-color:var(--warn);background:rgba(255,212,121,.06);padding-left:8px}
+  .diff-added{border-left-color:var(--ok);background:rgba(142,230,164,.07);padding-left:8px}
+  .diff-removed{border-left-color:var(--bad);background:rgba(255,138,138,.07);padding-left:8px}
+  .diff-del{color:var(--bad);text-decoration:line-through}
+  .diff-add{color:var(--ok)}
+  .subcard{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:10px}
+  #toast{position:fixed;right:16px;bottom:16px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;display:none;max-width:460px;z-index:60;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:70;padding:16px}
+  .modal.on{display:flex}
+  .modal-box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;width:540px;max-width:100%}
+  .modal-box h3{margin:0 0 8px;font-size:15px}
+  #mHint{font-size:12.5px;margin-bottom:8px;white-space:pre-wrap;color:var(--dim)}
+  #mText{width:100%;resize:vertical;min-height:80px}
+  .modal-actions{margin-top:12px}
+  .qrbox{width:160px;height:160px;background:#fff;border-radius:10px;padding:4px;flex:0 0 160px}
+  .qrbox img,.qrbox canvas{width:100%;height:100%}
+  .pairstuff{flex:1;min-width:230px;display:flex;flex-direction:column;gap:5px;font-size:13px}
+  .pairstuff .muted{font-size:12px}
+  .newtoken{margin-top:8px;border:1px dashed var(--bad);border-radius:8px;padding:8px;font-size:12px;display:flex;flex-direction:column;gap:5px}
+  .titleinput{flex:1;min-width:240px;font-size:17px;font-weight:600;background:transparent;border-color:transparent;padding:4px 6px}
+  .titleinput:hover,.titleinput:focus{background:var(--panel2);border-color:var(--line)}
+  .meta{margin-top:6px;font-size:12.5px;gap:6px}
+  .rec-mini{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line);cursor:pointer;font-size:13px}
+  .rec-mini:first-child{border-top:0}
+  .rec-mini:hover{color:var(--accent)}
+  .grow{flex:1;min-width:0}
+  pre{background:#0b0d11;border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;max-height:340px;white-space:pre-wrap;font-size:12px}
+  .warncard{border-color:#5f4d1f;color:var(--warn)}
+  .badcard{border-color:#6b2a2a;color:var(--bad)}
+  @media(max-width:760px){
+    .app{flex-direction:column}
+    .side{width:auto;height:auto;position:static;border-right:0;border-bottom:1px solid var(--line);flex-direction:row;flex-wrap:wrap;align-items:center;padding:10px}
+    .brand{padding:0 8px 0 0}
+    #nav{flex-direction:row;flex-wrap:wrap;gap:4px}
+    .side-foot{margin:0;border-top:0;width:100%;padding:4px 6px}
+    #content{padding:12px}
+  }
 </style>
 </head>
 <body>
-<header>
-  <b>voxnote</b><span class="pill">v2 控制台</span>
-  <span id="conn" class="muted">连接中…</span>
-  <span class="grow"></span>
-  <button class="btn" id="btnToken">更换令牌</button>
-  <button class="btn primary" id="btnRefresh">刷新</button>
-</header>
-<nav>
-  <button data-tab="records" class="on">记录库</button>
-  <button data-tab="conflicts">冲突</button>
-  <button data-tab="engines">引擎</button>
-  <button data-tab="system">存储与诊断</button>
-</nav>
-<main>
-  <section id="tab-records" class="tab on">
-    <div class="row" style="margin-bottom:10px">
-      <input id="q" placeholder="搜索标题 / 记录 id" style="flex:1;min-width:220px">
-      <span id="recCount" class="muted"></span>
-    </div>
-    <table><thead><tr><th>标题</th><th>状态</th><th>时长</th><th>rev</th><th>更新时间</th></tr></thead>
-      <tbody id="recBody"></tbody></table>
-    <div id="detail"></div>
-  </section>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="logo">v</span><span><b>voxnote</b><small>v2 控制台</small></span></div>
+    <nav id="nav">
+      <button class="navi on" data-page="home">工作台</button>
+      <button class="navi" data-page="records">记录库<span class="badge" id="badgeRecords"></span></button>
+      <button class="navi" data-page="jobs">任务<span class="badge" id="badgeJobs"></span></button>
+      <button class="navi" data-page="conflicts">冲突</button>
+      <button class="navi" data-page="engines">引擎</button>
+      <button class="navi" data-page="settings">设置与设备</button>
+      <button class="navi" data-page="system">存储与诊断</button>
+    </nav>
+    <div class="side-foot muted" id="conn">连接中…</div>
+  </aside>
+  <div class="main">
+    <header class="top">
+      <h1 id="pageTitle">工作台</h1>
+      <span class="spacer"></span>
+      <button class="btn" id="btnRefresh">刷新</button>
+      <button class="btn" id="btnToken">更换令牌</button>
+    </header>
+    <main id="content">
 
-  <section id="tab-conflicts" class="tab">
-    <div id="conflicts"></div>
-  </section>
-
-  <section id="tab-engines" class="tab">
-    <div class="card">
-      <div class="row">
-        <input id="eName" placeholder="名称" style="width:140px">
-        <input id="eUrl" placeholder="http://127.0.0.1:8000" style="flex:1;min-width:220px">
-        <input id="eModel" placeholder="model（如 whisper-1）" style="width:180px">
-        <input id="eToken" placeholder="token（可空）" style="width:160px">
-        <button class="btn primary" id="btnAddEngine">添加引擎</button>
-      </div>
-      <div class="muted" style="margin-top:6px">v1 手动选择引擎，不自动切换；失败只提示。</div>
-    </div>
-    <table><thead><tr><th>名称</th><th>地址</th><th>模型</th><th>质量档</th><th>令牌</th><th>启用</th><th></th></tr></thead>
-      <tbody id="engBody"></tbody></table>
-  </section>
-
-  <section id="tab-system" class="tab">
-    <div class="card"><h3>配对手机</h3>
-      <div class="row">
-        <div id="qr"></div>
-        <div>
-          <div class="muted">服务器</div><code id="pairUrl"></code>
-          <div class="muted" style="margin-top:8px">令牌</div><code id="pairToken"></code>
-          <div class="muted" style="margin-top:8px">手机扫码，或手动填地址 + 令牌。</div>
+      <!-- ═══ 工作台 ═══ -->
+      <section class="page on" id="page-home">
+        <div class="tiles" id="homeStats"></div>
+        <div class="grid2">
+          <div class="card"><h3>最近任务 <span class="muted">· 前 5 条</span></h3><div id="recentJobs"></div></div>
+          <div class="card"><h3>最近记录 <span class="muted">· 前 5 条</span></h3><div id="recentRecords"></div></div>
         </div>
-      </div>
-    </div>
-    <div class="grid">
-      <div class="card"><h3>存储</h3><pre id="storage">…</pre>
-        <div class="row"><button class="btn" id="btnBackup">立即备份</button>
-          <button class="btn danger" id="btnCleanup">清理预览</button></div>
-        <div id="backups" class="muted" style="margin-top:8px"></div>
-      </div>
-      <div class="card"><h3>诊断</h3><pre id="diag">…</pre></div>
-    </div>
-    <div class="card"><h3>保留策略</h3>
-      <div class="row">
-        <label>墓碑天数 <input id="sTomb" type="number" min="0" style="width:90px"></label>
-        <label>旧尝试保留版数 <input id="sKeep" type="number" min="1" style="width:90px"></label>
-        <label>旧尝试天数 <input id="sAttDays" type="number" min="0" style="width:90px"></label>
-        <label>备份代数 <input id="sBackup" type="number" min="1" style="width:90px"></label>
-        <button class="btn primary" id="btnSaveSettings">保存</button>
-      </div>
-    </div>
-  </section>
-</main>
+      </section>
+
+      <!-- ═══ 记录库 ═══ -->
+      <section class="page" id="page-records">
+        <div class="card">
+          <div class="row filters">
+            <input id="recQ" type="text" placeholder="搜索标题或记录 id">
+            <select id="recStatus">
+              <option value="">全部状态</option>
+              <option value="uploaded">已上传</option>
+              <option value="queued">排队中</option>
+              <option value="transcribing">转写中</option>
+              <option value="done">已完成</option>
+              <option value="failed">失败</option>
+            </select>
+            <select id="recCat"><option value="">全部分类</option><option value="__none__">未分类</option></select>
+            <label class="chk"><input type="checkbox" id="recAudio"> 仅看有音频</label>
+            <label class="chk"><input type="checkbox" id="recDeleted"> 含已删除</label>
+            <button class="btn" id="recReset">清空筛选</button>
+          </div>
+          <div id="recFoot" class="muted" style="margin-top:8px"></div>
+        </div>
+        <div class="card" style="padding:0;overflow:auto">
+          <table class="tbl">
+            <thead><tr><th>标题</th><th>状态</th><th>分类</th><th>时长</th><th>rev</th><th>更新时间</th></tr></thead>
+            <tbody id="recBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ═══ 记录详情 ═══ -->
+      <section class="page" id="page-detail">
+        <div class="row" style="margin-bottom:10px"><button class="btn" id="dBack">‹ 返回记录库</button></div>
+        <div id="detailBody"></div>
+      </section>
+
+      <!-- ═══ 任务 ═══ -->
+      <section class="page" id="page-jobs">
+        <div class="card">
+          <div class="row filters">
+            <select id="jobState">
+              <option value="all">全部任务</option>
+              <option value="queued">排队中</option>
+              <option value="running">转写中</option>
+              <option value="failed">失败</option>
+              <option value="done">完成</option>
+            </select>
+            <span id="jobCounts" class="muted"></span>
+            <span class="spacer"></span>
+            <button class="btn" id="jobRefresh">刷新</button>
+          </div>
+        </div>
+        <div class="card" style="padding:0;overflow:auto">
+          <table class="tbl">
+            <thead><tr><th>任务</th><th>记录</th><th>引擎</th><th>状态</th><th>进度</th><th>错误</th><th>时间</th><th>操作</th></tr></thead>
+            <tbody id="jobBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ═══ 冲突 ═══ -->
+      <section class="page" id="page-conflicts"><div id="conflicts"></div></section>
+
+      <!-- ═══ 引擎 ═══ -->
+      <section class="page" id="page-engines">
+        <div class="card">
+          <h3>添加引擎</h3>
+          <div class="row">
+            <input id="eName" placeholder="名称" style="width:130px">
+            <input id="eUrl" placeholder="http://127.0.0.1:8000" style="flex:1;min-width:220px">
+            <input id="eModel" placeholder="model（如 whisper-1）" style="width:170px">
+            <input id="eToken" placeholder="token（可空）" style="width:150px">
+            <label class="chk">质量档 <input id="eTier" type="number" min="1" max="5" value="3" style="width:64px"></label>
+            <button class="btn primary" id="btnAddEngine">添加引擎</button>
+          </div>
+          <div class="muted" style="margin-top:6px">v1 手动选择引擎，不自动切换；转写失败只提示不改数据。「探测」会请求引擎的 /health 或 /v1/models。</div>
+        </div>
+        <div class="card" style="padding:0;overflow:auto">
+          <table class="tbl">
+            <thead><tr><th>名称</th><th>地址</th><th>模型</th><th>质量档</th><th>令牌</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody id="engBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ═══ 设置与设备 ═══ -->
+      <section class="page" id="page-settings">
+        <div class="grid2">
+          <div class="card">
+            <h3>配对手机</h3>
+            <div class="row" style="align-items:flex-start">
+              <div id="qr" class="qrbox"></div>
+              <div class="pairstuff">
+                <div class="muted">服务器地址</div><code id="pairUrl">—</code>
+                <div class="muted" style="margin-top:4px">设备令牌</div><code id="pairToken">—</code>
+                <div class="muted" style="margin-top:6px">手机扫码，或手动填地址 + 令牌。</div>
+                <div style="margin-top:10px"><button class="btn danger" id="btnResetToken">重置令牌</button></div>
+                <div id="newTokenBox" class="newtoken" style="display:none">
+                  <div>新令牌已生成：旧令牌立即失效，手机需要重新配对。</div>
+                  <code id="newTokenVal"></code>
+                  <div><button class="btn mini" id="btnCopyToken">复制新令牌</button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>保留策略</h3>
+            <div class="row">
+              <label class="chk">墓碑天数 <input id="sTomb" type="number" min="0" style="width:86px"></label>
+              <label class="chk">旧尝试保留版数 <input id="sKeep" type="number" min="1" style="width:86px"></label>
+              <label class="chk">旧尝试天数 <input id="sAttDays" type="number" min="0" style="width:86px"></label>
+              <label class="chk">备份代数 <input id="sBackup" type="number" min="1" style="width:86px"></label>
+            </div>
+            <div class="muted" style="margin-top:8px">墓碑与旧尝试只在「清理」时真正删除；生效尝试永远保留。</div>
+            <div style="margin-top:10px"><button class="btn primary" id="btnSaveSettings">保存</button></div>
+          </div>
+        </div>
+        <div class="card" style="padding:0;overflow:auto">
+          <div style="padding:14px 14px 0"><h3>已配对设备</h3></div>
+          <table class="tbl">
+            <thead><tr><th>名称</th><th>类型</th><th>版本</th><th>最近活跃</th><th>状态</th><th>创建时间</th></tr></thead>
+            <tbody id="devBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ═══ 存储与诊断 ═══ -->
+      <section class="page" id="page-system">
+        <div class="grid2">
+          <div class="card"><h3>存储</h3><pre id="storage">加载中…</pre>
+            <div class="row">
+              <button class="btn" id="btnBackup">立即备份</button>
+              <button class="btn danger" id="btnCleanup">清理预览</button>
+            </div>
+            <div id="backups" class="muted" style="margin-top:8px"></div>
+          </div>
+          <div class="card"><h3>诊断</h3><pre id="diag">加载中…</pre></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
 <div id="toast"></div>
+<div id="modal" class="modal">
+  <div class="modal-box">
+    <h3 id="mTitle"></h3>
+    <div id="mHint"></div>
+    <textarea id="mText" rows="4"></textarea>
+    <div class="row modal-actions">
+      <span class="spacer"></span>
+      <button class="btn" id="mCancel">取消</button>
+      <button class="btn primary" id="mOk">确定</button>
+    </div>
+  </div>
+</div>
 <script src="/vendor/qrcode.min.js"></script>
 <script src="/vendor/wavesurfer.min.js"></script>
 <script>
-const state = { token: localStorage.getItem('voxnote.v2.token') || '', tab: 'records', records: [], detailId: null };
-let detailWs = null;
-let detailWsUrl = null;
-const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+'use strict';
+/* ───────────────────────── 基础状态与工具 ───────────────────────── */
+const state = {
+  token: localStorage.getItem('voxnote.v2.token') || '',
+  page: 'home',
+  detailId: null,
+  detail: null,
+  records: [],
+  catOptions: [],
+  jobStateFilter: 'all',
+  player: null,
+  playerUrl: null,
+  sse: null,
+  sseRetry: null,
+  suppressSseUntil: 0
+};
+let qTimer = null;
+let sseTimer = null;
+
+const $ = function (s) { return document.querySelector(s); };
+const $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
+const esc = function (s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+};
+const enc = function (v) { return encodeURIComponent(String(v == null ? '' : v)); };
+
+const TITLES = { home: '工作台', records: '记录库', detail: '记录详情', jobs: '任务', conflicts: '冲突', engines: '引擎', settings: '设置与设备', system: '存储与诊断' };
+const REC_STATUS = { uploaded: '已上传', queued: '排队中', transcribing: '转写中', done: '已完成', failed: '失败' };
+const JOB_STATE = { queued: '排队中', running: '转写中', transcribing: '转写中', done: '完成', failed: '失败', canceled: '已取消' };
 
 function toast(msg, bad) {
   const t = $('#toast');
@@ -128,311 +359,1422 @@ function toast(msg, bad) {
   t.style.display = 'block';
   t.style.color = bad ? 'var(--bad)' : 'var(--text)';
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => t.style.display = 'none', 4000);
+  toast._t = setTimeout(function () { t.style.display = 'none'; }, 4200);
+}
+function setConn(text, cls) {
+  const el = $('#conn');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'side-foot ' + (cls || 'muted');
+}
+function isMissing(e) { return !!e && (e.status === 404 || e.status === 405); }
+function markMutation() { state.suppressSseUntil = Date.now() + 1500; }
+
+function fmtNum(n) {
+  n = Number(n);
+  if (!isFinite(n)) return '0';
+  return n.toLocaleString('zh-CN');
+}
+function fmtMs(ms) {
+  ms = Math.max(0, Math.round(Number(ms) || 0));
+  const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+  const p = function (n) { return String(n).padStart(2, '0'); };
+  return (h ? h + ':' + p(m) : p(m)) + ':' + p(ss);
+}
+function fmtTime(ms) {
+  const n = Number(ms);
+  if (!n) return '—';
+  try { return new Date(n).toLocaleString('zh-CN', { hour12: false }); } catch (e) { return '—'; }
+}
+function fmtBytes(n) {
+  n = Number(n) || 0;
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(1) : String(Math.round(n))) + ' ' + u[i];
+}
+function fmtHours(h) {
+  const n = Number(h) || 0;
+  return (n >= 10 ? String(Math.round(n)) : n.toFixed(1)) + ' h';
+}
+function nz(n) { return Number(n) || 0; }
+
+function recStatusPill(r) {
+  if (r && r.deleted) return '<span class="pill bad">已删除</span>';
+  const s = String((r && r.status) || 'uploaded');
+  return '<span class="pill st-' + esc(s) + '">' + esc(REC_STATUS[s] || s) + '</span>';
+}
+function jobStatePill(st) {
+  const s = String(st || '');
+  const cls = s === 'failed' ? 'bad' : s === 'done' ? 'ok' : (s === 'queued' || s === 'running' || s === 'transcribing') ? 'warn' : '';
+  return '<span class="pill ' + cls + '">' + esc(JOB_STATE[s] || s || '未知') + '</span>';
+}
+function marksHtml(raw) {
+  let arr = [];
+  try { arr = JSON.parse(raw || '[]'); } catch (e) { arr = []; }
+  if (!Array.isArray(arr) || !arr.length) return '<span class="muted">无</span>';
+  return arr.map(function (m) { return '<span class="pill">' + esc(m) + '</span>'; }).join(' ');
+}
+function loadingHtml(text) { return '<div class="card muted">' + esc(text) + '</div>'; }
+function emptyHtml(text) { return '<div class="muted">' + esc(text) + '</div>'; }
+function errHtml(prefix, e) { return '<div class="card bad">' + esc(prefix) + esc(e && e.message ? e.message : String(e)) + '</div>'; }
+function setBadge(sel, n) {
+  const el = $(sel);
+  if (!el) return;
+  el.textContent = nz(n) > 0 ? String(nz(n)) : '';
 }
 
-async function api(path, opts = {}) {
+/* ───────────────────────── 弹窗（确认 / 文本输入） ───────────────────────── */
+function openModal(opts) {
+  return new Promise(function (resolve) {
+    const m = $('#modal');
+    const ta = $('#mText');
+    const hint = $('#mHint');
+    $('#mTitle').textContent = opts.title || '';
+    hint.textContent = opts.hint || '';
+    hint.style.display = opts.hint ? '' : 'none';
+    if (opts.text === false) { ta.style.display = 'none'; ta.value = ''; }
+    else { ta.style.display = ''; ta.value = opts.value || ''; ta.rows = opts.rows || 4; }
+    $('#mOk').textContent = opts.okText || '确定';
+    $('#mOk').className = 'btn ' + (opts.danger ? 'danger' : 'primary');
+    $('#mCancel').textContent = '取消';
+    $('#mCancel').style.display = 'inline-block';
+    m.classList.add('on');
+    setTimeout(function () {
+      if (opts.text === false) { $('#mOk').focus(); }
+      else { ta.focus(); ta.select(); }
+    }, 30);
+
+    let settled = false;
+    function done(val) {
+      if (settled) return;
+      settled = true;
+      m.classList.remove('on');
+      $('#mOk').onclick = null;
+      $('#mCancel').onclick = null;
+      m.onclick = null;
+      document.removeEventListener('keydown', onKey);
+      resolve(val);
+    }
+    function onKey(ev) {
+      if (ev.key === 'Escape') { ev.preventDefault(); done(opts.text === false ? false : null); }
+      else if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); done(opts.text === false ? true : ta.value); }
+    }
+    $('#mOk').onclick = function () { done(opts.text === false ? true : ta.value); };
+    $('#mCancel').onclick = function () { done(opts.text === false ? false : null); };
+    m.onclick = function (ev) { if (ev.target === m) done(opts.text === false ? false : null); };
+    document.addEventListener('keydown', onKey);
+  });
+}
+function confirmDialog(title, hint, okText, danger) {
+  return openModal({ title: title, hint: hint, text: false, okText: okText || '确定', danger: !!danger });
+}
+function promptDialog(title, hint, value, rows) {
+  return openModal({ title: title, hint: hint, value: value, rows: rows || 4, okText: '保存' });
+}
+
+/* ───────────────────────── 统一 API ───────────────────────── */
+async function api(path, opts) {
+  opts = opts || {};
   const headers = Object.assign({}, opts.headers || {});
   if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
-  if (opts.body && typeof opts.body !== 'string') {
+  let body = opts.body;
+  if (body != null && typeof body !== 'string') {
     headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(opts.body);
+    body = JSON.stringify(body);
   }
-  const r = await fetch('/api/v2' + path, Object.assign({}, opts, { headers }));
+  let r;
+  try {
+    r = await fetch('/api/v2' + path, {
+      method: opts.method || 'GET',
+      headers: headers,
+      body: body,
+      cache: 'no-store'
+    });
+  } catch (e) {
+    toast('网络错误：' + e.message, true);
+    throw e;
+  }
   if (r.status === 401) {
-    $('#conn').textContent = '需要令牌';
-    $('#conn').className = 'bad';
-    throw new Error('未授权：请点右上角「更换令牌」');
+    setConn('未授权 · 请更换令牌', 'bad');
+    const err = new Error('未授权：请点右上角「更换令牌」');
+    err.status = 401;
+    toast(err.message, true);
+    throw err;
   }
   const text = await r.text();
   let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
-  if (!r.ok) throw new Error(typeof data === 'string' ? data : (data && data.detail) || ('HTTP ' + r.status));
+  if (text) {
+    try { data = JSON.parse(text); } catch (e) { data = text; }
+  }
+  if (!r.ok) {
+    const raw = (data && data.detail) || (typeof data === 'string' && data) || ('HTTP ' + r.status);
+    const msg = typeof raw === 'string' ? raw : JSON.stringify(raw);
+    const err = new Error(msg);
+    err.status = r.status;
+    toast(msg, true);
+    throw err;
+  }
   return data;
 }
 
-async function boot() {
-  if (!state.token) {
-    try {
-      const r = await fetch('/api/v2/console/pair');
-      if (r.ok) {
-        const j = await r.json();
-        state.token = j.token || '';
-        if (state.token) localStorage.setItem('voxnote.v2.token', state.token);
-      }
-    } catch (e) { }
-  }
-  if (!state.token) {
-    const t = prompt('请输入设备令牌（服务器 settings.sync_token）');
-    if (t) { state.token = t.trim(); localStorage.setItem('voxnote.v2.token', state.token); }
-  }
+/* ───────────────────────── 启动 / 连接 / 令牌 / 配对 ───────────────────────── */
+async function checkHealth() {
   try {
-    const h = await fetch('/api/v2/health').then(r => r.json());
-    $('#conn').textContent = '已连接 · schema ' + h.schema_version + ' · ' + h.records + ' 条记录';
-    $('#conn').className = 'ok';
+    const r = await fetch('/api/v2/health');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const h = await r.json();
+    setConn('已连接 · schema ' + h.schema_version + ' · ' + h.records + ' 条记录', 'ok');
   } catch (e) {
-    $('#conn').textContent = '连接失败';
-    $('#conn').className = 'bad';
+    setConn('连接失败：' + e.message, 'bad');
   }
-  switchTab('records');
-  renderPair();
 }
 
 function renderPair() {
-  if (!state.token) return;
-  const host = location.host;
-  const url = location.origin + '/pair.html?host=' + encodeURIComponent(host)
-    + '&t=' + encodeURIComponent(state.token);
-  const pu = $('#pairUrl');
-  const pt = $('#pairToken');
-  if (pu) pu.textContent = 'http://' + host;
-  if (pt) pt.textContent = state.token;
   const box = $('#qr');
-  if (box && window.QRCode && !box.dataset.done) {
-    box.dataset.done = '1';
-    new QRCode(box, { text: url, width: 156, height: 156 });
+  const tokenEl = $('#pairToken');
+  const urlEl = $('#pairUrl');
+  if (!box) return;
+  const base = location.origin;
+  if (urlEl) urlEl.textContent = base;
+  if (tokenEl) tokenEl.textContent = state.token || '—';
+  box.innerHTML = '';
+  if (!state.token) { box.innerHTML = '<div class="muted" style="font-size:12px;padding:8px">还没有令牌</div>'; return; }
+  if (!window.QRCode) { box.innerHTML = '<div class="bad" style="font-size:12px;padding:8px">二维码组件未加载</div>'; return; }
+  const href = base + '/pair.html?host=' + enc(location.host) + '&t=' + enc(state.token);
+  try { new QRCode(box, { text: href, width: 152, height: 152 }); } catch (e) { box.innerHTML = '<div class="bad">二维码生成失败</div>'; }
+}
+
+async function changeToken() {
+  const t = await promptDialog('更换设备令牌', '令牌在服务端 settings.sync_token；也可在「设置与设备」里重置生成新令牌。留空会清除本地令牌。', state.token, 2);
+  if (t == null) return;
+  state.token = String(t).trim();
+  if (state.token) localStorage.setItem('voxnote.v2.token', state.token);
+  else localStorage.removeItem('voxnote.v2.token');
+  $('#newTokenBox').style.display = 'none';
+  renderPair();
+  startEvents(true);
+  checkHealth();
+  refreshPage();
+  toast(state.token ? '已更换令牌' : '已清除本地令牌');
+}
+
+async function copyToken() {
+  const txt = state.token || '';
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(txt);
+    else {
+      const ta = document.createElement('textarea');
+      ta.value = txt;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    toast('已复制令牌');
+  } catch (e) {
+    toast('复制失败，请手动选择令牌文本', true);
   }
 }
 
-function switchTab(name) {
-  state.tab = name;
-  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
-  document.querySelectorAll('.tab').forEach(s => s.classList.toggle('on', s.id === 'tab-' + name));
-  if (name === 'records') loadRecords();
-  if (name === 'conflicts') loadConflicts();
-  if (name === 'engines') loadEngines();
-  if (name === 'system') loadSystem();
+/* ───────────────────────── 导航 ───────────────────────── */
+function switchPage(name, silent) {
+  state.page = name;
+  const navName = name === 'detail' ? 'records' : name;
+  $$('#nav .navi').forEach(function (b) { b.classList.toggle('on', b.dataset.page === navName); });
+  $$('#content .page').forEach(function (s) { s.classList.toggle('on', s.id === 'page-' + name); });
+  const title = $('#pageTitle');
+  if (title) title.textContent = TITLES[name] || name;
+  if (name !== 'detail') destroyPlayer();
+  if (!silent) refreshPage();
+}
+
+function refreshPage() {
+  if (!state.token) {
+    setConn('未设置令牌 · 点右上角「更换令牌」', 'bad');
+    return;
+  }
+  checkHealth();
+  switch (state.page) {
+    case 'home': loadHome(); break;
+    case 'records': loadRecords(); break;
+    case 'detail': if (state.detailId) loadDetail(state.detailId); break;
+    case 'jobs': loadJobs(); break;
+    case 'conflicts': loadConflicts(); break;
+    case 'engines': loadEngines(); break;
+    case 'settings': loadSettingsPage(); break;
+    case 'system': loadSystem(); break;
+    default: break;
+  }
+}
+
+/* ───────────────────────── SSE：变更后按当前页刷新（无轮询） ───────────────────────── */
+function startEvents(force) {
+  if (state.sse) {
+    try { state.sse.close(); } catch (e) { }
+    state.sse = null;
+  }
+  clearTimeout(state.sseRetry);
+  state.sseRetry = null;
+  if (!state.token) return;
+  try {
+    const es = new EventSource('/api/v2/events?token=' + enc(state.token));
+    state.sse = es;
+    es.addEventListener('change', function () {
+      if (Date.now() < state.suppressSseUntil) return;
+      if ($('#modal').classList.contains('on')) return;
+      clearTimeout(sseTimer);
+      sseTimer = setTimeout(refreshFromSse, 350);
+    });
+    es.onerror = function () {
+      try { es.close(); } catch (e) { }
+      if (state.sse !== es) return;
+      state.sse = null;
+      state.sseRetry = setTimeout(function () { startEvents(); }, 5000);
+    };
+  } catch (e) {
+    state.sseRetry = setTimeout(function () { startEvents(); }, 5000);
+  }
+}
+
+function refreshFromSse() {
+  if (Date.now() < state.suppressSseUntil) return;
+  if ($('#modal').classList.contains('on')) return;
+  if (state.page === 'detail') {
+    if (!state.detailId) return;
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA') && $('#detailBody').contains(ae)) return;
+    loadDetail(state.detailId, true);
+    return;
+  }
+  if (state.page === 'settings' || state.page === 'system') return;
+  refreshPage();
+}
+
+/* ───────────────────────── 工作台 ───────────────────────── */
+async function loadHome() {
+  const box = $('#homeStats');
+  box.innerHTML = '<div class="tile"><div class="k">统计</div><div class="v">…</div><div class="d">加载中</div></div>';
+  try {
+    const s = await api('/stats');
+    renderStats(s || {});
+    setBadge('#badgeRecords', s && s.records);
+    const j = (s && s.jobs) || {};
+    setBadge('#badgeJobs', nz(j.queued) + nz(j.running));
+  } catch (e) {
+    box.innerHTML = isMissing(e)
+      ? '<div class="card muted">统计接口尚未实现（待后端）：GET /api/v2/stats</div>'
+      : '<div class="card bad">统计加载失败：' + esc(e.message) + '</div>';
+  }
+  loadRecentJobs();
+  loadRecentRecords();
+}
+
+function renderStats(s) {
+  const j = s.jobs || {};
+  const tile = function (k, v, d, go) {
+    return '<div class="tile"' + (go ? ' data-go="' + esc(go) + '"' : '') + '>' +
+      '<div class="k">' + esc(k) + '</div>' +
+      '<div class="v">' + esc(v) + '</div>' +
+      '<div class="d">' + esc(d) + '</div></div>';
+  };
+  $('#homeStats').innerHTML =
+    tile('记录总数', fmtNum(s.records), '今日 +' + fmtNum(s.records_today) + ' · 已删除 ' + fmtNum(s.deleted), 'records') +
+    tile('今日新增', fmtNum(s.records_today), '已删除 ' + fmtNum(s.deleted) + ' 条（墓碑）', 'records') +
+    tile('音频时长', fmtHours(s.audio_hours), '音频库 ' + fmtBytes(s.audio_bytes), 'records') +
+    tile('队列', fmtNum(nz(j.queued) + nz(j.running)), '排队 ' + fmtNum(j.queued) + ' · 转写中 ' + fmtNum(j.running) + ' · 失败 ' + fmtNum(j.failed) + ' · 完成 ' + fmtNum(j.done), 'jobs') +
+    tile('含修订记录', fmtNum(s.edited_records), '转写尝试 ' + fmtNum(s.attempts) + ' 条', 'records') +
+    tile('设备', fmtNum(s.devices), '最近同步 ' + fmtTime(s.last_sync_at), 'settings');
+  $$('#homeStats .tile[data-go]').forEach(function (t) {
+    t.onclick = function () { switchPage(t.dataset.go); };
+  });
+}
+
+function recMini(r) {
+  return '<div class="rec-mini" data-rec="' + esc(r.id) + '">' + recStatusPill(r) +
+    '<span class="grow tt">' + esc(r.title || '(未命名)') + '</span>' +
+    '<span class="muted">' + fmtMs(r.dur_ms) + '</span>' +
+    '<span class="muted">' + fmtTime(r.updated_at) + '</span></div>';
+}
+function jobMini(j) {
+  return '<div class="rec-mini" data-rec="' + esc(j.record_id || '') + '">' + jobStatePill(j.state) +
+    '<span class="grow tt">' + esc(j.record_title || j.record_id || '(未知记录)') + '</span>' +
+    '<span class="muted">#' + esc(j.id) + '</span>' +
+    '<span class="muted">' + fmtTime(j.queued_at) + '</span></div>';
+}
+
+async function loadRecentJobs() {
+  const box = $('#recentJobs');
+  box.innerHTML = emptyHtml('加载中…');
+  try {
+    const d = await api('/jobs?state=all&limit=5');
+    const list = (d && d.jobs) || [];
+    box.innerHTML = list.length ? list.map(jobMini).join('') : emptyHtml('还没有转写任务');
+  } catch (e) {
+    box.innerHTML = emptyHtml(isMissing(e) ? '任务接口尚未实现（待后端）：GET /api/v2/jobs' : '任务加载失败：' + e.message);
+  }
+}
+async function loadRecentRecords() {
+  const box = $('#recentRecords');
+  box.innerHTML = emptyHtml('加载中…');
+  try {
+    const d = await api('/records?limit=5');
+    const list = (d && d.records) || [];
+    if (!list.some(function (r) { return r.cat; })) { /* 分类缓存由记录库维护 */ }
+    box.innerHTML = list.length ? list.map(recMini).join('') : emptyHtml('还没有录音记录');
+  } catch (e) {
+    box.innerHTML = emptyHtml('记录加载失败：' + e.message);
+  }
+}
+
+/* ───────────────────────── 记录库 ───────────────────────── */
+function syncCatOptions() {
+  const sel = $('#recCat');
+  if (!sel) return;
+  const cur = sel.value;
+  const opts = ['<option value="">全部分类</option>', '<option value="__none__">未分类</option>'];
+  state.catOptions.slice().sort().forEach(function (c) {
+    opts.push('<option value="' + esc(c) + '">' + esc(c) + '</option>');
+  });
+  sel.innerHTML = opts.join('');
+  if (cur === '__none__' || state.catOptions.indexOf(cur) >= 0) sel.value = cur;
+}
+
+function recQuery() {
+  const p = new URLSearchParams();
+  const q = ($('#recQ').value || '').trim();
+  if (q) p.set('q', q);
+  const st = $('#recStatus').value;
+  if (st) p.set('status', st);
+  const cat = $('#recCat').value;
+  if (cat) p.set('cat', cat);
+  if ($('#recAudio').checked) p.set('has_audio', 'true');
+  if ($('#recDeleted').checked) p.set('include_deleted', 'true');
+  p.set('limit', '300');
+  return p.toString();
 }
 
 async function loadRecords() {
+  const body = $('#recBody');
+  const foot = $('#recFoot');
+  body.innerHTML = '<tr><td colspan="6" class="muted">正在加载记录…</td></tr>';
+  if (foot) foot.textContent = '';
   try {
-    const data = await api('/records?limit=300');
-    state.records = data.records || [];
-    $('#recCount').textContent = state.records.length + ' 条';
-    const q = ($('#q').value || '').trim().toLowerCase();
-    const rows = state.records.filter(r => !q || (r.title || '').toLowerCase().includes(q) || (r.id || '').includes(q));
-    $('#recBody').innerHTML = rows.map(r => `<tr class="row" data-id="${esc(r.id)}">
-      <td>${esc(r.title || '(未命名)')}<div class="muted" style="font-size:12px">${esc(r.id)}</div></td>
-      <td><span class="pill">${esc(r.deleted ? '已删除' : r.status)}</span></td>
-      <td>${Math.round((r.dur_ms || 0) / 1000)}s</td><td>${r.rev}</td>
-      <td class="muted">${r.updated_at ? new Date(r.updated_at).toLocaleString() : ''}</td></tr>`).join('');
-    document.querySelectorAll('#recBody tr').forEach(tr => tr.onclick = () => openRecord(tr.dataset.id));
-  } catch (e) { toast(e.message, true); }
-}
-
-async function openRecord(id) {
-  state.detailId = id;
-  const box = $('#detail');
-  box.innerHTML = '<div class="card">加载中…</div>';
-  try {
-    const [rec, tr, edits] = await Promise.all([
-      api('/records/' + encodeURIComponent(id)),
-      api('/records/' + encodeURIComponent(id) + '/transcript'),
-      api('/records/' + encodeURIComponent(id) + '/edits')
-    ]);
-    const segs = (tr.segments || []).map(s => `<div class="seg"><b>${fmtMs(s.t_ms)} – ${fmtMs(s.e_ms)}</b>
-      <span class="${s.deleted ? 'bad' : ''}">${esc(s.deleted ? '（已删除）' : s.text)}</span>
-      ${s.edited ? '<span class="pill">已修订</span>' : ''}</div>`).join('');
-    box.innerHTML = `<div class="card">
-      <div class="row"><h3 style="margin:0">${esc(rec.title || rec.id)}</h3>
-        <span class="pill">${esc(rec.status)}</span><span class="muted">rev ${rec.rev}</span>
-        <span class="grow" style="flex:1"></span>
-        <button class="btn" id="exSrt">导出 srt</button><button class="btn" id="exMd">导出 md</button>
-        <button class="btn" id="closeDetail">关闭</button></div>
-      <div class="muted">${esc(rec.id)} · ${Math.round((rec.dur_ms||0)/1000)}s · ${rec.recorded_at ? new Date(rec.recorded_at).toLocaleString() : ''}</div>
-      <div class="player"><button class="btn primary" id="playPause">播放</button>
-        <span id="ptime" class="muted">00:00</span>
-        <div id="wave" class="wave"></div></div>
-      <h4>生效稿</h4>${segs || '<div class="muted">还没有转写稿</div>'}
-      <h4>修订（${edits.edits ? edits.edits.length : 0}）</h4>
-      <pre>${esc(JSON.stringify(edits.edits || [], null, 2))}</pre>
-    </div>`;
-    $('#closeDetail').onclick = () => { destroyDetailPlayer(); box.innerHTML = ''; state.detailId = null; };
-    $('#exSrt').onclick = () => exportRecord(id, 'srt');
-    $('#exMd').onclick = () => exportRecord(id, 'md');
-    setupDetailPlayer(id);
+    const data = await api('/records?' + recQuery());
+    const rows = (data && data.records) || [];
+    state.records = rows;
+    let changed = false;
+    rows.forEach(function (r) {
+      if (r.cat && state.catOptions.indexOf(r.cat) < 0) { state.catOptions.push(r.cat); changed = true; }
+    });
+    if (changed || !$('#recCat').children.length) syncCatOptions();
+    if (rows.length) {
+      body.innerHTML = rows.map(function (r) {
+        return '<tr class="row" data-rec="' + esc(r.id) + '">' +
+          '<td><div class="tt">' + esc(r.title || '(未命名)') + '</div><div class="sub">' + esc(r.id) + '</div></td>' +
+          '<td>' + recStatusPill(r) + (r.status === 'failed' && r.error_code ? '<div class="sub bad">' + esc(r.error_code) + '</div>' : '') + '</td>' +
+          '<td>' + (r.cat ? '<span class="pill">' + esc(r.cat) + '</span>' : '<span class="muted">未分类</span>') + '</td>' +
+          '<td>' + fmtMs(r.dur_ms) + '</td>' +
+          '<td>' + esc(r.rev) + '</td>' +
+          '<td class="muted">' + fmtTime(r.updated_at) + '</td></tr>';
+      }).join('');
+      $$('#recBody tr[data-rec]').forEach(function (tr) {
+        tr.onclick = function () { openDetail(tr.dataset.rec); };
+      });
+      if (foot) foot.textContent = '共 ' + rows.length + ' 条记录' + (rows.length >= 300 ? '（仅显示前 300 条，可缩小筛选范围）' : '');
+    } else {
+      body.innerHTML = '<tr><td colspan="6" class="muted">没有符合条件的记录。试试清空搜索或筛选条件。</td></tr>';
+      if (foot) foot.textContent = '共 0 条记录';
+    }
   } catch (e) {
-    box.innerHTML = '<div class="card bad">' + esc(e.message) + '</div>';
+    body.innerHTML = '<tr><td colspan="6" class="bad">记录加载失败：' + esc(e.message) + '</td></tr>';
+    if (foot) foot.textContent = '';
   }
 }
 
-async function setupDetailPlayer(id) {
-  destroyDetailPlayer();
-  const waveEl = $('#wave');
-  if (!waveEl || typeof WaveSurfer === 'undefined') return;
+/* ───────────────────────── 记录详情 ───────────────────────── */
+function openDetail(id) {
+  if (!id) return;
+  state.detailId = id;
+  state.detail = null;
+  switchPage('detail');
+}
+
+async function loadDetail(id, soft) {
+  const box = $('#detailBody');
+  if (!soft) {
+    box.innerHTML = loadingHtml('正在加载记录详情…');
+    destroyPlayer();
+  }
+  let rec, tr, ed, jr, ar;
   try {
-    const r = await fetch('/api/v2/records/' + encodeURIComponent(id) + '/audio',
-      { headers: { 'Authorization': 'Bearer ' + state.token } });
-    if (!r.ok) return;
+    const res = await Promise.all([
+      api('/records/' + enc(id)),
+      api('/records/' + enc(id) + '/transcript'),
+      api('/records/' + enc(id) + '/edits'),
+      api('/records/' + enc(id) + '/jobs'),
+      api('/records/' + enc(id) + '/attempts')
+    ]);
+    rec = res[0]; tr = res[1]; ed = res[2]; jr = res[3]; ar = res[4];
+  } catch (e) {
+    box.innerHTML = '<div class="card bad">记录详情加载失败：' + esc(e.message) + '</div>';
+    return;
+  }
+  // 用户已经切到别的记录/页面时丢弃这次结果，避免旧数据覆盖新详情
+  if (state.detailId !== id) return;
+  state.detail = {
+    record: rec,
+    transcript: tr || {},
+    edits: (ed && ed.edits) || (tr && tr.edits) || [],
+    jobs: (jr && jr.jobs) || [],
+    attempts: (ar && ar.attempts) || []
+  };
+  if (soft && $('#dHeadCard')) {
+    if ($('#dRev')) $('#dRev').textContent = String(rec.rev);
+    if ($('#dStatusPill')) $('#dStatusPill').innerHTML = recStatusPill(rec);
+    fillJobs();
+    fillTranscript();
+    fillEdits();
+    const diffEl = $('#diffBox');
+    if (!diffEl || !diffEl.innerHTML) fillAttempts();
+  } else {
+    renderDetail();
+    setupPlayer(id);
+  }
+}
+
+function headHtml(r) {
+  const d = state.detail;
+  return '<div class="row">' +
+    '<input id="dTitle" class="titleinput" value="' + esc(r.title || '') + '" placeholder="未命名录音（失焦保存）" title="编辑标题，失焦自动保存">' +
+    '<span id="dStatusPill">' + recStatusPill(r) + '</span>' +
+    '<span class="muted">rev <b id="dRev">' + esc(r.rev) + '</b></span>' +
+    '<span class="spacer"></span>' +
+    '<button class="btn primary" data-act="transcribe">转写</button>' +
+    '<button class="btn" data-act="export" data-fmt="srt">导出 srt</button>' +
+    '<button class="btn" data-act="export" data-fmt="md">导出 md</button>' +
+    '<button class="btn danger" data-act="del-record">删除</button>' +
+    '</div>' +
+    '<div class="row meta muted">' +
+    '<code>' + esc(r.id) + '</code><span>·</span><span>时长 ' + fmtMs(r.dur_ms) + '</span>' +
+    '<span>·</span><span>录制 ' + fmtTime(r.recorded_at) + '</span>' +
+    '<span>·</span><span>更新 ' + fmtTime(r.updated_at) + '</span>' +
+    '<span>·</span><span>' + esc(r.src || '') + (r.device_id ? ' · ' + esc(r.device_id) : '') + '</span>' +
+    '</div>' +
+    '<div class="row meta">' +
+    '<label class="chk">分类 <input id="dCat" value="' + esc(r.cat == null ? '' : r.cat) + '" placeholder="无分类" title="编辑分类，失焦自动保存"></label>' +
+    '<span class="muted">标记：' + marksHtml(r.marks) + '</span>' +
+    '<span class="muted">尝试 ' + (d && d.attempts ? d.attempts.length : 0) + ' 个</span>' +
+    '</div>';
+}
+
+function renderDetail() {
+  const d = state.detail;
+  if (!d || !d.record) return;
+  const r = d.record;
+  const box = $('#detailBody');
+  box.innerHTML =
+    '<div class="card" id="dHeadCard">' + headHtml(r) + '</div>' +
+    (r.deleted ? '<div class="card warncard" id="dDeletedNote">该记录已删除（墓碑）：只做标记，音频与转写文件仍保留。可在记录库勾选「含已删除」找到它。</div>' : '') +
+    (r.error_code ? '<div class="card badcard" id="dErrorNote">最近失败：<b>' + esc(r.error_code) + '</b> ' + esc(r.error_hint || '') + '</div>' : '') +
+    '<div class="card" id="dPlayerCard">' +
+    '<div class="player"><button class="btn" id="dPlay" disabled>播放</button>' +
+    '<span id="dTime" class="muted">00:00</span>' +
+    '<div id="dWave" class="wave grow"></div></div>' +
+    '<div class="muted" id="dAudioNote" style="font-size:12px;margin-top:2px"></div>' +
+    '</div>' +
+    '<div class="card" id="dJobsCard"></div>' +
+    '<div class="card" id="dTransCard"></div>' +
+    '<div class="card" id="dEditsCard"></div>' +
+    '<div class="card" id="dAttCard"></div>';
+  fillJobs();
+  fillTranscript();
+  fillEdits();
+  fillAttempts();
+}
+
+function jobButtons(j) {
+  const st = String(j.state || '');
+  const canRetry = st === 'failed' || st === 'done' || st === 'canceled';
+  const canCancel = st === 'queued' || st === 'running' || st === 'transcribing';
+  let h = '';
+  if (canRetry) h += '<button class="btn mini" data-act="retry" data-job="' + esc(j.id) + '">重试</button>';
+  if (canCancel) h += '<button class="btn mini danger" data-act="cancel" data-job="' + esc(j.id) + '">取消</button>';
+  return h || '<span class="muted">—</span>';
+}
+
+function fillJobs() {
+  const box = $('#dJobsCard');
+  if (!box || !state.detail) return;
+  const jobs = state.detail.jobs || [];
+  let html = '<h3>转写任务 <span class="muted">· ' + jobs.length + ' 条</span></h3>';
+  if (!jobs.length) {
+    html += '<div class="muted">还没有转写任务。点上方「转写」让引擎生成第一版。</div>';
+  } else {
+    html += jobs.map(function (j) {
+      const pct = Math.round((Number(j.progress) || 0) * 100);
+      return '<div class="jobrow">' +
+        '<div class="row"><b>#' + esc(j.id) + '</b>' + jobStatePill(j.state) +
+        '<span class="muted">' + esc(j.engine || '') + '</span>' +
+        '<span class="spacer"></span>' +
+        '<span class="muted">排队 ' + fmtTime(j.queued_at) + '</span>' +
+        jobButtons(j) + '</div>' +
+        '<div class="row" style="margin-top:5px">' +
+        '<div class="bar" style="flex:1;max-width:280px"><span style="width:' + pct + '%"></span></div>' +
+        '<span class="muted">' + esc(j.stage || '') + ' · ' + pct + '%</span></div>' +
+        (j.error_code ? '<div class="bad" style="margin-top:3px">错误 ' + esc(j.error_code) + '：' + esc(j.error_hint || '') + '</div>' : '') +
+        '</div>';
+    }).join('');
+  }
+  box.innerHTML = html;
+}
+
+function fillTranscript() {
+  const box = $('#dTransCard');
+  if (!box || !state.detail) return;
+  const tr = state.detail.transcript || {};
+  const segs = tr.segments || [];
+  const att = tr.attempt || null;
+  let html = '<h3>生效稿' + (att ? ' <span class="muted">· ' + esc(att.engine || '') + (att.model ? ' / ' + esc(att.model) : '') + '</span>' : '') + '</h3>';
+  if (!segs.length) {
+    html += '<div class="muted">还没有转写稿。点上方「转写」让引擎生成，或在「尝试与版本」里设一个生效版本。</div>';
+  } else {
+    html += '<div class="segtool muted">共 ' + segs.length + ' 句 · 「编辑」会新增一条修订；「删除」只标记这一句删除，可在下方修订记录恢复。</div>';
+    html += segs.map(function (s, i) {
+      return '<div class="seg' + (s.deleted ? ' gone' : '') + '">' +
+        '<div class="seg-h"><b>' + fmtMs(s.t_ms) + ' – ' + fmtMs(s.e_ms) + '</b>' +
+        (s.edited ? '<span class="pill">已修订</span>' : '') +
+        '<span class="spacer"></span>' +
+        '<button class="btn mini" data-act="seg-edit" data-idx="' + i + '">编辑</button>' +
+        '<button class="btn mini danger" data-act="seg-del" data-idx="' + i + '">删除</button>' +
+        '</div>' +
+        '<div class="seg-t">' + (s.deleted ? '<span class="muted">（已删除）</span>' : esc(s.text)) + '</div>' +
+        '</div>';
+    }).join('');
+  }
+  box.innerHTML = html;
+}
+
+function fillEdits() {
+  const box = $('#dEditsCard');
+  if (!box || !state.detail) return;
+  const edits = state.detail.edits || [];
+  let html = '<h3>修订记录 <span class="muted">· ' + edits.length + ' 条</span></h3>';
+  if (!edits.length) {
+    html += '<div class="muted">还没有人工修订。逐句改过的内容会出现在这里。</div>';
+  } else {
+    html += edits.map(function (e) {
+      return '<div class="editrow">' +
+        '<div class="row"><b>' + fmtMs(e.anchor_t_ms) + ' – ' + fmtMs(e.anchor_e_ms) + '</b>' +
+        (e.deleted ? '<span class="pill bad">已删除</span>' : '<span class="pill">改写</span>') +
+        '<span class="spacer"></span>' +
+        '<span class="muted">rev ' + esc(e.rev) + ' · ' + fmtTime(e.edited_at) + '</span>' +
+        '<button class="btn mini danger" data-act="edit-del" data-edit="' + esc(e.id) + '">删除修订（恢复原文）</button>' +
+        '</div>' +
+        '<div class="seg-t">' + (e.deleted ? '<span class="muted">（这一句被标记删除）</span>' : esc(e.text)) + '</div>' +
+        '</div>';
+    }).join('');
+  }
+  box.innerHTML = html;
+}
+
+function shortId(id) { return String(id || '').slice(0, 8); }
+
+function fillAttempts() {
+  const box = $('#dAttCard');
+  if (!box || !state.detail) return;
+  const atts = state.detail.attempts || [];
+  const tr = state.detail.transcript || {};
+  const activeId = (tr.attempt && tr.attempt.id) || state.detail.record.active_attempt_id || '';
+  const opts = atts.map(function (a) {
+    return '<option value="' + esc(a.id) + '">#' + esc(shortId(a.id)) + ' · ' + esc(a.engine || '') +
+      (a.model ? '/' + esc(a.model) : '') + ' · ' + fmtTime(a.created_at) + '</option>';
+  }).join('');
+  let html = '<h3>尝试与版本 <span class="muted">· ' + atts.length + ' 个</span></h3>';
+  if (!atts.length) {
+    html += '<div class="muted">还没有转写尝试。转写成功后会出现第一个版本。</div>';
+  } else {
+    html += atts.map(function (a) {
+      const isActive = a.id === activeId;
+      return '<div class="attemptrow">' +
+        '<div class="row"><b>#' + esc(shortId(a.id)) + '</b>' + (isActive ? '<span class="pill ok">生效中</span>' : '') +
+        '<span class="muted">' + esc(a.engine || '') + (a.model ? ' / ' + esc(a.model) : '') + '</span>' +
+        '<span class="muted">质量档 ' + esc(a.quality_tier) + ' · ' + fmtMs(a.duration_ms) + ' · ' + fmtTime(a.created_at) + '</span>' +
+        '<span class="spacer"></span>' +
+        '<button class="btn mini" data-act="att-view" data-att="' + esc(a.id) + '">查看全文</button>' +
+        (isActive ? '' : '<button class="btn mini primary" data-act="att-active" data-att="' + esc(a.id) + '">设为生效</button>') +
+        '</div></div>';
+    }).join('');
+    html += '<div class="diffbar">' +
+      '<div class="row"><b>版本对比</b>' +
+      '<select id="diffFrom">' + opts + '</select>' +
+      '<span class="muted">→</span>' +
+      '<select id="diffTo">' + opts + '</select>' +
+      '<button class="btn" data-act="diff"' + (atts.length < 2 ? ' disabled' : '') + '>对比</button>' +
+      (atts.length < 2 ? '<span class="muted">至少需要两个尝试才能对比</span>' : '') +
+      '</div>' +
+      '<div id="diffBox" class="muted"></div>' +
+      '</div>';
+  }
+  html += '<div id="attemptView"></div>';
+  box.innerHTML = html;
+  if (atts.length > 1) {
+    const f = $('#diffFrom'), t = $('#diffTo');
+    if (f) f.value = atts[0].id;
+    if (t) t.value = atts[atts.length - 1].id;
+  }
+}
+
+async function setupPlayer(id) {
+  destroyPlayer();
+  const note = $('#dAudioNote');
+  const btn = $('#dPlay');
+  const wave = $('#dWave');
+  if (!wave || !note || !btn) return;
+  if (typeof WaveSurfer === 'undefined') { note.textContent = '波形组件未加载，无法播放'; return; }
+  note.textContent = '正在加载音频…';
+  try {
+    const r = await fetch('/api/v2/records/' + enc(id) + '/audio', { headers: { 'Authorization': 'Bearer ' + state.token } });
+    if (!r.ok) {
+      note.textContent = r.status === 404 ? '没有音频文件' : '音频加载失败（HTTP ' + r.status + '）';
+      return;
+    }
     const blob = await r.blob();
-    detailWsUrl = URL.createObjectURL(blob);
-    detailWs = WaveSurfer.create({
-      container: waveEl, waveColor: '#3a404b', progressColor: '#7aa2ff',
+    if (state.detailId !== id || !$('#dWave')) { return; }
+    state.playerUrl = URL.createObjectURL(blob);
+    state.player = WaveSurfer.create({
+      container: wave, waveColor: '#3a404b', progressColor: '#7aa2ff',
       cursorColor: '#e7e9ee', height: 64, barWidth: 2, barGap: 1, normalize: true
     });
-    detailWs.load(detailWsUrl);
-    detailWs.on('timeupdate', t => {
-      const e = $('#ptime');
-      if (e) e.textContent = fmtMs(t * 1000);
+    state.player.load(state.playerUrl);
+    note.textContent = '';
+    btn.disabled = false;
+    btn.onclick = function () { if (state.player) state.player.playPause(); };
+    state.player.on('timeupdate', function (t) {
+      const el = $('#dTime');
+      if (el) el.textContent = fmtMs(Number(t) * 1000);
     });
-    const setBtn = txt => { const b = $('#playPause'); if (b) b.textContent = txt; };
-    detailWs.on('play', () => setBtn('暂停'));
-    detailWs.on('pause', () => setBtn('播放'));
-    detailWs.on('finish', () => setBtn('播放'));
-    $('#playPause').onclick = () => detailWs && detailWs.playPause();
+    state.player.on('play', function () { btn.textContent = '暂停'; });
+    state.player.on('pause', function () { btn.textContent = '播放'; });
+    state.player.on('finish', function () { btn.textContent = '播放'; });
   } catch (e) {
-    /* 没有音频或解码失败：保留详情，不弹错 */
+    note.textContent = '音频加载失败：' + e.message;
   }
 }
 
-function destroyDetailPlayer() {
-  if (detailWs) {
-    try { detailWs.destroy(); } catch (e) { }
-    detailWs = null;
+function destroyPlayer() {
+  if (state.player) {
+    try { state.player.destroy(); } catch (e) { }
+    state.player = null;
   }
-  if (detailWsUrl) {
-    URL.revokeObjectURL(detailWsUrl);
-    detailWsUrl = null;
+  if (state.playerUrl) {
+    try { URL.revokeObjectURL(state.playerUrl); } catch (e) { }
+    state.playerUrl = null;
   }
+}
+
+async function saveTitle(value) {
+  const d = state.detail;
+  const id = state.detailId;
+  if (!d || !d.record || !id) return;
+  const cur = d.record.title == null ? '' : String(d.record.title);
+  const next = String(value == null ? '' : value).trim();
+  if (next === cur) return;
+  try {
+    const r = await api('/records/' + enc(id), { method: 'PATCH', body: { title: next } });
+    markMutation();
+    if (state.detailId !== id || state.detail !== d) return;
+    d.record.title = next;
+    if (r && r.record) d.record = r.record;
+    else if (r && r.rev != null) d.record.rev = r.rev;
+    if ($('#dRev')) $('#dRev').textContent = String(d.record.rev);
+    toast('标题已保存');
+  } catch (e) {
+    const inp = $('#dTitle');
+    if (inp) inp.value = cur;
+  }
+}
+
+async function saveCat(value) {
+  const d = state.detail;
+  const id = state.detailId;
+  if (!d || !d.record || !id) return;
+  const cur = d.record.cat == null ? '' : String(d.record.cat);
+  const next = String(value == null ? '' : value).trim();
+  if (next === cur) return;
+  try {
+    const r = await api('/records/' + enc(id), { method: 'PATCH', body: { cat: next ? next : null } });
+    markMutation();
+    if (state.detailId !== id || state.detail !== d) return;
+    d.record.cat = next ? next : null;
+    if (r && r.record) d.record = r.record;
+    else if (r && r.rev != null) d.record.rev = r.rev;
+    if ($('#dRev')) $('#dRev').textContent = String(d.record.rev);
+    if (next && state.catOptions.indexOf(next) < 0) { state.catOptions.push(next); syncCatOptions(); }
+    toast('分类已保存');
+  } catch (e) {
+    const inp = $('#dCat');
+    if (inp) inp.value = cur;
+  }
+}
+
+async function deleteRecord() {
+  const d = state.detail;
+  const id = state.detailId;
+  if (!d || !id) return;
+  const ok = await confirmDialog(
+    '删除这条记录？',
+    '删除只会给记录打上「已删除」标记（墓碑），不会删除服务器上的音频和转写文件。之后可在记录库勾选「含已删除」找到它。\n\n确认删除？',
+    '删除（只标记）', true);
+  if (!ok) return;
+  try {
+    await api('/records/' + enc(id), { method: 'DELETE' });
+    markMutation();
+    toast('已标记删除（音频文件保留）');
+    if (state.detailId === id) await loadDetail(id);
+  } catch (e) { }
+}
+
+async function doTranscribe() {
+  const id = state.detailId;
+  if (!id) return;
+  const ok = await confirmDialog(
+    '开始转写？',
+    '会给这条记录新建一条排队任务；新版本不会自动生效，可在「尝试与版本」里设为生效。',
+    '开始转写');
+  if (!ok) return;
+  try {
+    const r = await api('/records/' + enc(id) + '/transcribe', { method: 'POST', body: {} });
+    markMutation();
+    toast('已加入转写队列' + (r && r.job_id ? '（任务 #' + r.job_id + '）' : ''));
+    if (state.detailId === id) await loadDetail(id, true);
+  } catch (e) { }
+}
+
+async function editSegment(i) {
+  const d = state.detail;
+  if (!d) return;
+  const seg = (d.transcript.segments || [])[i];
+  if (!seg) return;
+  const text = await promptDialog(
+    '编辑第 ' + (i + 1) + ' 句',
+    fmtMs(seg.t_ms) + ' – ' + fmtMs(seg.e_ms) + '（时间锚固定，保存后新增一条修订）',
+    seg.text || '');
+  if (text == null) return;
+  try {
+    await api('/records/' + enc(state.detailId) + '/edits', {
+      method: 'POST',
+      body: { anchor_t_ms: seg.t_ms, anchor_e_ms: seg.e_ms, text: text, deleted: false }
+    });
+    markMutation();
+    toast('已保存修订');
+    await refreshTranscript();
+  } catch (e) { }
+}
+
+async function deleteSegment(i) {
+  const d = state.detail;
+  if (!d) return;
+  const seg = (d.transcript.segments || [])[i];
+  if (!seg) return;
+  const ok = await confirmDialog(
+    '删除这一句？',
+    '会给这一句新增一条「删除」修订，原文可从下方修订记录里恢复。\n\n' +
+    fmtMs(seg.t_ms) + ' – ' + fmtMs(seg.e_ms) + '\n' + (seg.text || '（空）'),
+    '删除这句', true);
+  if (!ok) return;
+  try {
+    await api('/records/' + enc(state.detailId) + '/edits', {
+      method: 'POST',
+      body: { anchor_t_ms: seg.t_ms, anchor_e_ms: seg.e_ms, deleted: true, text: '' }
+    });
+    markMutation();
+    toast('已删除这一句（可在修订记录恢复）');
+    await refreshTranscript();
+  } catch (e) { }
+}
+
+async function deleteEdit(editId) {
+  if (!editId) return;
+  const ok = await confirmDialog('删除这条修订？', '删除后这一句会恢复成机器转写原文。', '删除修订', true);
+  if (!ok) return;
+  try {
+    await api('/records/' + enc(state.detailId) + '/edits/' + enc(editId), { method: 'DELETE' });
+    markMutation();
+    toast('已删除修订，恢复原文');
+    await refreshTranscript();
+  } catch (e) { }
+}
+
+async function refreshTranscript() {
+  const id = state.detailId;
+  if (!id || !state.detail) return;
+  try {
+    const res = await Promise.all([
+      api('/records/' + enc(id) + '/transcript'),
+      api('/records/' + enc(id) + '/edits')
+    ]);
+    if (state.detailId !== id || !state.detail) return;
+    state.detail.transcript = res[0] || {};
+    state.detail.edits = (res[1] && res[1].edits) || [];
+    fillTranscript();
+    fillEdits();
+  } catch (e) { }
+}
+
+async function setActiveAttempt(attId) {
+  if (!attId || !state.detailId) return;
+  const ok = await confirmDialog('设为生效版本？', '生效稿会切换到该尝试；已有人工修订仍会叠加显示。', '设为生效');
+  if (!ok) return;
+  try {
+    await api('/records/' + enc(state.detailId) + '/active-attempt', { method: 'POST', body: { attempt_id: attId } });
+    markMutation();
+    toast('已切换生效版本');
+    await loadDetail(state.detailId);
+  } catch (e) { }
+}
+
+async function viewAttempt(attId) {
+  const box = $('#attemptView');
+  if (!box || !state.detailId) return;
+  box.innerHTML = '<div class="subcard muted">正在加载尝试全文…</div>';
+  try {
+    const d = await api('/records/' + enc(state.detailId) + '/attempts/' + enc(attId));
+    const segs = (d && d.segments) || [];
+    const att = (d && d.attempt) || {};
+    let html = '<div class="subcard"><div class="row"><b>尝试 #' + esc(shortId(att.id || attId)) + ' 全文</b>' +
+      (d && d.is_active ? '<span class="pill ok">生效中</span>' : '') +
+      '<span class="spacer"></span><button class="btn mini" data-act="att-close">关闭</button></div>';
+    if (!segs.length) html += '<div class="muted">这个尝试没有句子</div>';
+    else {
+      html += segs.map(function (s) {
+        return '<div class="seg"><div class="seg-h"><b>' + fmtMs(s.t_ms) + ' – ' + fmtMs(s.e_ms) + '</b></div>' +
+          '<div class="seg-t">' + esc(s.text) + '</div></div>';
+      }).join('');
+    }
+    box.innerHTML = html + '</div>';
+  } catch (e) {
+    box.innerHTML = '<div class="subcard bad">尝试加载失败：' + esc(e.message) + '</div>';
+  }
+}
+
+async function runDiff() {
+  const id = state.detailId;
+  const fromEl = $('#diffFrom'), toEl = $('#diffTo'), box = $('#diffBox');
+  if (!id || !fromEl || !toEl || !box) return;
+  const from = fromEl.value, to = toEl.value;
+  box.className = 'muted';
+  box.innerHTML = '<div class="muted">正在对比…</div>';
+  try {
+    const d = await api('/records/' + enc(id) + '/diff?from=' + enc(from) + '&to=' + enc(to));
+    const segs = (d && d.segments) || [];
+    if (!segs.length) { box.innerHTML = '<div class="muted">两个版本都没有句子。</div>'; return; }
+    const label = { same: '相同', changed: '改动', added: '新增', removed: '删除' };
+    box.className = '';
+    box.innerHTML = '<div class="muted" style="margin:8px 0 4px">对比 #' + esc(shortId(d.from)) + ' → #' + esc(shortId(d.to)) + '</div>' +
+      segs.map(function (s) {
+        const ch = s.change || 'same';
+        const cls = 'diff-' + (label[ch] ? ch : 'same');
+        let body = '';
+        if (ch === 'same') body = '<div class="seg-t">' + esc(s.to_text || s.from_text || '') + '</div>';
+        else if (ch === 'changed') {
+          body = '<div class="seg-t"><span class="diff-del">' + esc(s.from_text || '') + '</span><br>' +
+            '<span class="diff-add">' + esc(s.to_text || '') + '</span></div>';
+        } else if (ch === 'added') body = '<div class="seg-t diff-add">+ ' + esc(s.to_text || '') + '</div>';
+        else body = '<div class="seg-t diff-del">- ' + esc(s.from_text || '') + '</div>';
+        return '<div class="seg ' + cls + '"><div class="seg-h"><b>' + fmtMs(s.t_ms) + ' – ' + fmtMs(s.e_ms) + '</b>' +
+          '<span class="pill">' + esc(label[ch] || ch) + '</span></div>' + body + '</div>';
+      }).join('');
+  } catch (e) {
+    box.className = '';
+    box.innerHTML = '<div class="bad">对比失败：' + esc(e.message) + '</div>';
+  }
+}
+
+async function jobAction(jobId, act) {
+  if (!jobId) return;
+  const isRetry = act === 'retry';
+  const ok = await confirmDialog(
+    isRetry ? '重试这个任务？' : '取消这个任务？',
+    isRetry ? '会新建一条排队中的任务并重新转写，不会改动已完成的任务。' : '排队中的任务会直接取消；正在转写的会标记为请求取消。',
+    isRetry ? '重试' : '取消任务');
+  if (!ok) return;
+  try {
+    let r;
+    if (isRetry) r = await api('/jobs/' + enc(jobId) + '/retry', { method: 'POST' });
+    else r = await api('/jobs/' + enc(jobId) + '/cancel', { method: 'POST' });
+    markMutation();
+    if (isRetry) toast('已新建重试任务' + (r && r.job_id ? ' #' + r.job_id : ''));
+    else toast(r && r.state === 'canceled' ? '已取消任务' : '已请求取消，转写会在当前阶段停止');
+    if (state.page === 'detail' && state.detailId) await loadDetail(state.detailId, true);
+    else await loadJobs();
+  } catch (e) { }
+}
+
+function onDetailClick(e) {
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  const act = btn.dataset.act;
+  if (act === 'transcribe') { doTranscribe(); return; }
+  if (act === 'export') { exportRecord(state.detailId, btn.dataset.fmt); return; }
+  if (act === 'del-record') { deleteRecord(); return; }
+  if (act === 'retry' || act === 'cancel') { jobAction(btn.dataset.job, act); return; }
+  if (act === 'seg-edit') { editSegment(Number(btn.dataset.idx)); return; }
+  if (act === 'seg-del') { deleteSegment(Number(btn.dataset.idx)); return; }
+  if (act === 'edit-del') { deleteEdit(btn.dataset.edit); return; }
+  if (act === 'att-active') { setActiveAttempt(btn.dataset.att); return; }
+  if (act === 'att-view') { viewAttempt(btn.dataset.att); return; }
+  if (act === 'att-close') { const b = $('#attemptView'); if (b) b.innerHTML = ''; return; }
+  if (act === 'diff') { runDiff(); return; }
+}
+
+function onDetailFocusOut(e) {
+  const t = e.target;
+  if (!t || !t.id) return;
+  if (t.id === 'dTitle') saveTitle(t.value);
+  else if (t.id === 'dCat') saveCat(t.value);
 }
 
 async function exportRecord(id, fmt) {
+  if (!id) return;
   try {
-    const r = await fetch('/api/v2/records/' + encodeURIComponent(id) + '/export?format=' + fmt,
+    const r = await fetch('/api/v2/records/' + enc(id) + '/export?format=' + enc(fmt),
       { headers: { 'Authorization': 'Bearer ' + state.token } });
-    if (!r.ok) throw new Error(await r.text());
+    if (!r.ok) {
+      let msg = 'HTTP ' + r.status;
+      try { const t = await r.text(); if (t) msg = t; } catch (e2) { }
+      throw new Error(msg);
+    }
     const blob = await r.blob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = id + '.' + fmt;
     a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
-  } catch (e) { toast('导出失败：' + e.message, true); }
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 3000);
+    toast('已导出 ' + fmt);
+  } catch (e) {
+    toast('导出失败：' + e.message, true);
+  }
 }
 
+/* ───────────────────────── 任务页 ───────────────────────── */
+async function loadJobs() {
+  const body = $('#jobBody');
+  const counts = $('#jobCounts');
+  body.innerHTML = '<tr><td colspan="8" class="muted">正在加载任务…</td></tr>';
+  if (counts) counts.textContent = '';
+  try {
+    const d = await api('/jobs?state=' + enc(state.jobStateFilter) + '&limit=100');
+    const list = (d && d.jobs) || [];
+    const c = (d && d.counts) || {};
+    setBadge('#badgeJobs', nz(c.queued) + nz(c.running));
+    if (counts) counts.textContent = '排队 ' + nz(c.queued) + ' · 转写中 ' + nz(c.running) + ' · 失败 ' + nz(c.failed) + ' · 完成 ' + nz(c.done);
+    if (!list.length) {
+      body.innerHTML = '<tr><td colspan="8" class="muted">没有任务。转写一条记录后会出现在这里。</td></tr>';
+      return;
+    }
+    body.innerHTML = list.map(function (j) {
+      const pct = Math.round((Number(j.progress) || 0) * 100);
+      const recCell = j.record_id
+        ? '<a data-rec="' + esc(j.record_id) + '">' + esc(j.record_title || j.record_id) + '</a>'
+        : esc(j.record_title || '—');
+      return '<tr data-rec="' + esc(j.record_id || '') + '">' +
+        '<td><b>#' + esc(j.id) + '</b></td>' +
+        '<td>' + recCell + '</td>' +
+        '<td>' + esc(j.engine || '—') + '</td>' +
+        '<td>' + jobStatePill(j.state) + '<div class="sub">' + esc(j.stage || '') + '</div></td>' +
+        '<td><div class="bar"><span style="width:' + pct + '%"></span></div><span class="sub">' + pct + '%</span></td>' +
+        '<td>' + (j.error_code ? '<span class="bad">' + esc(j.error_code) + '</span><div class="sub">' + esc(j.error_hint || '') + '</div>' : '<span class="muted">—</span>') + '</td>' +
+        '<td class="muted">' + fmtTime(j.queued_at) +
+        '<div class="sub">' + (j.finished_at ? '完成 ' + fmtTime(j.finished_at) : (j.started_at ? '开始 ' + fmtTime(j.started_at) : '')) + '</div></td>' +
+        '<td>' + jobButtons(j) + '</td></tr>';
+    }).join('');
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="8" class="bad">任务加载失败：' + esc(e.message) + '</td></tr>';
+  }
+}
+
+/* ───────────────────────── 冲突 ───────────────────────── */
 async function loadConflicts() {
+  const box = $('#conflicts');
+  box.innerHTML = loadingHtml('正在加载冲突…');
   try {
     const data = await api('/sync/conflicts?limit=200');
-    const list = data.conflicts || [];
-    $('#conflicts').innerHTML = list.length ? list.map(c => `<div class="card">
-      <div class="row"><b>${esc((c.record && c.record.title) || c.record_id)}</b>
-        <span class="pill">${esc(c.kind)}</span><span class="muted">${esc(c.id)}</span></div>
-      <div class="grid"><div><div class="muted">本地</div><pre>${esc(JSON.stringify(c.local, null, 2))}</pre></div>
-        <div><div class="muted">服务器</div><pre>${esc(JSON.stringify(c.server, null, 2))}</pre></div></div>
-      <div class="row"><button class="btn primary" data-cid="${esc(c.id)}" data-res="local">用本地</button>
-        <button class="btn" data-cid="${esc(c.id)}" data-res="server">用服务器</button></div></div>`).join('')
-      : '<div class="card muted">没有待选择的冲突</div>';
-    document.querySelectorAll('[data-cid]').forEach(b => b.onclick = async () => {
-      try {
-        await api('/sync/conflicts/' + encodeURIComponent(b.dataset.cid) + '/resolve',
-          { method: 'POST', body: { resolution: b.dataset.res } });
-        toast('已解决');
-        loadConflicts();
-      } catch (e) { toast(e.message, true); }
+    const list = (data && data.conflicts) || [];
+    if (!list.length) { box.innerHTML = loadingHtml('没有待选择的冲突'); return; }
+    box.innerHTML = list.map(function (c) {
+      return '<div class="card">' +
+        '<div class="row"><b>' + esc((c.record && c.record.title) || c.record_id) + '</b>' +
+        '<span class="pill">' + esc(c.kind) + '</span><span class="muted">' + esc(c.id) + '</span></div>' +
+        '<div class="grid2" style="margin-top:8px">' +
+        '<div><div class="muted">本地</div><pre>' + esc(JSON.stringify(c.local, null, 2)) + '</pre></div>' +
+        '<div><div class="muted">服务器</div><pre>' + esc(JSON.stringify(c.server, null, 2)) + '</pre></div>' +
+        '</div>' +
+        '<div class="row" style="margin-top:8px">' +
+        '<button class="btn primary" data-cid="' + esc(c.id) + '" data-res="local">用本地</button>' +
+        '<button class="btn" data-cid="' + esc(c.id) + '" data-res="server">用服务器</button>' +
+        '</div></div>';
+    }).join('');
+    $$('#conflicts [data-cid]').forEach(function (b) {
+      b.onclick = async function () {
+        try {
+          await api('/sync/conflicts/' + enc(b.dataset.cid) + '/resolve', { method: 'POST', body: { resolution: b.dataset.res } });
+          markMutation();
+          toast('已解决冲突');
+          loadConflicts();
+        } catch (e) { }
+      };
     });
-  } catch (e) { toast(e.message, true); }
+  } catch (e) {
+    box.innerHTML = '<div class="card bad">冲突加载失败：' + esc(e.message) + '</div>';
+  }
 }
 
+/* ───────────────────────── 引擎 ───────────────────────── */
 async function loadEngines() {
+  const body = $('#engBody');
+  body.innerHTML = '<tr><td colspan="7" class="muted">正在加载引擎…</td></tr>';
   try {
     const data = await api('/engines');
-    $('#engBody').innerHTML = (data.engines || []).map(e => `<tr>
-      <td>${esc(e.name)}</td><td>${esc(e.url)}</td><td>${esc(e.model)}</td>
-      <td>${e.quality_tier}</td><td>${e.has_token ? '有' : '无'}</td>
-      <td>${e.enabled ? '<span class="ok">启用</span>' : '<span class="muted">停用</span>'}</td>
-      <td><button class="btn" data-eid="${esc(e.id)}" data-en="${e.enabled ? 0 : 1}">${e.enabled ? '停用' : '启用'}</button>
-        <button class="btn danger" data-del="${esc(e.id)}">删除</button></td></tr>`).join('');
-    document.querySelectorAll('[data-eid]').forEach(b => b.onclick = async () => {
-      await api('/engines/' + encodeURIComponent(b.dataset.eid),
-        { method: 'PATCH', body: { enabled: b.dataset.en === '1' } });
-      loadEngines();
-    });
-    document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
-      if (!confirm('删除这个引擎？')) return;
-      await api('/engines/' + encodeURIComponent(b.dataset.del), { method: 'DELETE' });
-      loadEngines();
-    });
-  } catch (e) { toast(e.message, true); }
+    const list = (data && data.engines) || [];
+    if (!list.length) {
+      body.innerHTML = '<tr><td colspan="7" class="muted">还没有引擎。在上面添加一个 OpenAI 兼容的转写服务。</td></tr>';
+      return;
+    }
+    body.innerHTML = list.map(function (e2) {
+      return '<tr>' +
+        '<td><b>' + esc(e2.name) + '</b><div class="sub">' + esc(e2.id) + '</div></td>' +
+        '<td><code>' + esc(e2.url) + '</code></td>' +
+        '<td>' + esc(e2.model || '—') + '</td>' +
+        '<td>' + esc(e2.quality_tier) + '</td>' +
+        '<td>' + (e2.has_token ? '有' : '<span class="muted">无</span>') + '</td>' +
+        '<td>' + (e2.enabled ? '<span class="ok">启用</span>' : '<span class="muted">停用</span>') +
+        '<span id="probe-' + esc(e2.id) + '" class="sub"></span></td>' +
+        '<td>' +
+        '<button class="btn mini" data-act="probe" data-eid="' + esc(e2.id) + '">探测</button> ' +
+        '<button class="btn mini" data-act="toggle" data-eid="' + esc(e2.id) + '" data-enabled="' + (e2.enabled ? '0' : '1') + '">' + (e2.enabled ? '停用' : '启用') + '</button> ' +
+        '<button class="btn mini danger" data-act="del-engine" data-eid="' + esc(e2.id) + '">删除</button>' +
+        '</td></tr>';
+    }).join('');
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="7" class="bad">引擎加载失败：' + esc(e.message) + '</td></tr>';
+  }
 }
 
-async function loadSystem() {
+async function addEngine() {
+  const url = ($('#eUrl').value || '').trim();
+  if (!url) { toast('请先填写引擎地址', true); return; }
   try {
-    const [st, dg, set, bk] = await Promise.all([
-      api('/storage'), api('/diagnostics'), api('/settings'), api('/backups')
-    ]);
-    $('#storage').textContent = JSON.stringify(st, null, 2);
-    $('#diag').textContent = JSON.stringify(dg, null, 2);
-    const s = (set && set.settings) || {};
-    $('#sTomb').value = s.tombstone_retention_days || '';
-    $('#sKeep').value = s.attempt_keep || '';
-    $('#sAttDays').value = s.attempt_retention_days || '';
-    $('#sBackup').value = s.backup_keep || '';
-    $('#backups').textContent = '备份：' + ((bk.backups || []).map(x => x.name).join('、') || '无');
-  } catch (e) { toast(e.message, true); }
-}
-
-$('#btnRefresh').onclick = () => switchTab(state.tab);
-$('#btnToken').onclick = () => {
-  const t = prompt('设备令牌', state.token);
-  if (t != null) { state.token = t.trim(); localStorage.setItem('voxnote.v2.token', state.token); boot(); }
-};
-$('#q').oninput = loadRecords;
-document.querySelectorAll('nav button').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
-$('#btnAddEngine').onclick = async () => {
-  try {
-    await api('/engines', { method: 'POST', body: {
-      name: $('#eName').value || '新引擎', url: $('#eUrl').value,
-      model: $('#eModel').value, token: $('#eToken').value
-    }});
-    $('#eName').value = $('#eUrl').value = $('#eModel').value = $('#eToken').value = '';
+    await api('/engines', {
+      method: 'POST',
+      body: {
+        name: ($('#eName').value || '').trim() || '新引擎',
+        url: url,
+        model: ($('#eModel').value || '').trim(),
+        token: ($('#eToken').value || '').trim(),
+        quality_tier: Number($('#eTier').value) || 3
+      }
+    });
+    markMutation();
+    $('#eName').value = ''; $('#eUrl').value = ''; $('#eModel').value = ''; $('#eToken').value = '';
+    toast('引擎已添加');
     loadEngines();
-  } catch (e) { toast(e.message, true); }
-};
-$('#btnBackup').onclick = async () => {
-  try { const r = await api('/backups', { method: 'POST' }); toast('已备份：' + r.name); loadSystem(); }
-  catch (e) { toast(e.message, true); }
-};
-$('#btnCleanup').onclick = async () => {
-  try {
-    const p = await api('/cleanup', { method: 'POST', body: { dry_run: true } });
-    if (!confirm('墓碑 ' + p.tombstones + ' 条、旧尝试 ' + p.attempts + ' 条，可释放 '
-      + Math.round(p.bytes / 1024) + ' KB。确认删除？')) return;
-    await api('/cleanup', { method: 'POST', body: { dry_run: false } });
-    toast('已清理'); loadSystem();
-  } catch (e) { toast(e.message, true); }
-};
-$('#btnSaveSettings').onclick = async () => {
-  try {
-    await api('/settings', { method: 'PATCH', body: {
-      tombstone_retention_days: $('#sTomb').value,
-      attempt_keep: $('#sKeep').value,
-      attempt_retention_days: $('#sAttDays').value,
-      backup_keep: $('#sBackup').value
-    }});
-    toast('已保存'); loadSystem();
-  } catch (e) { toast(e.message, true); }
-};
-
-function fmtMs(ms) {
-  ms = Math.max(0, ms | 0);
-  const s = Math.floor(ms / 1000), m = Math.floor(s / 60);
-  return String(m).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
-}
-function startEvents() {
-  if (!state.token) return;
-  try {
-    const es = new EventSource('/api/v2/events?token=' + encodeURIComponent(state.token));
-    es.addEventListener('change', () => {
-      if (state.tab === 'records' && !state.detailId) loadRecords();
-      if (state.tab === 'conflicts') loadConflicts();
-    });
-    es.onerror = () => { es.close(); setTimeout(startEvents, 5000); };
   } catch (e) { }
 }
 
-boot().then(startEvents);
-// 兜底轮询（SSE 断开/被代理缓冲时仍能更新）
-setInterval(() => { if (state.tab === 'records' && !state.detailId) loadRecords(); }, 15000);
+async function toggleEngine(eid, enable) {
+  try {
+    await api('/engines/' + enc(eid), { method: 'PATCH', body: { enabled: enable } });
+    markMutation();
+    toast(enable ? '已启用引擎' : '已停用引擎');
+    loadEngines();
+  } catch (e) { }
+}
+
+async function deleteEngine(eid) {
+  const ok = await confirmDialog('删除这个引擎？', '删除后不会再用于转写；已有的转写尝试不受影响。', '删除', true);
+  if (!ok) return;
+  try {
+    await api('/engines/' + enc(eid), { method: 'DELETE' });
+    markMutation();
+    toast('引擎已删除');
+    loadEngines();
+  } catch (e) { }
+}
+
+async function probeEngine(eid, btn) {
+  const box = document.getElementById('probe-' + eid);
+  if (btn) btn.disabled = true;
+  if (box) { box.className = 'sub muted'; box.textContent = '探测中…'; }
+  try {
+    const r = await api('/engines/' + enc(eid) + '/probe');
+    if (box) {
+      box.className = 'sub ' + (r && r.ready ? 'ok' : 'bad');
+      box.textContent = r && r.ready
+        ? '就绪' + (r.latency_ms != null ? ' · ' + r.latency_ms + 'ms' : '')
+        : '不可用：' + ((r && (r.detail || r.error)) || '未知原因');
+    }
+  } catch (e) {
+    if (box) { box.className = 'sub bad'; box.textContent = '探测失败'; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function onEngineClick(e) {
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  const act = btn.dataset.act, eid = btn.dataset.eid;
+  if (act === 'probe') probeEngine(eid, btn);
+  else if (act === 'toggle') toggleEngine(eid, btn.dataset.enabled === '1');
+  else if (act === 'del-engine') deleteEngine(eid);
+}
+
+/* ───────────────────────── 设置与设备 ───────────────────────── */
+async function loadSettingsPage() {
+  renderPair();
+  loadRetention();
+  loadDevices();
+}
+
+async function loadRetention() {
+  try {
+    const d = await api('/settings');
+    const s = (d && d.settings) || {};
+    if ($('#sTomb')) $('#sTomb').value = s.tombstone_retention_days != null ? s.tombstone_retention_days : '';
+    if ($('#sKeep')) $('#sKeep').value = s.attempt_keep != null ? s.attempt_keep : '';
+    if ($('#sAttDays')) $('#sAttDays').value = s.attempt_retention_days != null ? s.attempt_retention_days : '';
+    if ($('#sBackup')) $('#sBackup').value = s.backup_keep != null ? s.backup_keep : '';
+  } catch (e) { }
+}
+
+async function saveRetention() {
+  try {
+    await api('/settings', {
+      method: 'PATCH',
+      body: {
+        tombstone_retention_days: $('#sTomb').value,
+        attempt_keep: $('#sKeep').value,
+        attempt_retention_days: $('#sAttDays').value,
+        backup_keep: $('#sBackup').value
+      }
+    });
+    markMutation();
+    toast('保留策略已保存');
+    loadRetention();
+  } catch (e) { }
+}
+
+async function loadDevices() {
+  const body = $('#devBody');
+  body.innerHTML = '<tr><td colspan="6" class="muted">正在加载设备…</td></tr>';
+  try {
+    const d = await api('/devices');
+    const list = (d && d.devices) || [];
+    if (!list.length) {
+      body.innerHTML = '<tr><td colspan="6" class="muted">还没有配对设备。手机端用上面的地址和令牌配对后会出现。</td></tr>';
+      return;
+    }
+    body.innerHTML = list.map(function (x) {
+      return '<tr>' +
+        '<td><b>' + esc(x.name || x.id) + '</b><div class="sub">' + esc(x.id) + '</div></td>' +
+        '<td>' + esc(x.kind || '—') + '</td>' +
+        '<td>' + esc(x.app_version || '—') + '</td>' +
+        '<td class="muted">' + fmtTime(x.last_seen_at) + '</td>' +
+        '<td>' + (x.status === 'active' ? '<span class="ok">活跃</span>' : '<span class="muted">' + esc(x.status || '未知') + '</span>') + '</td>' +
+        '<td class="muted">' + fmtTime(x.created_at) + '</td></tr>';
+    }).join('');
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="6" class="bad">设备加载失败：' + esc(e.message) + '</td></tr>';
+  }
+}
+
+async function resetToken() {
+  const ok = await confirmDialog(
+    '重置设备令牌？',
+    '重置后旧令牌立即失效，已经配对的手机需要重新扫码配对；控制台会自动换用新令牌。\n\n确认重置？',
+    '重置令牌', true);
+  if (!ok) return;
+  try {
+    const r = await api('/tokens/reset', { method: 'POST' });
+    state.token = (r && r.token) || '';
+    if (state.token) localStorage.setItem('voxnote.v2.token', state.token);
+    renderPair();
+    const box = $('#newTokenBox');
+    const val = $('#newTokenVal');
+    if (box) box.style.display = 'flex';
+    if (val) val.textContent = state.token;
+    startEvents(true);
+    markMutation();
+    toast('已重置令牌，请让手机重新配对');
+    loadDevices();
+  } catch (e) { }
+}
+
+/* ───────────────────────── 存储与诊断 ───────────────────────── */
+async function loadSystem() {
+  const st = $('#storage'), dg = $('#diag'), bk = $('#backups');
+  st.textContent = '加载中…';
+  dg.textContent = '加载中…';
+  bk.textContent = '';
+  try {
+    const s = await api('/storage');
+    st.textContent = JSON.stringify(s, null, 2);
+  } catch (e) {
+    st.textContent = '加载失败：' + e.message;
+  }
+  try {
+    const d = await api('/diagnostics');
+    dg.textContent = JSON.stringify(d, null, 2);
+  } catch (e) {
+    dg.textContent = '加载失败：' + e.message;
+  }
+  try {
+    const d = await api('/backups');
+    const list = (d && d.backups) || [];
+    bk.innerHTML = list.length
+      ? list.map(function (b) {
+        return '<div class="rec-mini" style="cursor:default">' + esc(b.name) +
+          ' <span class="muted">' + fmtBytes(b.bytes) + ' · ' + fmtTime(b.created_at) + '</span></div>';
+      }).join('')
+      : '<div class="muted">还没有备份</div>';
+  } catch (e) {
+    bk.textContent = '备份列表加载失败：' + e.message;
+  }
+}
+
+async function doBackup() {
+  try {
+    const r = await api('/backups', { method: 'POST' });
+    markMutation();
+    toast('已备份' + (r && r.name ? '：' + r.name : ''));
+    loadSystem();
+  } catch (e) { }
+}
+
+async function doCleanup() {
+  try {
+    const p = await api('/cleanup', { method: 'POST', body: { dry_run: true } });
+    const ok = await confirmDialog(
+      '清理确认',
+      '墓碑 ' + (p.tombstones || 0) + ' 条、旧尝试 ' + (p.attempts || 0) + ' 条，可释放 ' + fmtBytes(p.bytes || 0) + '。\n清理会真正删除这些数据和文件，确认继续？',
+      '清理', true);
+    if (!ok) return;
+    await api('/cleanup', { method: 'POST', body: { dry_run: false } });
+    markMutation();
+    toast('已清理');
+    loadSystem();
+  } catch (e) { }
+}
+
+/* ───────────────────────── 事件绑定与启动 ───────────────────────── */
+function init() {
+  $$('#nav .navi').forEach(function (b) { b.onclick = function () { switchPage(b.dataset.page); }; });
+  $('#btnRefresh').onclick = function () { refreshPage(); };
+  $('#btnToken').onclick = changeToken;
+  $('#dBack').onclick = function () {
+    state.detailId = null;
+    state.detail = null;
+    switchPage('records');
+  };
+
+  // 记录库筛选
+  $('#recQ').oninput = function () {
+    clearTimeout(qTimer);
+    qTimer = setTimeout(loadRecords, 250);
+  };
+  ['recStatus', 'recCat', 'recAudio', 'recDeleted'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.onchange = loadRecords;
+  });
+  $('#recReset').onclick = function () {
+    $('#recQ').value = '';
+    $('#recStatus').value = '';
+    $('#recCat').value = '';
+    $('#recAudio').checked = false;
+    $('#recDeleted').checked = false;
+    loadRecords();
+  };
+
+  // 任务页
+  $('#jobState').onchange = function () {
+    state.jobStateFilter = $('#jobState').value;
+    loadJobs();
+  };
+  $('#jobRefresh').onclick = loadJobs;
+  $('#jobBody').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-act]');
+    if (b) { jobAction(b.dataset.job, b.dataset.act); return; }
+    const a = e.target.closest('[data-rec]');
+    if (a && a.dataset.rec) openDetail(a.dataset.rec);
+  });
+
+  // 工作台最近列表
+  ['recentJobs', 'recentRecords'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', function (e) {
+      const a = e.target.closest('[data-rec]');
+      if (a && a.dataset.rec) openDetail(a.dataset.rec);
+    });
+  });
+
+  // 详情页（事件委托，内容会重绘）
+  const db = $('#detailBody');
+  db.addEventListener('click', onDetailClick);
+  db.addEventListener('focusout', onDetailFocusOut);
+
+  // 引擎
+  $('#btnAddEngine').onclick = addEngine;
+  $('#engBody').addEventListener('click', onEngineClick);
+
+  // 设置与设备
+  $('#btnResetToken').onclick = resetToken;
+  $('#btnCopyToken').onclick = copyToken;
+  $('#btnSaveSettings').onclick = saveRetention;
+
+  // 存储与诊断
+  $('#btnBackup').onclick = doBackup;
+  $('#btnCleanup').onclick = doCleanup;
+}
+
+async function boot() {
+  renderPair();
+  init();
+  if (!state.token) {
+    try {
+      const r = await fetch('/api/v2/console/pair');
+      if (r.ok) {
+        const j = await r.json();
+        if (j && j.token) {
+          state.token = j.token;
+          localStorage.setItem('voxnote.v2.token', state.token);
+        }
+      }
+    } catch (e) { }
+  }
+  if (!state.token) {
+    const t = await promptDialog('输入设备令牌', '本机打开时控制台会自动取令牌；远程访问需要手动填服务端 settings.sync_token。', '', 2);
+    if (t && String(t).trim()) {
+      state.token = String(t).trim();
+      localStorage.setItem('voxnote.v2.token', state.token);
+    }
+  }
+  renderPair();
+  if (!state.token) {
+    // 没有令牌时不再发一堆注定 401 的请求，直接把提示放在工作台。
+    setConn('未设置令牌 · 点右上角「更换令牌」', 'bad');
+    switchPage('home', true);
+    $('#homeStats').innerHTML = '<div class="card bad">未设置设备令牌：点右上角「更换令牌」，或从本机打开控制台自动获取。</div>';
+    $('#recentJobs').innerHTML = '';
+    $('#recentRecords').innerHTML = '';
+    return;
+  }
+  switchPage('home');
+  startEvents(true);
+}
+
+boot();
 </script>
 </body>
 </html>
