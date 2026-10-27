@@ -10,7 +10,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-from . import config, db, store
+from . import config, db, jobs, store
 
 DEFAULTS = {
     "tombstone_retention_days": "90",
@@ -183,6 +183,52 @@ def cleanup(conn, dry_run: bool = True) -> dict:
         "tombstones": len(tombstones),
         "attempts": len(attempts),
         "bytes": bytes_freed,
+    }
+
+
+def stats(conn) -> dict:
+    """控制台工作台统计（见控制台补充接口 §1）。
+
+    口径（契约未细化的部分在此说明）：
+      - records / records_today / audio_bytes / audio_hours 只算未删除记录；
+      - records_today 按 recorded_at（录制时间）落在本地当天；
+      - last_sync_at 优先取设备最近上报时间，其次取最近一条 change 的时间。
+    """
+    lt = time.localtime()
+    today0 = int(time.mktime(
+        (lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1)) * 1000)
+    with db.lock:
+        rec = conn.execute(
+            "SELECT COUNT(*) n,"
+            " COALESCE(SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END),0) d"
+            " FROM records").fetchone()
+        today = conn.execute(
+            "SELECT COUNT(*) n FROM records"
+            " WHERE deleted_at IS NULL AND recorded_at>=?", (today0,)).fetchone()["n"]
+        visible = conn.execute(
+            "SELECT COALESCE(SUM(bytes),0) b, COALESCE(SUM(dur_ms),0) ms"
+            " FROM records WHERE deleted_at IS NULL").fetchone()
+        edited = conn.execute(
+            "SELECT COUNT(DISTINCT record_id) n FROM edits").fetchone()["n"]
+        attempts = conn.execute(
+            "SELECT COUNT(*) n FROM transcript_attempts").fetchone()["n"]
+        devices = conn.execute("SELECT COUNT(*) n FROM devices").fetchone()["n"]
+        last_sync = conn.execute(
+            "SELECT MAX(last_seen_at) m FROM devices").fetchone()["m"]
+        if last_sync is None:
+            last_sync = conn.execute(
+                "SELECT MAX(created_at) m FROM changes").fetchone()["m"]
+    return {
+        "records": int(rec["n"]) - int(rec["d"]),
+        "records_today": int(today),
+        "deleted": int(rec["d"]),
+        "audio_bytes": int(visible["b"]),
+        "audio_hours": round(int(visible["ms"]) / 3600000.0, 1),
+        "jobs": jobs.counts(conn),
+        "edited_records": int(edited),
+        "attempts": int(attempts),
+        "devices": int(devices),
+        "last_sync_at": int(last_sync or 0),
     }
 
 

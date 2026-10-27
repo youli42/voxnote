@@ -16,11 +16,31 @@ from fastapi import (
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 
 from . import (
-    attempts, auth, config, conflicts, db, edits, engines, export, jobs,
+    attempts, auth, config, conflicts, db, devices, edits, engines, export, jobs,
     maintenance, manifest, ops, service, store, uploads,
 )
 
 router = APIRouter()
+
+# 记录状态筛选白名单（控制台补充接口 §7）
+RECORD_STATUSES = {"uploaded", "queued", "transcribing", "done", "failed"}
+# PATCH /records/{id} 允许的字段（控制台补充接口 §3）
+RECORD_PATCHABLE = {"title", "cat", "marks"}
+
+
+def _marks_json(value):
+    """marks 归一化：数组或 JSON 数组字符串 → 存储用的 JSON 字符串。"""
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            raise HTTPException(400, "marks 必须是 JSON 数组或数组字符串")
+        if not isinstance(parsed, list):
+            raise HTTPException(400, "marks 必须是 JSON 数组或数组字符串")
+        return json.dumps(parsed, ensure_ascii=False)
+    raise HTTPException(400, "marks 必须是 JSON 数组或数组字符串")
 
 
 @router.get("/health")
@@ -34,6 +54,12 @@ def health():
         "db": config.db_path(),
         "records": count,
     }
+
+
+@router.get("/stats", dependencies=[Depends(auth.require_device)])
+def stats():
+    """控制台工作台统计（控制台补充接口 §1）。"""
+    return maintenance.stats(db.conn())
 
 
 @router.get("/console/pair")
@@ -100,9 +126,18 @@ def records(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     include_deleted: bool = Query(False),
+    q: str = Query(""),
+    status: str = Query(""),
+    cat: str = Query(""),
+    has_audio: bool = Query(False),
 ):
+    """记录列表；筛选扩展见控制台补充接口 §7（返回结构不变）。"""
+    status_filter = (status or "").strip().lower()
+    if status_filter and status_filter not in RECORD_STATUSES:
+        raise HTTPException(400, "无效的状态筛选：%s" % status)
     return {"records": service.list_records(
-        db.conn(), limit=limit, offset=offset, include_deleted=include_deleted)}
+        db.conn(), limit=limit, offset=offset, include_deleted=include_deleted,
+        q=q, status=status_filter, cat=cat, has_audio=has_audio)}
 
 
 @router.get("/records/{record_id}", dependencies=[Depends(auth.require_device)])
@@ -113,11 +148,84 @@ def record(record_id: str):
     return service.record_summary(row)
 
 
+@router.patch("/records/{record_id}", dependencies=[Depends(auth.require_device)])
+def patch_record(record_id: str, payload: dict = Body(...)):
+    """控制台记录编辑：title / cat / marks 任意组合（控制台补充接口 §3）。"""
+    unknown = set(payload) - RECORD_PATCHABLE
+    if unknown:
+        raise HTTPException(400, "不允许修改字段：%s" % "、".join(sorted(unknown)))
+
+    fields = {}
+    if "title" in payload:
+        if not isinstance(payload["title"], str):
+            raise HTTPException(400, "title 必须是字符串")
+        fields["title"] = payload["title"]
+    if "cat" in payload:
+        cat = payload["cat"]
+        if cat is not None and not isinstance(cat, str):
+            raise HTTPException(400, "cat 必须是字符串或 null")
+        fields["cat"] = cat
+    if "marks" in payload:
+        fields["marks"] = _marks_json(payload["marks"])
+
+    conn = db.conn()
+    if service.get_record(conn, record_id) is None:
+        raise HTTPException(404, "记录不存在")
+    try:
+        rec = service.update_record(conn, record_id, fields)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if rec is None:
+        raise HTTPException(404, "记录不存在")
+    return {"record": service.record_summary(rec), "rev": rec["rev"]}
+
+
+@router.delete("/records/{record_id}", dependencies=[Depends(auth.require_device)])
+def delete_record(record_id: str):
+    """墓碑删除：只标记 deleted_at 并递增 rev，不删除音频文件。"""
+    rec = service.tombstone_record(db.conn(), record_id)
+    if rec is None:
+        raise HTTPException(404, "记录不存在")
+    return {"ok": True, "rev": rec["rev"]}
+
+
 @router.get("/records/{record_id}/attempts", dependencies=[Depends(auth.require_device)])
 def record_attempts(record_id: str):
     if service.get_record(db.conn(), record_id) is None:
         raise HTTPException(404, "记录不存在")
     return {"attempts": attempts.list_for_record(db.conn(), record_id)}
+
+
+@router.get("/records/{record_id}/attempts/{attempt_id}",
+            dependencies=[Depends(auth.require_device)])
+def record_attempt_detail(record_id: str, attempt_id: str):
+    """单次尝试详情：attempt + segments + is_active（控制台补充接口 §5）。"""
+    if service.get_record(db.conn(), record_id) is None:
+        raise HTTPException(404, "记录不存在")
+    out = attempts.get_for_record(db.conn(), record_id, attempt_id)
+    if out is None:
+        raise HTTPException(404, "尝试不存在")
+    return out
+
+
+@router.get("/records/{record_id}/diff", dependencies=[Depends(auth.require_device)])
+def record_diff(record_id: str,
+                from_attempt: str = Query("", alias="from"),
+                to_attempt: str = Query("", alias="to")):
+    """两次尝试逐句对比；缺边对应 text 为空（控制台补充接口 §5）。"""
+    conn = db.conn()
+    rec = service.get_record(conn, record_id)
+    if rec is None:
+        raise HTTPException(404, "记录不存在")
+    active = rec.get("active_attempt_id") or ""
+    from_id = (from_attempt or "").strip() or active
+    to_id = (to_attempt or "").strip() or active
+    if not from_id or not to_id:
+        raise HTTPException(400, "缺少 from/to 参数，且记录没有生效尝试")
+    out = attempts.diff(conn, record_id, from_id, to_id)
+    if out is None:
+        raise HTTPException(404, "尝试不存在")
+    return out
 
 
 @router.post("/records/{record_id}/attempts", dependencies=[Depends(auth.require_device)])
@@ -155,6 +263,17 @@ def create_edit(record_id: str, payload: dict = Body(...)):
     if out is None:
         raise HTTPException(404, "记录不存在")
     return out
+
+
+@router.delete("/records/{record_id}/edits/{edit_id}",
+               dependencies=[Depends(auth.require_device)])
+def delete_edit(record_id: str, edit_id: str):
+    """删除某条修订（恢复机器原文），返回 {"ok": true}。"""
+    if service.get_record(db.conn(), record_id) is None:
+        raise HTTPException(404, "记录不存在")
+    if not edits.delete(db.conn(), record_id, edit_id):
+        raise HTTPException(404, "修订不存在")
+    return {"ok": True}
 
 
 @router.get("/records/{record_id}/audio", dependencies=[Depends(auth.require_device)])
@@ -257,6 +376,16 @@ def transcribe_record(record_id: str, payload: dict = Body(default={})):
     return {"job_id": job_id, "state": "queued", "engine": engines.public(engine)}
 
 
+@router.get("/jobs", dependencies=[Depends(auth.require_device)])
+def job_list(state: str = Query("all"), limit: int = Query(50, ge=1, le=500)):
+    """任务队列（控制台补充接口 §2）：state=all|queued|running|failed|done。"""
+    try:
+        items = jobs.list_jobs(db.conn(), state=state, limit=limit)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"jobs": items, "counts": jobs.counts(db.conn())}
+
+
 @router.get("/jobs/{job_id}", dependencies=[Depends(auth.require_device)])
 def job_detail(job_id: int):
     j = jobs.get(db.conn(), job_id)
@@ -265,9 +394,45 @@ def job_detail(job_id: int):
     return j
 
 
+@router.post("/jobs/{job_id}/retry", dependencies=[Depends(auth.require_device)])
+def job_retry(job_id: int):
+    """重试：新建一条 queued 任务（不复活原任务），记录状态置 queued。"""
+    try:
+        new_id = jobs.retry(db.conn(), job_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if new_id is None:
+        raise HTTPException(404, "任务不存在")
+    return {"job_id": new_id}
+
+
+@router.post("/jobs/{job_id}/cancel", dependencies=[Depends(auth.require_device)])
+def job_cancel(job_id: int):
+    """取消：queued → canceled；running → cancel_requested=1。"""
+    try:
+        state = jobs.cancel(db.conn(), job_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if state is None:
+        raise HTTPException(404, "任务不存在")
+    return {"ok": True, "state": state}
+
+
 @router.get("/records/{record_id}/jobs", dependencies=[Depends(auth.require_device)])
 def record_jobs(record_id: str, limit: int = Query(20, ge=1, le=100)):
     return {"jobs": jobs.for_record(db.conn(), record_id, limit)}
+
+
+@router.get("/devices", dependencies=[Depends(auth.require_device)])
+def device_list():
+    """设备列表：读 devices 表，空表返回空数组（控制台补充接口 §6）。"""
+    return {"devices": devices.list_all(db.conn())}
+
+
+@router.post("/tokens/reset", dependencies=[Depends(auth.require_device)])
+def reset_token():
+    """重置设备令牌：返回新令牌，旧令牌立即失效（手机需重新配对）。"""
+    return {"token": devices.reset_token(db.conn())}
 
 
 @router.get("/settings", dependencies=[Depends(auth.require_device)])

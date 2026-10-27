@@ -115,3 +115,21 @@ def transcript(conn, record_id: str):
     base["segments"] = apply(base["segments"], edits)
     base["edits"] = edits
     return base
+
+
+def delete(conn, record_id: str, edit_id: str) -> bool:
+    """删除一条修订（恢复机器原文）；返回是否删到。
+
+    删除后重新套用剩余修订，修订历史本身仍受 changes 流约束（追加一条 edit change），
+    但不再保留被删修订的内容。
+    """
+    with db.lock:
+        row = conn.execute(
+            "SELECT id FROM edits WHERE id=? AND record_id=?",
+            (edit_id, record_id)).fetchone()
+        if row is None:
+            return False
+        with conn:
+            service.append_change(conn, "edit", edit_id)
+            conn.execute("DELETE FROM edits WHERE id=?", (edit_id,))
+    return True

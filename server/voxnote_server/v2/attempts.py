@@ -165,3 +165,79 @@ def transcript(conn, record_id: str):
             "attempt": att,
             "segments": att["segments"] if att else [],
         }
+
+
+def get_for_record(conn, record_id: str, attempt_id: str):
+    """尝试详情（控制台补充接口 §5）：只暴露契约字段 + segments + is_active。"""
+    with db.lock:
+        row = conn.execute(
+            "SELECT * FROM transcript_attempts WHERE id=? AND record_id=?",
+            (attempt_id, record_id)).fetchone()
+        if row is None:
+            return None
+        rec = conn.execute(
+            "SELECT active_attempt_id FROM records WHERE id=?",
+            (record_id,)).fetchone()
+    r = dict(row)
+    return {
+        "attempt": {
+            "id": r["id"],
+            "engine": r["engine"],
+            "model": r["model"],
+            "quality_tier": r["quality_tier"],
+            "duration_ms": r["duration_ms"],
+            "created_at": r["created_at"],
+        },
+        "segments": segments(conn, attempt_id),
+        "is_active": bool(rec and rec["active_attempt_id"] == attempt_id),
+    }
+
+
+# diff 的 change 取值（按 idx 对齐，缺边时对应 text 为空）
+CHANGE_SAME = "same"
+CHANGE_CHANGED = "changed"
+CHANGE_ADDED = "added"
+CHANGE_REMOVED = "removed"
+
+
+def diff(conn, record_id: str, from_id: str, to_id: str):
+    """两次尝试逐句对比；尝试不存在/不属于该记录返回 None。"""
+    with db.lock:
+        rec = service.get_record(conn, record_id)
+        if rec is None:
+            return None
+        for aid in (from_id, to_id):
+            found = conn.execute(
+                "SELECT 1 FROM transcript_attempts WHERE id=? AND record_id=?",
+                (aid, record_id)).fetchone()
+            if found is None:
+                return None
+        from_segs = {int(r["idx"]): dict(r) for r in conn.execute(
+            "SELECT idx, t_ms, e_ms, text FROM attempt_segments"
+            " WHERE attempt_id=?", (from_id,)).fetchall()}
+        to_segs = {int(r["idx"]): dict(r) for r in conn.execute(
+            "SELECT idx, t_ms, e_ms, text FROM attempt_segments"
+            " WHERE attempt_id=?", (to_id,)).fetchall()}
+        active = rec.get("active_attempt_id")
+
+    segments_out = []
+    for idx in sorted(set(from_segs) | set(to_segs)):
+        f = from_segs.get(idx)
+        t = to_segs.get(idx)
+        if f is not None and t is not None:
+            change = CHANGE_SAME if (f["text"] or "") == (t["text"] or "") else CHANGE_CHANGED
+            base = f
+        elif f is not None:
+            change, base = CHANGE_REMOVED, f
+        else:
+            change, base = CHANGE_ADDED, t
+        segments_out.append({
+            "idx": idx,
+            "t_ms": int(base["t_ms"] or 0),
+            "e_ms": int(base["e_ms"] or 0),
+            "from_text": (f["text"] if f is not None else "") or "",
+            "to_text": (t["text"] if t is not None else "") or "",
+            "change": change,
+        })
+    return {"from": from_id, "to": to_id, "active": active,
+            "segments": segments_out}

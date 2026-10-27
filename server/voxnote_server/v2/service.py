@@ -133,17 +133,50 @@ def tombstone_record(conn, record_id: str):
         return get_record(conn, record_id)
 
 
+def _escape_like(text: str) -> str:
+    """转义 LIKE 通配符，标题里的 % / _ 按普通字符匹配。"""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def list_records(conn, limit: int = 50, offset: int = 0,
-                 include_deleted: bool = False) -> list:
+                 include_deleted: bool = False, q: str = "",
+                 status: str = "", cat: str = "", has_audio: bool = False) -> list:
+    """记录列表；筛选参数都可选、组合生效（见控制台补充接口 §7）。
+
+    - q：标题或 id 模糊匹配；
+    - status：精确匹配记录状态；
+    - cat：分类值，`__none__` 表示未分类（NULL 或空串）；
+    - has_audio：只看有音频文件的记录。
+    """
     limit = max(1, min(int(limit), 500))
     offset = max(0, int(offset))
-    where = "" if include_deleted else " WHERE deleted_at IS NULL"
+    where, args = [], []
+    if not include_deleted:
+        where.append("deleted_at IS NULL")
+    q = str(q or "").strip()
+    if q:
+        pattern = "%" + _escape_like(q) + "%"
+        where.append("(title LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')")
+        args += [pattern, pattern]
+    status = str(status or "").strip()
+    if status:
+        where.append("status=?")
+        args.append(status)
+    cat = "" if cat is None else str(cat)
+    if cat == "__none__":
+        where.append("(cat IS NULL OR cat='')")
+    elif cat:
+        where.append("cat=?")
+        args.append(cat)
+    if has_audio:
+        where.append("audio_path IS NOT NULL AND audio_path<>''")
+
+    sql = "SELECT * FROM records"
+    if where:
+        sql += " WHERE " + " AND ".join("(%s)" % w for w in where)
+    sql += " ORDER BY recorded_at DESC, id DESC LIMIT ? OFFSET ?"
     with _db.lock:
-        rows = conn.execute(
-            "SELECT * FROM records" + where +
-            " ORDER BY recorded_at DESC, id DESC LIMIT ? OFFSET ?",
-            (limit, offset),
-        ).fetchall()
+        rows = conn.execute(sql, args + [limit, offset]).fetchall()
     return [record_summary(r) for r in rows]
 
 
